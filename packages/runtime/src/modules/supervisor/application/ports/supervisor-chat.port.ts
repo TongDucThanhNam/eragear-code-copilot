@@ -79,6 +79,7 @@ export interface SupervisorProjectIntelligenceSnapshot {
 }
 
 export interface SupervisorChatSnapshot {
+  userId: string;
   chatId: string;
   projectId?: string;
   projectRoot: string;
@@ -94,7 +95,7 @@ export interface SupervisorChatSnapshot {
 export interface SupervisorChatResponse {
   content: string;
   model: string;
-  provider: "minimax" | "timeout";
+  provider: "acp" | "minimax" | "timeout";
 }
 
 export interface SupervisorChatPort {

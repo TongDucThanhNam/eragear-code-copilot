@@ -207,6 +207,18 @@ export function createSupervisorOrchestrationE2eHarness() {
       },
     });
   }
+  async function approveDraft(draft: SupervisorRunState) {
+    if (!draft.plan) {
+      throw new Error("Expected an e2e plan proposal");
+    }
+    return await orchestrator.approvePlan({
+      runId: draft.runId,
+      userId: draft.userId,
+      planVersion: draft.plan.version,
+      planHash: draft.plan.hash,
+      expectedRevision: draft.revision,
+    });
+  }
   return {
     orchestrator,
     runs,
@@ -216,6 +228,7 @@ export function createSupervisorOrchestrationE2eHarness() {
     prompts,
     activeRoots,
     disposedRoots,
+    approveDraft,
     recordSuccess,
   };
 }

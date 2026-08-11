@@ -80,8 +80,9 @@ export function resetSqliteOrmCache(): void {
 
 export async function closeSqliteStorage(): Promise<void> {
   await stopSqliteWorker();
-  await closeSqliteDb();
   resetSqliteOrmCache();
+  globalThis.Bun.gc(true);
+  await closeSqliteDb();
 }
 
 export { sqliteSchema };

@@ -12,19 +12,16 @@ import {
   Github,
   Info,
   LogOut,
-  Maximize2,
-  Minimize2,
-  Minus,
   PanelRightClose,
   PanelRightOpen,
   Play,
   RefreshCw,
   SquareTerminal,
   Terminal,
-  X,
 } from "lucide-react";
-import { type ComponentType, Fragment, memo, useEffect, useState } from "react";
+import { type ComponentType, Fragment, memo } from "react";
 import { toast } from "sonner";
+import { ElectronWindowControls } from "@/components/layout/electron-window-controls";
 import { useRightSidebarControls } from "@/components/layout/three-pane-layout";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,13 +37,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type {
-  DesktopWindowState,
-  ExternalProjectAppTarget,
-} from "@/lib/desktop-bootstrap";
+import type { ExternalProjectAppTarget } from "@/lib/desktop-bootstrap";
 import { cn } from "@/lib/utils";
 import { SidebarTrigger } from "../ui/sidebar";
+import { BranchToolbar } from "./branch-toolbar";
 import type { ChatDisplayConnectionStatus } from "./chat-connection-display";
+import { GitActionsControl } from "./git-actions-control";
 
 export interface ChatHeaderAgentDisplay {
   name: string;
@@ -59,6 +55,8 @@ export interface ChatHeaderProps {
   chatTitle?: string | null;
   projectName?: string | null;
   projectPath?: string | null;
+  projectId?: string | null;
+  chatId?: string | null;
   connStatus: ChatDisplayConnectionStatus;
   onStopChat: () => void;
   onResumeChat?: () => void;
@@ -85,13 +83,6 @@ const getConnectionTone = (connStatus: ChatHeaderProps["connStatus"]) => {
     default:
       return "bg-muted-foreground";
   }
-};
-
-const getDesktopWindowControls = () => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  return window.eragearDesktop?.windowControls ?? null;
 };
 
 const getDesktopProjectExternalOpener = () => {
@@ -185,119 +176,13 @@ function ProjectOpenMenu({
   );
 }
 
-const ElectronWindowControls = memo(function ElectronWindowControls() {
-  const controls = getDesktopWindowControls();
-  const [windowState, setWindowState] = useState<DesktopWindowState | null>(
-    null
-  );
-
-  useEffect(() => {
-    const bridge = getDesktopWindowControls();
-    if (!bridge) {
-      return;
-    }
-
-    let mounted = true;
-    void bridge
-      .getState()
-      .then((nextState) => {
-        if (mounted && nextState) {
-          setWindowState(nextState);
-        }
-      })
-      .catch((error) => {
-        console.warn("[desktop] Failed to read window state", error);
-      });
-
-    const unsubscribe = bridge.onStateChange((nextState) => {
-      setWindowState(nextState);
-    });
-
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
-  }, []);
-
-  if (!controls) {
-    return null;
-  }
-
-  const isMaximized = windowState?.isMaximized ?? false;
-  const MaximizeIcon = isMaximized ? Minimize2 : Maximize2;
-  const maximizeLabel = isMaximized ? "Restore window" : "Maximize window";
-
-  return (
-    <div
-      className="-mr-3 flex h-12 shrink-0 items-center border-l"
-      data-eragear-window-no-drag="true"
-    >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            aria-label="Minimize window"
-            className="h-12 w-10 rounded-none text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => {
-              void controls.minimize();
-            }}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <Minus className="size-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Minimize window</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            aria-label={maximizeLabel}
-            className="h-12 w-10 rounded-none text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => {
-              void controls.toggleMaximize().then((nextState) => {
-                if (nextState) {
-                  setWindowState(nextState);
-                }
-              });
-            }}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <MaximizeIcon className="size-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{maximizeLabel}</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            aria-label="Close window"
-            className="h-12 w-10 rounded-none text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => {
-              void controls.close();
-            }}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <X className="size-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Close window</TooltipContent>
-      </Tooltip>
-    </div>
-  );
-});
-
 export const ChatHeader = memo(function ChatHeader({
   agentDisplay,
   chatTitle,
   projectName,
   projectPath,
+  projectId,
+  chatId,
   connStatus,
   onStopChat,
   onResumeChat,
@@ -351,6 +236,8 @@ export const ChatHeader = memo(function ChatHeader({
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
+        <BranchToolbar chatId={chatId} projectId={projectId} />
+        <GitActionsControl chatId={chatId} projectId={projectId} />
         <div className="hidden h-7 items-center gap-1.5 rounded-md border bg-muted/20 px-2 text-muted-foreground text-xs md:flex">
           <span
             className={cn(

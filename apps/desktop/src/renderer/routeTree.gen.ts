@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as MissionControlRouteImport } from './routes/mission-control'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
@@ -20,12 +21,9 @@ import { Route as SettingsSkillsRouteImport } from './routes/settings.skills'
 import { Route as SettingsRuntimeRouteImport } from './routes/settings.runtime'
 import { Route as SettingsRepoSnapshotsRouteImport } from './routes/settings.repo-snapshots'
 import { Route as SettingsRemoteControlRouteImport } from './routes/settings.remote-control'
+import { Route as SettingsQuotaRouteImport } from './routes/settings.quota'
 import { Route as SettingsPromptEnhancementRouteImport } from './routes/settings.prompt-enhancement'
 import { Route as SettingsPluginsRouteImport } from './routes/settings.plugins'
-import { Route as SettingsPlanRouteImport } from './routes/settings.plan'
-import { Route as SettingsOutputStyleRouteImport } from './routes/settings.output-style'
-import { Route as SettingsOauthRouteImport } from './routes/settings.oauth'
-import { Route as SettingsModelProvidersRouteImport } from './routes/settings.model-providers'
 import { Route as SettingsMemoryRouteImport } from './routes/settings.memory'
 import { Route as SettingsMcpRouteImport } from './routes/settings.mcp'
 import { Route as SettingsHooksRouteImport } from './routes/settings.hooks'
@@ -33,18 +31,21 @@ import { Route as SettingsCredentialsRouteImport } from './routes/settings.crede
 import { Route as SettingsCrashReportingRouteImport } from './routes/settings.crash-reporting'
 import { Route as SettingsConnectionRouteImport } from './routes/settings.connection'
 import { Route as SettingsCommandsRouteImport } from './routes/settings.commands'
-import { Route as SettingsCapabilitiesRouteImport } from './routes/settings.capabilities'
 import { Route as SettingsBotsRouteImport } from './routes/settings.bots'
 import { Route as SettingsAutomationRouteImport } from './routes/settings.automation'
 import { Route as SettingsArchiveRouteImport } from './routes/settings.archive'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as SettingsAgentsRouteImport } from './routes/settings.agents'
 import { Route as SettingsActivityRouteImport } from './routes/settings.activity'
-import { Route as SettingsAcpAuthRouteImport } from './routes/settings.acp-auth'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MissionControlRoute = MissionControlRouteImport.update({
+  id: '/mission-control',
+  path: '/mission-control',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -97,6 +98,11 @@ const SettingsRemoteControlRoute = SettingsRemoteControlRouteImport.update({
   path: '/remote-control',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsQuotaRoute = SettingsQuotaRouteImport.update({
+  id: '/quota',
+  path: '/quota',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsPromptEnhancementRoute =
   SettingsPromptEnhancementRouteImport.update({
     id: '/prompt-enhancement',
@@ -106,26 +112,6 @@ const SettingsPromptEnhancementRoute =
 const SettingsPluginsRoute = SettingsPluginsRouteImport.update({
   id: '/plugins',
   path: '/plugins',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsPlanRoute = SettingsPlanRouteImport.update({
-  id: '/plan',
-  path: '/plan',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsOutputStyleRoute = SettingsOutputStyleRouteImport.update({
-  id: '/output-style',
-  path: '/output-style',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsOauthRoute = SettingsOauthRouteImport.update({
-  id: '/oauth',
-  path: '/oauth',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsModelProvidersRoute = SettingsModelProvidersRouteImport.update({
-  id: '/model-providers',
-  path: '/model-providers',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsMemoryRoute = SettingsMemoryRouteImport.update({
@@ -163,11 +149,6 @@ const SettingsCommandsRoute = SettingsCommandsRouteImport.update({
   path: '/commands',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsCapabilitiesRoute = SettingsCapabilitiesRouteImport.update({
-  id: '/capabilities',
-  path: '/capabilities',
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsBotsRoute = SettingsBotsRouteImport.update({
   id: '/bots',
   path: '/bots',
@@ -198,23 +179,17 @@ const SettingsActivityRoute = SettingsActivityRouteImport.update({
   path: '/activity',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsAcpAuthRoute = SettingsAcpAuthRouteImport.update({
-  id: '/acp-auth',
-  path: '/acp-auth',
-  getParentRoute: () => SettingsRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/mission-control': typeof MissionControlRoute
   '/settings': typeof SettingsRouteWithChildren
-  '/settings/acp-auth': typeof SettingsAcpAuthRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archive': typeof SettingsArchiveRoute
   '/settings/automation': typeof SettingsAutomationRoute
   '/settings/bots': typeof SettingsBotsRoute
-  '/settings/capabilities': typeof SettingsCapabilitiesRoute
   '/settings/commands': typeof SettingsCommandsRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/crash-reporting': typeof SettingsCrashReportingRoute
@@ -222,12 +197,9 @@ export interface FileRoutesByFullPath {
   '/settings/hooks': typeof SettingsHooksRoute
   '/settings/mcp': typeof SettingsMcpRoute
   '/settings/memory': typeof SettingsMemoryRoute
-  '/settings/model-providers': typeof SettingsModelProvidersRoute
-  '/settings/oauth': typeof SettingsOauthRoute
-  '/settings/output-style': typeof SettingsOutputStyleRoute
-  '/settings/plan': typeof SettingsPlanRoute
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/prompt-enhancement': typeof SettingsPromptEnhancementRoute
+  '/settings/quota': typeof SettingsQuotaRoute
   '/settings/remote-control': typeof SettingsRemoteControlRoute
   '/settings/repo-snapshots': typeof SettingsRepoSnapshotsRoute
   '/settings/runtime': typeof SettingsRuntimeRoute
@@ -240,14 +212,13 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/settings/acp-auth': typeof SettingsAcpAuthRoute
+  '/mission-control': typeof MissionControlRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archive': typeof SettingsArchiveRoute
   '/settings/automation': typeof SettingsAutomationRoute
   '/settings/bots': typeof SettingsBotsRoute
-  '/settings/capabilities': typeof SettingsCapabilitiesRoute
   '/settings/commands': typeof SettingsCommandsRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/crash-reporting': typeof SettingsCrashReportingRoute
@@ -255,12 +226,9 @@ export interface FileRoutesByTo {
   '/settings/hooks': typeof SettingsHooksRoute
   '/settings/mcp': typeof SettingsMcpRoute
   '/settings/memory': typeof SettingsMemoryRoute
-  '/settings/model-providers': typeof SettingsModelProvidersRoute
-  '/settings/oauth': typeof SettingsOauthRoute
-  '/settings/output-style': typeof SettingsOutputStyleRoute
-  '/settings/plan': typeof SettingsPlanRoute
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/prompt-enhancement': typeof SettingsPromptEnhancementRoute
+  '/settings/quota': typeof SettingsQuotaRoute
   '/settings/remote-control': typeof SettingsRemoteControlRoute
   '/settings/repo-snapshots': typeof SettingsRepoSnapshotsRoute
   '/settings/runtime': typeof SettingsRuntimeRoute
@@ -274,15 +242,14 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/mission-control': typeof MissionControlRoute
   '/settings': typeof SettingsRouteWithChildren
-  '/settings/acp-auth': typeof SettingsAcpAuthRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archive': typeof SettingsArchiveRoute
   '/settings/automation': typeof SettingsAutomationRoute
   '/settings/bots': typeof SettingsBotsRoute
-  '/settings/capabilities': typeof SettingsCapabilitiesRoute
   '/settings/commands': typeof SettingsCommandsRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/crash-reporting': typeof SettingsCrashReportingRoute
@@ -290,12 +257,9 @@ export interface FileRoutesById {
   '/settings/hooks': typeof SettingsHooksRoute
   '/settings/mcp': typeof SettingsMcpRoute
   '/settings/memory': typeof SettingsMemoryRoute
-  '/settings/model-providers': typeof SettingsModelProvidersRoute
-  '/settings/oauth': typeof SettingsOauthRoute
-  '/settings/output-style': typeof SettingsOutputStyleRoute
-  '/settings/plan': typeof SettingsPlanRoute
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/prompt-enhancement': typeof SettingsPromptEnhancementRoute
+  '/settings/quota': typeof SettingsQuotaRoute
   '/settings/remote-control': typeof SettingsRemoteControlRoute
   '/settings/repo-snapshots': typeof SettingsRepoSnapshotsRoute
   '/settings/runtime': typeof SettingsRuntimeRoute
@@ -310,15 +274,14 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/mission-control'
     | '/settings'
-    | '/settings/acp-auth'
     | '/settings/activity'
     | '/settings/agents'
     | '/settings/appearance'
     | '/settings/archive'
     | '/settings/automation'
     | '/settings/bots'
-    | '/settings/capabilities'
     | '/settings/commands'
     | '/settings/connection'
     | '/settings/crash-reporting'
@@ -326,12 +289,9 @@ export interface FileRouteTypes {
     | '/settings/hooks'
     | '/settings/mcp'
     | '/settings/memory'
-    | '/settings/model-providers'
-    | '/settings/oauth'
-    | '/settings/output-style'
-    | '/settings/plan'
     | '/settings/plugins'
     | '/settings/prompt-enhancement'
+    | '/settings/quota'
     | '/settings/remote-control'
     | '/settings/repo-snapshots'
     | '/settings/runtime'
@@ -344,14 +304,13 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/settings/acp-auth'
+    | '/mission-control'
     | '/settings/activity'
     | '/settings/agents'
     | '/settings/appearance'
     | '/settings/archive'
     | '/settings/automation'
     | '/settings/bots'
-    | '/settings/capabilities'
     | '/settings/commands'
     | '/settings/connection'
     | '/settings/crash-reporting'
@@ -359,12 +318,9 @@ export interface FileRouteTypes {
     | '/settings/hooks'
     | '/settings/mcp'
     | '/settings/memory'
-    | '/settings/model-providers'
-    | '/settings/oauth'
-    | '/settings/output-style'
-    | '/settings/plan'
     | '/settings/plugins'
     | '/settings/prompt-enhancement'
+    | '/settings/quota'
     | '/settings/remote-control'
     | '/settings/repo-snapshots'
     | '/settings/runtime'
@@ -377,15 +333,14 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/mission-control'
     | '/settings'
-    | '/settings/acp-auth'
     | '/settings/activity'
     | '/settings/agents'
     | '/settings/appearance'
     | '/settings/archive'
     | '/settings/automation'
     | '/settings/bots'
-    | '/settings/capabilities'
     | '/settings/commands'
     | '/settings/connection'
     | '/settings/crash-reporting'
@@ -393,12 +348,9 @@ export interface FileRouteTypes {
     | '/settings/hooks'
     | '/settings/mcp'
     | '/settings/memory'
-    | '/settings/model-providers'
-    | '/settings/oauth'
-    | '/settings/output-style'
-    | '/settings/plan'
     | '/settings/plugins'
     | '/settings/prompt-enhancement'
+    | '/settings/quota'
     | '/settings/remote-control'
     | '/settings/repo-snapshots'
     | '/settings/runtime'
@@ -412,6 +364,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  MissionControlRoute: typeof MissionControlRoute
   SettingsRoute: typeof SettingsRouteWithChildren
 }
 
@@ -422,6 +375,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mission-control': {
+      id: '/mission-control'
+      path: '/mission-control'
+      fullPath: '/mission-control'
+      preLoaderRoute: typeof MissionControlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -494,6 +454,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRemoteControlRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/quota': {
+      id: '/settings/quota'
+      path: '/quota'
+      fullPath: '/settings/quota'
+      preLoaderRoute: typeof SettingsQuotaRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/prompt-enhancement': {
       id: '/settings/prompt-enhancement'
       path: '/prompt-enhancement'
@@ -506,34 +473,6 @@ declare module '@tanstack/react-router' {
       path: '/plugins'
       fullPath: '/settings/plugins'
       preLoaderRoute: typeof SettingsPluginsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/plan': {
-      id: '/settings/plan'
-      path: '/plan'
-      fullPath: '/settings/plan'
-      preLoaderRoute: typeof SettingsPlanRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/output-style': {
-      id: '/settings/output-style'
-      path: '/output-style'
-      fullPath: '/settings/output-style'
-      preLoaderRoute: typeof SettingsOutputStyleRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/oauth': {
-      id: '/settings/oauth'
-      path: '/oauth'
-      fullPath: '/settings/oauth'
-      preLoaderRoute: typeof SettingsOauthRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/model-providers': {
-      id: '/settings/model-providers'
-      path: '/model-providers'
-      fullPath: '/settings/model-providers'
-      preLoaderRoute: typeof SettingsModelProvidersRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/memory': {
@@ -585,13 +524,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsCommandsRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/capabilities': {
-      id: '/settings/capabilities'
-      path: '/capabilities'
-      fullPath: '/settings/capabilities'
-      preLoaderRoute: typeof SettingsCapabilitiesRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     '/settings/bots': {
       id: '/settings/bots'
       path: '/bots'
@@ -634,25 +566,16 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsActivityRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/acp-auth': {
-      id: '/settings/acp-auth'
-      path: '/acp-auth'
-      fullPath: '/settings/acp-auth'
-      preLoaderRoute: typeof SettingsAcpAuthRouteImport
-      parentRoute: typeof SettingsRoute
-    }
   }
 }
 
 interface SettingsRouteChildren {
-  SettingsAcpAuthRoute: typeof SettingsAcpAuthRoute
   SettingsActivityRoute: typeof SettingsActivityRoute
   SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsArchiveRoute: typeof SettingsArchiveRoute
   SettingsAutomationRoute: typeof SettingsAutomationRoute
   SettingsBotsRoute: typeof SettingsBotsRoute
-  SettingsCapabilitiesRoute: typeof SettingsCapabilitiesRoute
   SettingsCommandsRoute: typeof SettingsCommandsRoute
   SettingsConnectionRoute: typeof SettingsConnectionRoute
   SettingsCrashReportingRoute: typeof SettingsCrashReportingRoute
@@ -660,12 +583,9 @@ interface SettingsRouteChildren {
   SettingsHooksRoute: typeof SettingsHooksRoute
   SettingsMcpRoute: typeof SettingsMcpRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
-  SettingsModelProvidersRoute: typeof SettingsModelProvidersRoute
-  SettingsOauthRoute: typeof SettingsOauthRoute
-  SettingsOutputStyleRoute: typeof SettingsOutputStyleRoute
-  SettingsPlanRoute: typeof SettingsPlanRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
   SettingsPromptEnhancementRoute: typeof SettingsPromptEnhancementRoute
+  SettingsQuotaRoute: typeof SettingsQuotaRoute
   SettingsRemoteControlRoute: typeof SettingsRemoteControlRoute
   SettingsRepoSnapshotsRoute: typeof SettingsRepoSnapshotsRoute
   SettingsRuntimeRoute: typeof SettingsRuntimeRoute
@@ -678,14 +598,12 @@ interface SettingsRouteChildren {
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
-  SettingsAcpAuthRoute: SettingsAcpAuthRoute,
   SettingsActivityRoute: SettingsActivityRoute,
   SettingsAgentsRoute: SettingsAgentsRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsArchiveRoute: SettingsArchiveRoute,
   SettingsAutomationRoute: SettingsAutomationRoute,
   SettingsBotsRoute: SettingsBotsRoute,
-  SettingsCapabilitiesRoute: SettingsCapabilitiesRoute,
   SettingsCommandsRoute: SettingsCommandsRoute,
   SettingsConnectionRoute: SettingsConnectionRoute,
   SettingsCrashReportingRoute: SettingsCrashReportingRoute,
@@ -693,12 +611,9 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsHooksRoute: SettingsHooksRoute,
   SettingsMcpRoute: SettingsMcpRoute,
   SettingsMemoryRoute: SettingsMemoryRoute,
-  SettingsModelProvidersRoute: SettingsModelProvidersRoute,
-  SettingsOauthRoute: SettingsOauthRoute,
-  SettingsOutputStyleRoute: SettingsOutputStyleRoute,
-  SettingsPlanRoute: SettingsPlanRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,
   SettingsPromptEnhancementRoute: SettingsPromptEnhancementRoute,
+  SettingsQuotaRoute: SettingsQuotaRoute,
   SettingsRemoteControlRoute: SettingsRemoteControlRoute,
   SettingsRepoSnapshotsRoute: SettingsRepoSnapshotsRoute,
   SettingsRuntimeRoute: SettingsRuntimeRoute,
@@ -716,6 +631,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  MissionControlRoute: MissionControlRoute,
   SettingsRoute: SettingsRouteWithChildren,
 }
 export const routeTree = rootRouteImport

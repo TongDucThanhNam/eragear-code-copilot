@@ -4,12 +4,15 @@ import { createSupervisorOrchestrationE2eHarness } from "./supervisor-orchestrat
 describe("supervisor orchestration deterministic e2e", () => {
   test("runs two fake ACP workers in parallel and waits before dependent work", async () => {
     const harness = createSupervisorOrchestrationE2eHarness();
-    const started = await harness.orchestrator.start({
+    const draft = await harness.orchestrator.start({
       userId: "user-1",
       projectId: "project-1",
       projectRoot: "C:/e2e-repo",
       originalIntent: "Run deterministic multi-session e2e",
     });
+    expect(draft.status).toBe("awaiting_approval");
+    expect(harness.createdChats).toHaveLength(0);
+    const started = await harness.approveDraft(draft);
     expect(harness.createdChats).toHaveLength(2);
     expect(new Set(harness.createdChats).size).toBe(2);
     expect(new Set(harness.createdSessions).size).toBe(2);

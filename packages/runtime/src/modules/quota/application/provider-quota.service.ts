@@ -1,4 +1,3 @@
-import type { AgentRepositoryPort } from "#runtime/modules/agent";
 import { ValidationError } from "#runtime/shared/errors";
 import type { ClockPort } from "#runtime/shared/ports/clock.port";
 import type { LoggerPort } from "#runtime/shared/ports/logger.port";
@@ -39,7 +38,6 @@ interface CollectOptions {
 }
 
 export class ProviderQuotaService {
-  private readonly agentRepo: AgentRepositoryPort;
   private readonly providerQuotaNotifier: ProviderQuotaNotifier;
   private readonly clock: ClockPort;
   private readonly logger: LoggerPort;
@@ -51,7 +49,6 @@ export class ProviderQuotaService {
 
   constructor(
     params: {
-      agentRepo: AgentRepositoryPort;
       providerQuotaNotifier?: ProviderQuotaNotifier;
       clock: ClockPort;
       logger: LoggerPort;
@@ -60,7 +57,6 @@ export class ProviderQuotaService {
     },
     options: ProviderQuotaServiceOptions = {}
   ) {
-    this.agentRepo = params.agentRepo;
     this.providerQuotaNotifier =
       params.providerQuotaNotifier ?? noopProviderQuotaNotifier;
     this.clock = params.clock;
@@ -97,19 +93,25 @@ export class ProviderQuotaService {
     options: CollectOptions
   ): Promise<ProviderQuotaListResult> {
     const checkedAt = new Date(this.clock.nowMs()).toISOString();
-    const agents = await this.agentRepo.findAll(userId);
     const ctx: QuotaProviderContext = {
       userId,
-      agents,
       now: new Date(this.clock.nowMs()),
       credentialResolver: this.credentialResolver,
     };
-    const adapters = this.selectAdapters(userId, ctx, options);
-    const providers = await Promise.all(
+    const adapters = this.selectAdapters(options);
+    const snapshots = await Promise.all(
       adapters.map((adapter) =>
         this.getSnapshot(userId, adapter, ctx, options.force)
       )
     );
+    const providers =
+      options.providerId || options.includeUnavailable
+        ? snapshots
+        : snapshots.filter(
+            (snapshot) =>
+              snapshot.status !== "not_configured" &&
+              snapshot.status !== "unavailable"
+          );
 
     return {
       providers,
@@ -117,11 +119,7 @@ export class ProviderQuotaService {
     };
   }
 
-  private selectAdapters(
-    userId: string,
-    ctx: QuotaProviderContext,
-    options: CollectOptions
-  ): QuotaProviderAdapter[] {
+  private selectAdapters(options: CollectOptions): QuotaProviderAdapter[] {
     const requestedProviderId = options.providerId;
     if (requestedProviderId) {
       const adapter = this.adapters.find((candidate) =>
@@ -138,16 +136,7 @@ export class ProviderQuotaService {
       }
       return [adapter];
     }
-
-    return this.adapters.filter((adapter) => {
-      if (options.includeUnavailable) {
-        return true;
-      }
-      if (adapter.detect(ctx)) {
-        return true;
-      }
-      return this.cache.has(this.getCacheKey(userId, adapter.id));
-    });
+    return this.adapters;
   }
 
   private async getSnapshot(
@@ -187,21 +176,18 @@ export class ProviderQuotaService {
     previous: ProviderQuotaSnapshot | undefined
   ): Promise<ProviderQuotaSnapshot> {
     const checkedAt = new Date(this.clock.nowMs()).toISOString();
-    const detected = adapter.detect(ctx);
 
     try {
       const auth = await adapter.resolveAuth(ctx);
       if (!auth.ok) {
         const snapshot = this.buildSnapshot(adapter, {
-          status: detected ? "not_configured" : "unavailable",
+          status: "not_configured",
           attempted: false,
           checkedAt,
           windows: [],
           error: {
-            code: detected ? "AUTH_NOT_CONFIGURED" : "PROVIDER_UNAVAILABLE",
-            message: detected
-              ? auth.reason
-              : "Provider is not configured on any current agent.",
+            code: "AUTH_NOT_CONFIGURED",
+            message: auth.reason,
           },
         });
         await this.storeAndNotify(userId, snapshot, previous);

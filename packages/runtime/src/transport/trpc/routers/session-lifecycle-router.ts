@@ -3,6 +3,8 @@ import {
   DiscoverAgentSessionsInputSchema,
   LoadAgentSessionInputSchema,
   SessionChatIdInputSchema,
+  SwitchSessionEnvironmentInputSchema,
+  SyncSessionWorktreeBranchInputSchema,
 } from "#runtime/modules/session";
 import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
@@ -72,5 +74,26 @@ export const sessionLifecycleRouter = router({
         input.chatId
       );
       return createSessionResumeResponse(res, sessionState);
+    }),
+
+  /** Restart a session in its canonical root or persistent Git worktree. */
+  switchSessionEnvironment: protectedProcedure
+    .input(SwitchSessionEnvironmentInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      return await ctx.useCases.session.switchEnvironment.execute({
+        userId: getRequiredUserId(ctx),
+        chatId: input.chatId,
+        envMode: input.envMode,
+      });
+    }),
+
+  /** Synchronize persisted metadata after an in-worktree branch change. */
+  syncSessionWorktreeBranch: protectedProcedure
+    .input(SyncSessionWorktreeBranchInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      return await ctx.useCases.session.switchEnvironment.syncBranch({
+        userId: getRequiredUserId(ctx),
+        chatId: input.chatId,
+      });
     }),
 });

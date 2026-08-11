@@ -1,18 +1,16 @@
 import { z } from "zod";
 
-export const SUPERVISOR_RUN_SCHEMA_VERSION = 1 as const;
+export const SUPERVISOR_RUN_SCHEMA_VERSION = 2 as const;
 export const SUPERVISOR_RUN_LIMIT_DEFAULTS = {
   maxConcurrency: 2,
   maxTasks: 12,
   maxAttemptsPerTask: 2,
-  maxRunDurationMs: 2 * 60 * 60 * 1000,
   maxPlannerReplans: 2,
 } as const;
 export const SUPERVISOR_RUN_LIMIT_CAPS = {
   maxConcurrency: 8,
   maxTasks: 32,
   maxAttemptsPerTask: 5,
-  maxRunDurationMs: 24 * 60 * 60 * 1000,
   maxPlannerReplans: 5,
 } as const;
 export const SUPERVISOR_MAX_DEPENDENCY_DEPTH = 16;
@@ -29,8 +27,10 @@ const RelativePathSchema = z
 export const SupervisorRunStatusSchema = z.enum([
   "draft",
   "planning",
+  "awaiting_approval",
   "queued",
   "running",
+  "waiting_capacity",
   "paused",
   "needs_user",
   "completing",
@@ -44,6 +44,7 @@ export const SupervisorTaskStatusSchema = z.enum([
   "ready",
   "queued",
   "running",
+  "waiting_capacity",
   "reviewing",
   "integrating",
   "completed",
@@ -75,16 +76,165 @@ export const SupervisorRunLimitsSchema = z
       .int()
       .min(1)
       .max(SUPERVISOR_RUN_LIMIT_CAPS.maxAttemptsPerTask),
-    maxRunDurationMs: z
-      .number()
-      .int()
-      .min(1)
-      .max(SUPERVISOR_RUN_LIMIT_CAPS.maxRunDurationMs),
     maxPlannerReplans: z
       .number()
       .int()
       .min(0)
       .max(SUPERVISOR_RUN_LIMIT_CAPS.maxPlannerReplans),
+  })
+  .strict();
+
+export const SupervisorRunPrioritySchema = z.enum([
+  "urgent",
+  "high",
+  "normal",
+  "low",
+]);
+
+export const SupervisorCapacityFailureKindSchema = z.enum([
+  "quota_exhausted",
+  "transient_rate_limit",
+  "auth_required",
+  "transport",
+  "session_fatal",
+  "unknown",
+]);
+
+export const SupervisorManagerTurnKindSchema = z.enum([
+  "plan",
+  "replan",
+  "question",
+  "continue",
+  "complete",
+]);
+
+export const SupervisorExecutionEnvelopeSchema = z
+  .object({
+    goal: z.string().trim().min(1).max(32_000),
+    fileScopes: z.array(RelativePathSchema).max(4096),
+    verificationCommands: z.array(z.string().trim().min(1).max(4096)).max(128),
+    successCriteria: z
+      .array(z.string().trim().min(1).max(4000))
+      .min(1)
+      .max(128),
+    permissionScopes: z.array(z.string().trim().min(1).max(2000)).max(128),
+    destructiveActions: z.array(z.string().trim().min(1).max(2000)).max(32),
+    delivery: z
+      .object({
+        createCommit: z.literal(true),
+        targetBranch: z.string().trim().min(1).max(1024),
+        targetHead: z.string().trim().min(1).max(1024),
+        allowDefaultBranch: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const SupervisorApprovedPlanSchema = z
+  .object({
+    version: z.number().int().min(1),
+    hash: z.string().regex(/^[a-f0-9]{64}$/),
+    summary: z.string().trim().min(1).max(8000),
+    envelope: SupervisorExecutionEnvelopeSchema,
+    approvedAt: TimestampSchema.optional(),
+    approvedByUserId: IdentifierSchema.optional(),
+  })
+  .strict()
+  .superRefine((plan, context) => {
+    if (Boolean(plan.approvedAt) !== Boolean(plan.approvedByUserId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["approvedAt"],
+        message: "Plan approval time and user must be persisted together",
+      });
+    }
+  });
+
+export const SupervisorManagerSessionSchema = z
+  .object({
+    agentId: IdentifierSchema,
+    chatId: IdentifierSchema,
+    agentSessionId: IdentifierSchema.optional(),
+    status: z.enum([
+      "creating",
+      "running",
+      "stopped",
+      "waiting_capacity",
+      "failed",
+    ]),
+    exactResumeRequired: z.literal(true),
+    pendingTurnKind: z.enum(["plan", "replan"]).optional(),
+    activeTurn: z
+      .object({
+        turnId: IdentifierSchema,
+        kind: SupervisorManagerTurnKindSchema,
+        startedAt: TimestampSchema,
+      })
+      .strict()
+      .optional(),
+    lastCompletedTurnId: IdentifierSchema.optional(),
+    lastCheckedAt: TimestampSchema.optional(),
+  })
+  .strict();
+
+export const SupervisorCapacityWaitSchema = z
+  .object({
+    waitId: IdentifierSchema,
+    owner: z.enum(["manager", "task"]),
+    taskId: IdentifierSchema.optional(),
+    attemptId: IdentifierSchema.optional(),
+    agentId: IdentifierSchema,
+    capacityGroup: IdentifierSchema.optional(),
+    kind: SupervisorCapacityFailureKindSchema,
+    reason: z.string().trim().min(1).max(2000),
+    suspendedAt: TimestampSchema,
+    resetAt: TimestampSchema.optional(),
+    retryAt: TimestampSchema,
+    backoffStep: z.number().int().min(0).max(64),
+  })
+  .strict()
+  .superRefine((wait, context) => {
+    if (wait.owner === "task" && !(wait.taskId && wait.attemptId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["taskId"],
+        message: "Task capacity waits require task and attempt ids",
+      });
+    }
+    if (wait.owner === "manager" && (wait.taskId || wait.attemptId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["taskId"],
+        message: "Manager capacity waits cannot reference a worker attempt",
+      });
+    }
+  });
+
+export const SupervisorManagerDecisionSchema = z
+  .object({
+    decisionId: IdentifierSchema,
+    kind: z.enum([
+      "plan_changes",
+      "product_ambiguity",
+      "scope_expansion",
+      "permission",
+      "dirty_overlap",
+      "baseline_drift",
+      "conflict",
+      "exact_resume_failed",
+      "classifier_uncertain",
+      "budget_exhausted",
+    ]),
+    status: z.enum(["open", "answered", "cancelled"]),
+    prompt: z.string().trim().min(1).max(8000),
+    opaqueTokenHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+    answer: z.string().trim().min(1).max(8000).optional(),
+    createdAt: TimestampSchema,
+    answeredAt: TimestampSchema.optional(),
+    answeredByUserId: IdentifierSchema.optional(),
   })
   .strict();
 
@@ -165,7 +315,13 @@ export const SupervisorWorkerAttemptSchema = z
       .strict()
       .optional(),
     turnId: IdentifierSchema.optional(),
-    status: z.enum(["starting", "running", "terminal", "interrupted"]),
+    status: z.enum([
+      "starting",
+      "running",
+      "waiting_capacity",
+      "terminal",
+      "interrupted",
+    ]),
     idempotencyKey: IdentifierSchema,
     startedAt: TimestampSchema,
     finishedAt: TimestampSchema.optional(),
@@ -237,6 +393,16 @@ export const SupervisorRunAuditEntrySchema = z
       "gate_decided",
       "recovery_reconciled",
       "final_verification_recorded",
+      "migration_needs_user",
+      "plan_awaiting_approval",
+      "plan_approved",
+      "plan_changes_requested",
+      "manager_session_bound",
+      "capacity_suspended",
+      "capacity_resumed",
+      "decision_opened",
+      "decision_answered",
+      "final_commit_created",
     ]),
     createdAt: TimestampSchema,
     actor: z.enum(["user", "orchestrator", "worker", "system"]),
@@ -281,16 +447,27 @@ export const SupervisorRunStateSchema = z
     projectId: IdentifierSchema.optional(),
     projectRoot: z.string().trim().min(1).max(4096),
     originatingChatId: IdentifierSchema.optional(),
-    scheduleId: IdentifierSchema.optional(),
-    providerId: IdentifierSchema.optional(),
-    workerModelId: z.string().trim().min(1).max(512).optional(),
-    eligibleAgentIds: z.array(IdentifierSchema).max(32).optional(),
+    legacyAutomation: z
+      .object({
+        scheduleId: IdentifierSchema.optional(),
+        providerId: IdentifierSchema.optional(),
+        workerModelId: z.string().trim().min(1).max(512).optional(),
+      })
+      .strict()
+      .optional(),
+    agentAllowlist: z.array(IdentifierSchema).max(32).optional(),
     originalIntent: z.string().trim().min(1).max(32_000),
     constraints: z.array(z.string().trim().min(1).max(4000)).max(128),
+    priority: SupervisorRunPrioritySchema,
     status: SupervisorRunStatusSchema,
+    managerSession: SupervisorManagerSessionSchema.optional(),
+    plan: SupervisorApprovedPlanSchema.optional(),
+    capacityWaits: z.array(SupervisorCapacityWaitSchema).max(1024),
+    decisions: z.array(SupervisorManagerDecisionSchema).max(4096),
     baseSnapshot: z
       .object({
         head: z.string().trim().min(1).max(1024).optional(),
+        branch: z.string().trim().min(1).max(1024).optional(),
         dirtyPaths: z.array(RelativePathSchema).max(4096),
         targetFingerprints: z
           .record(z.string(), z.string().regex(/^[a-f0-9]{64}$/))
@@ -298,6 +475,9 @@ export const SupervisorRunStateSchema = z
         capturedAt: TimestampSchema,
       })
       .strict(),
+    deliveryFingerprints: z
+      .record(z.string(), z.string().regex(/^[a-f0-9]{64}$/))
+      .default({}),
     limits: SupervisorRunLimitsSchema,
     tasks: z
       .array(SupervisorTaskRecordSchema)
@@ -307,6 +487,8 @@ export const SupervisorRunStateSchema = z
     processedEventIds: z.array(IdentifierSchema).max(20_000),
     plannerReplanCount: z.number().int().nonnegative(),
     finalVerification: z.array(SupervisorVerificationEvidenceSchema).max(64),
+    finalCommitSha: z.string().trim().min(1).max(1024).optional(),
+    migratedFromVersion: z.literal(1).optional(),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
@@ -324,6 +506,27 @@ export const SupervisorRunStateSchema = z
         code: "custom",
         path: ["plannerReplanCount"],
         message: "Planner replan count exceeds run limit",
+      });
+    }
+    if (run.status === "awaiting_approval" && !run.plan) {
+      context.addIssue({
+        code: "custom",
+        path: ["plan"],
+        message: "Awaiting approval requires a persisted plan",
+      });
+    }
+    if (run.status === "waiting_capacity" && run.capacityWaits.length === 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["capacityWaits"],
+        message: "Waiting-capacity runs require a persisted capacity wait",
+      });
+    }
+    if (run.finalCommitSha && run.status !== "completed") {
+      context.addIssue({
+        code: "custom",
+        path: ["finalCommitSha"],
+        message: "Only completed runs may contain a final commit SHA",
       });
     }
 
@@ -456,6 +659,25 @@ function validateUniqueBindings(
 
 export type SupervisorRunStatus = z.infer<typeof SupervisorRunStatusSchema>;
 export type SupervisorTaskStatus = z.infer<typeof SupervisorTaskStatusSchema>;
+export type SupervisorRunPriority = z.infer<typeof SupervisorRunPrioritySchema>;
+export type SupervisorCapacityFailureKind = z.infer<
+  typeof SupervisorCapacityFailureKindSchema
+>;
+export type SupervisorExecutionEnvelope = z.infer<
+  typeof SupervisorExecutionEnvelopeSchema
+>;
+export type SupervisorApprovedPlan = z.infer<
+  typeof SupervisorApprovedPlanSchema
+>;
+export type SupervisorManagerSession = z.infer<
+  typeof SupervisorManagerSessionSchema
+>;
+export type SupervisorCapacityWait = z.infer<
+  typeof SupervisorCapacityWaitSchema
+>;
+export type SupervisorManagerDecision = z.infer<
+  typeof SupervisorManagerDecisionSchema
+>;
 export type SupervisorRunLimits = z.infer<typeof SupervisorRunLimitsSchema>;
 export type SupervisorWorkerResult = z.infer<
   typeof SupervisorWorkerResultSchema

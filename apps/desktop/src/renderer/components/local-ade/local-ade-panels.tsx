@@ -132,10 +132,6 @@ const LOCAL_ADE_RUNTIME_SETTINGS_SECTIONS: readonly LocalAdeSectionId[] = [
   "providers",
 ];
 
-const LOCAL_ADE_CAPABILITIES_SETTINGS_SECTIONS: readonly LocalAdeSectionId[] = [
-  "capabilities",
-];
-
 const LOCAL_ADE_AUTOMATION_SETTINGS_SECTIONS: readonly LocalAdeSectionId[] = [
   "hooks",
   "plugins",
@@ -9495,14 +9491,6 @@ function LocalAdeSettingsPanel({
 export function LocalAdeRuntimeSettingsPanel() {
   return (
     <LocalAdeSettingsPanel sections={LOCAL_ADE_RUNTIME_SETTINGS_SECTIONS} />
-  );
-}
-
-export function LocalAdeCapabilitiesSettingsPanel() {
-  return (
-    <LocalAdeSettingsPanel
-      sections={LOCAL_ADE_CAPABILITIES_SETTINGS_SECTIONS}
-    />
   );
 }
 

@@ -17,13 +17,16 @@ import { useProjectStore } from "@/store/project-store";
 export const Route = createFileRoute("/")({
   validateSearch: z.object({
     chatId: z.string().optional(),
+    draftProjectId: z.string().optional(),
   }),
   component: ChatPage,
 });
 
 function ChatPage() {
   const navigate = useNavigate({ from: Route.fullPath });
-  const { chatId: urlChatId } = useSearch({ from: Route.fullPath });
+  const { chatId: urlChatId, draftProjectId } = useSearch({
+    from: Route.fullPath,
+  });
 
   // When opening a file, we want to overlay the code viewer on top of the chat interface. This allows users to refer to the chat while viewing the code. The chat interface will still be rendered in the background, but it will be visually de-emphasized when a file is open.
   const selectedFile = useFileStore((state) => state.selectedFile);
@@ -54,7 +57,11 @@ function ChatPage() {
       <SidebarInset>
         <ThreePaneLayout
           rightSidebar={({ onClose }) => (
-            <ContextPanel chatId={urlChatId ?? null} onClose={onClose} />
+            <ContextPanel
+              chatId={urlChatId ?? null}
+              onClose={onClose}
+              projectId={activeProjectId}
+            />
           )}
         >
           <div
@@ -68,6 +75,7 @@ function ChatPage() {
             <div className="min-h-0 flex-1 overflow-hidden">
               <ChatInterface
                 initialChatId={urlChatId}
+                initialDraftProjectId={draftProjectId}
                 onChatIdChange={handleChatIdChange}
               />
             </div>

@@ -21,6 +21,7 @@ import type { SupervisorRunRepositoryPort } from "#runtime/modules/supervisor-or
 import type { UsageStatsRepositoryPort } from "#runtime/modules/usage-stats";
 import type { CacheStats } from "#runtime/platform/caching/types";
 import type { GitAdapter } from "#runtime/platform/git";
+import type { GitWorkflowAdapter } from "#runtime/platform/git/workflow";
 import type { ClockPort } from "#runtime/shared/ports/clock.port";
 import type { EventBusPort } from "#runtime/shared/ports/event-bus.port";
 import type { LogStorePort } from "#runtime/shared/ports/log-store.port";
@@ -42,6 +43,7 @@ export interface ServiceRegistryDependencies {
   appConfigService: AppConfigService;
   uiSettingsService: UiSettingsService;
   gitAdapter: GitAdapter;
+  gitWorkflowAdapter: GitWorkflowAdapter;
   agentRuntimeAdapter: AgentRuntimePort;
   sessionAcpAdapter: SessionAcpPort;
   sendMessagePolicy: SendMessagePolicy;

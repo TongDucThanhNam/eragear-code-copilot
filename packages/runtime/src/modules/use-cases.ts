@@ -23,7 +23,11 @@ import type { CrashReportingService } from "#runtime/modules/crash-reporting";
 import type { CredentialService } from "#runtime/modules/credential";
 import type { FeedbackService } from "#runtime/modules/feedback";
 import type { FileWatcherPort } from "#runtime/modules/file-watcher";
-import type { GitCheckpointService, GitService } from "#runtime/modules/git";
+import type {
+  GitCheckpointService,
+  GitService,
+  GitWorkflowService,
+} from "#runtime/modules/git";
 import type { GoalModeController } from "#runtime/modules/goal-mode";
 import type { HooksService } from "#runtime/modules/hooks";
 import type { MemoryService } from "#runtime/modules/memory";
@@ -47,7 +51,10 @@ import type {
   UpdateProjectService,
 } from "#runtime/modules/project";
 import type { PromptEnhancementService } from "#runtime/modules/prompt-enhancement";
-import type { ProviderQuotaService } from "#runtime/modules/quota";
+import type {
+  ProviderQuotaService,
+  QuotaCycleUsageService,
+} from "#runtime/modules/quota";
 import type { RemoteControlService } from "#runtime/modules/remote-control";
 import type { RepoSnapshotIndexingService } from "#runtime/modules/repo-snapshot-indexing";
 import type { ScopeResolverService } from "#runtime/modules/scope-resolution";
@@ -61,10 +68,12 @@ import type {
   LoadAgentSessionService,
   ReconcileSessionStatusService,
   ResumeSessionService,
+  RollbackConversationService,
   SessionQueries,
   StopSessionService,
   SubagentService,
   SubscribeSessionEventsService,
+  SwitchSessionEnvironmentService,
   UpdateSessionMetaService,
 } from "#runtime/modules/session";
 import type {
@@ -83,10 +92,20 @@ import type {
   SupervisorPermissionService,
 } from "#runtime/modules/supervisor";
 import type {
+  AcpCapacityCoordinator,
+  AcpManagerResultReaderPort,
+  AcpManagerSessionCoordinator,
+  SupervisorAgentProfileService,
+  SupervisorGlobalSchedulerService,
+  SupervisorManagerInboxService,
   SupervisorOrchestratorService,
   SupervisorPlannerService,
+  SupervisorPowerLeaseCoordinator,
   SupervisorRecoveryService,
   SupervisorRunEventsService,
+  SupervisorWorkerPermissionService,
+  TelegramLongPollingCoordinator,
+  TelegramManagerBridgeService,
   WorkerIntegrationService,
   WorkerSessionManagerService,
 } from "#runtime/modules/supervisor-orchestration";
@@ -123,6 +142,8 @@ export interface SessionUseCases {
   loadAgentSession: UseCasePort<LoadAgentSessionService>;
   stop: UseCasePort<StopSessionService>;
   resume: UseCasePort<ResumeSessionService>;
+  switchEnvironment: UseCasePort<SwitchSessionEnvironmentService>;
+  rollbackConversation: UseCasePort<RollbackConversationService>;
   fork: UseCasePort<ForkSessionService>;
   forkBindings: UseCasePort<ListSessionForksService>;
   delete: UseCasePort<DeleteSessionService>;
@@ -235,6 +256,7 @@ export interface OpsUseCases {
 export interface GitUseCases {
   repository: UseCasePort<GitService>;
   checkpoints: UseCasePort<GitCheckpointService>;
+  workflow: UseCasePort<GitWorkflowService>;
 }
 
 /**
@@ -275,9 +297,19 @@ export interface SupervisorUseCases {
  */
 export interface SupervisorOrchestrationUseCases {
   planner: UseCasePort<SupervisorPlannerService>;
+  manager: UseCasePort<AcpManagerSessionCoordinator>;
+  capacity: UseCasePort<AcpCapacityCoordinator>;
+  resultReader: AcpManagerResultReaderPort;
+  profiles: UseCasePort<SupervisorAgentProfileService>;
+  globalScheduler: UseCasePort<SupervisorGlobalSchedulerService>;
+  inbox: UseCasePort<SupervisorManagerInboxService>;
+  power: UseCasePort<SupervisorPowerLeaseCoordinator>;
+  telegram: UseCasePort<TelegramManagerBridgeService>;
+  telegramPolling: UseCasePort<TelegramLongPollingCoordinator>;
   workerSessions: UseCasePort<WorkerSessionManagerService>;
   orchestrator: UseCasePort<SupervisorOrchestratorService>;
   recovery: UseCasePort<SupervisorRecoveryService>;
+  workerPermissions: UseCasePort<SupervisorWorkerPermissionService>;
   events: UseCasePort<SupervisorRunEventsService>;
   integration: UseCasePort<WorkerIntegrationService>;
 }
@@ -406,6 +438,7 @@ export interface CodingPlanSubscriptionUseCases {
  */
 export interface UsageStatsUseCases {
   usageStats: UseCasePort<UsageStatsService>;
+  quotaCycles: UseCasePort<QuotaCycleUsageService>;
 }
 
 /**

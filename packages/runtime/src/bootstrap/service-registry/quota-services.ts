@@ -13,7 +13,7 @@ import type {
 import type { ServiceRegistrySlice } from "./dependencies";
 
 type QuotaServiceDependencies = ServiceRegistrySlice<
-  "agentRepo" | "eventBus" | "clock" | "appLogger"
+  "eventBus" | "clock" | "appLogger"
 >;
 
 export function createQuotaUseCases(
@@ -23,7 +23,6 @@ export function createQuotaUseCases(
 ): QuotaUseCases {
   return {
     provider: new ProviderQuotaService({
-      agentRepo: deps.agentRepo,
       providerQuotaNotifier: createEventBusProviderQuotaNotifier(deps.eventBus),
       clock: deps.clock,
       logger: deps.appLogger,

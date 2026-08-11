@@ -13,11 +13,10 @@ export interface SupervisorScheduleDecision {
   blockedTaskIds: string[];
   activeCount: number;
   availableCapacity: number;
-  deadlineExceeded: boolean;
 }
 
 export class SupervisorSchedulerService {
-  evaluate(run: SupervisorRunState, nowMs: number): SupervisorScheduleDecision {
+  evaluate(run: SupervisorRunState): SupervisorScheduleDecision {
     const completed = new Set(
       run.tasks
         .filter((task) => task.status === "completed")
@@ -30,8 +29,6 @@ export class SupervisorSchedulerService {
       0,
       run.limits.maxConcurrency - activeCount
     );
-    const deadlineExceeded =
-      nowMs >= Date.parse(run.createdAt) + run.limits.maxRunDurationMs;
     const readyTaskIds: string[] = [];
     const blockedTaskIds: string[] = [];
 
@@ -51,9 +48,7 @@ export class SupervisorSchedulerService {
       }
     }
 
-    const dispatchAllowed =
-      (run.status === "queued" || run.status === "running") &&
-      !deadlineExceeded;
+    const dispatchAllowed = run.status === "queued" || run.status === "running";
     return {
       dispatchTaskIds: dispatchAllowed
         ? readyTaskIds.slice(0, availableCapacity)
@@ -62,7 +57,6 @@ export class SupervisorSchedulerService {
       blockedTaskIds,
       activeCount,
       availableCapacity,
-      deadlineExceeded,
     };
   }
 }

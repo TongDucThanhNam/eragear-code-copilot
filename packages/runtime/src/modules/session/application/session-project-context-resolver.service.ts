@@ -1,3 +1,4 @@
+import { realpath, stat } from "node:fs/promises";
 import type { ProjectRepositoryPort } from "#runtime/modules/project";
 import type { SettingsRepositoryPort } from "#runtime/modules/settings";
 import { NotFoundError, ValidationError } from "#runtime/shared/errors";
@@ -15,6 +16,8 @@ export interface SessionProjectContextInput {
   userId: string;
   projectId?: string;
   projectRoot?: string;
+  /** Trusted internal override produced by the Git worktree adapter. */
+  trustedProjectRoot?: string;
 }
 
 /**
@@ -59,6 +62,28 @@ export class SessionProjectContextResolverService {
           op: OP,
           details: { projectId: params.projectId },
         });
+      }
+      if (params.trustedProjectRoot) {
+        const trustedRoot = await realpath(params.trustedProjectRoot).catch(
+          () => undefined
+        );
+        const trustedRootStats = trustedRoot
+          ? await stat(trustedRoot).catch(() => undefined)
+          : undefined;
+        if (!(trustedRoot && trustedRootStats?.isDirectory())) {
+          throw new ValidationError(
+            "Trusted session project root is not an existing directory",
+            {
+              module: "session",
+              op: OP,
+              details: { projectId: project.id },
+            }
+          );
+        }
+        return {
+          projectId: project.id,
+          projectRoot: trustedRoot,
+        };
       }
       const { projectRoots } = await this.settingsRepo.get();
       try {

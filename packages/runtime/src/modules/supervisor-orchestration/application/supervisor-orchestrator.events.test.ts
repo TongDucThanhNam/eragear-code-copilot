@@ -145,6 +145,9 @@ function createHarness(run: SupervisorRunState) {
         },
       });
     },
+    release() {
+      return Promise.resolve();
+    },
   } as unknown as WorkerSessionManagerPort;
   const workspaces = {
     prepare(input: Parameters<WorkerWorkspacePort["prepare"]>[0]) {
@@ -162,7 +165,16 @@ function createHarness(run: SupervisorRunState) {
   } as unknown as WorkerWorkspacePort;
   const service = new SupervisorOrchestratorService({
     runs,
-    planner: { plan: () => Promise.reject(), replan: () => Promise.reject() },
+    planner: {
+      plan: () => Promise.reject(),
+      replan: () => Promise.reject(),
+      validateProposal(_context, proposal) {
+        return {
+          proposal: proposal as never,
+          tasks: [createReadOnlyTask("task-a", "ready")],
+        };
+      },
+    },
     scheduler: new SupervisorSchedulerService(),
     workers,
     agents: { listEligible: () => Promise.resolve([]) },
@@ -193,6 +205,64 @@ function createHarness(run: SupervisorRunState) {
 }
 
 describe("SupervisorOrchestratorService worker events", () => {
+  test("fails closed instead of leaving planning stuck when a manager plan changes the goal", async () => {
+    const run = createSupervisorRunFixture({
+      status: "planning",
+      tasks: [],
+    });
+    const harness = createHarness(run);
+    const updated = await harness.service.recordManagerTurn({
+      runId: run.runId,
+      userId: run.userId,
+      turn: {
+        schemaVersion: 1,
+        kind: "plan",
+        summary: "A rewritten goal",
+        risks: [],
+        tasks: [
+          {
+            taskId: "task-a",
+            title: "Research",
+            goal: "Read the target file",
+            role: "research",
+            executionMode: "read_only",
+            dependencies: [],
+            scopeIntent: ["packages/runtime/src/index.ts"],
+            verificationRequirements: ["bun test"],
+          },
+        ],
+        envelope: {
+          goal: "A rewritten goal",
+          fileScopes: ["packages/runtime/src/index.ts"],
+          verificationCommands: ["bun test"],
+          successCriteria: ["Report the result"],
+          permissionScopes: ["read"],
+          destructiveActions: [],
+          delivery: {
+            createCommit: true,
+            targetBranch: run.baseSnapshot.branch ?? "master",
+            targetHead: run.baseSnapshot.head ?? "abc123",
+            allowDefaultBranch: false,
+          },
+        },
+      },
+    });
+
+    expect(updated.status).toBe("needs_user");
+    expect(updated.decisions).toContainEqual(
+      expect.objectContaining({
+        kind: "classifier_uncertain",
+        status: "open",
+        prompt: expect.stringContaining(
+          "Manager plan changed the authoritative goal"
+        ),
+      })
+    );
+    expect(updated.audit).toContainEqual(
+      expect.objectContaining({ kind: "plan_rejected" })
+    );
+  });
+
   test("records one result, completes the task, and unblocks one dependent dispatch", async () => {
     const first = createReadOnlyTask("task-a", "running");
     const second = createReadOnlyTask("task-b", "blocked", ["task-a"]);

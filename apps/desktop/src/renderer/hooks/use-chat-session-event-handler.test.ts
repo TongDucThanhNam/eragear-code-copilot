@@ -4,12 +4,15 @@ import type {
   ChatStatus,
   UIMessage,
 } from "@eragear-code-copilot/shared";
+import { useChatTurnDiffStore } from "@/store/chat-turn-diff-store";
 import {
   applyPartUpdate,
   finalizeStreamingMessagesInState,
   replaceMessagesState,
 } from "./use-chat-message-state";
 import {
+  applyTurnDiffReadyEvent,
+  applyTurnMessageLinkEvent,
   getChatFinishHistoryReloadDecision,
   reconcileActiveTurnIdAfterEvent,
   reconcileMessageUpsertAfterStatus,
@@ -25,6 +28,58 @@ function reconcileMessage(
   const state = replaceMessagesState(current);
   return reconcileMessageUpsertAfterStatus(state, incoming, status);
 }
+
+describe("prompt_turn_diff_ready", () => {
+  test("stores the completed turn diff for the active chat", () => {
+    useChatTurnDiffStore.getState().clearChat("chat-1");
+
+    applyTurnDiffReadyEvent("chat-1", {
+      type: "prompt_turn_diff_ready",
+      turnId: "turn-1",
+      turnCount: 1,
+      files: [
+        {
+          path: "src/main.ts",
+          kind: "modified",
+          additions: 3,
+          deletions: 1,
+        },
+      ],
+    });
+
+    expect(
+      useChatTurnDiffStore.getState().byChatId["chat-1"]?.["turn-1"]
+    ).toEqual({
+      turnId: "turn-1",
+      turnCount: 1,
+      files: [
+        {
+          path: "src/main.ts",
+          kind: "modified",
+          additions: 3,
+          deletions: 1,
+        },
+      ],
+    });
+  });
+
+  test("links a user message to its turn for inline diff badges", () => {
+    useChatTurnDiffStore.getState().clearChat("chat-1");
+    applyTurnMessageLinkEvent("chat-1", {
+      type: "ui_message",
+      turnId: "turn-1",
+      message: {
+        id: "message-1",
+        role: "user",
+        parts: [{ type: "text", text: "Implement it" }],
+      },
+    });
+
+    expect(
+      useChatTurnDiffStore.getState().turnIdByMessageId["chat-1"]?.["message-1"]
+    ).toBe("turn-1");
+  });
+});
 
 describe("reconcileMessageUpsertAfterStatus", () => {
   test("finalizes late assistant text snapshots after chat is ready", () => {

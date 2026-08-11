@@ -215,6 +215,33 @@ bun test packages/runtime/src/transport/trpc/routers/supervisor-runs.test.ts app
   agent. `/memory` queries Project Memory; supported flags include `--semantic`,
   `--full`, `--chunks <n>`, `--source <path>`, and `--preset <id>`.
 
+## Local ADE Git And Worktrees
+
+- Turn checkpoints use hidden `refs/eragear/session-*-turn-*` refs captured
+  with an isolated Git index. Keep the existing patch checkpoints in
+  `.eragear/checkpoints/` available for manual create/list/restore; they are
+  the backward-compatible fallback and must not be deleted by ref cleanup.
+- Prompt turn start captures the baseline before ACP work begins. Prompt turn
+  completion captures the next ref, computes the turn diff, and broadcasts
+  `prompt_turn_diff_ready`; keep these lifecycle notifications awaited and in
+  order.
+- Turn revert restores files and conversation together: create a safety ref,
+  restore only inside the owned session root, stop the old runtime, truncate
+  persisted history, clear the stale ACP session id, start a fresh runtime
+  under the same local chat id, then delete later turn refs.
+- Git actions are explicit authenticated user mutations. Default-branch writes
+  always require `confirmDefaultBranch: true`; PR creation is GitHub-only via
+  non-interactive `gh pr create` for this implementation.
+- Normal chat worktrees are persistent and stored under Eragear storage on
+  `eragear/worktree/*` branches. Environment switching must create/verify the
+  target root before stopping the session, then restart the same chat through
+  the existing session create service. Do not auto-remove worktrees when
+  switching back to local mode.
+- Session-root-aware Git operations resolve the persisted, user-owned chat
+  before using a worktree path. Never expose the internal trusted worktree root
+  override through tRPC, and never accept an arbitrary renderer filesystem
+  path for checkpoint, workflow, or branch-diff operations.
+
 ## External Project Launchers
 
 - Opening a project in external desktop apps is Electron-main owned. Keep OS

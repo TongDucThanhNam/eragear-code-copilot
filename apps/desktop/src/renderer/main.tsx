@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { createWSClient, wsLink } from "@trpc/client";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import ReactDOM from "react-dom/client";
 import {
   BetterAuthClientProvider,
@@ -27,6 +27,7 @@ import {
 } from "./lib/desktop-bootstrap";
 import { electronTrpcLink } from "./lib/electron-trpc-link";
 import { remoteConnectTrpcLink } from "./lib/remote-connect-trpc-link";
+import { handleRuntimeWebSocketOpen } from "./lib/runtime-reconnect";
 import { buildTrpcWsUrl, DEFAULT_SERVER_URL } from "./lib/server-url";
 import { trpc } from "./lib/trpc";
 import { routeTree } from "./routeTree.gen";
@@ -177,6 +178,7 @@ function ConfiguredApp({
   desktopBootstrap?: EragearDesktopBootstrap | null;
 }) {
   const setConfigured = useServerConfigStore((state) => state.setConfigured);
+  const websocketOpened = useRef(false);
   const isDesktopLocalMode = isDesktopLocalBootstrap(desktopBootstrap);
   const usesElectronIpc =
     isDesktopLocalMode && desktopBootstrap?.transport.kind === "electron-ipc";
@@ -226,8 +228,13 @@ function ConfiguredApp({
     return createWSClient({
       url: wsUrl,
       connectionParams,
+      onOpen: () => {
+        handleRuntimeWebSocketOpen(websocketOpened, () => {
+          void queryClient.refetchQueries({ type: "active" });
+        });
+      },
     });
-  }, [connectionParams, wsUrl]);
+  }, [connectionParams, queryClient, wsUrl]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;

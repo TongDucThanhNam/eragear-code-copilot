@@ -9,7 +9,7 @@ import { createSupervisorRunFixture } from "./supervisor-run.test-fixture";
 describe("SupervisorRunStateSchema", () => {
   test("accepts a strict versioned run/task/attempt aggregate", () => {
     const run = createSupervisorRunFixture();
-    expect(run.schemaVersion).toBe(1);
+    expect(run.schemaVersion).toBe(2);
     expect(run.limits.maxConcurrency).toBe(2);
     expect(run.tasks.map((task) => task.taskId)).toEqual(["task-a", "task-b"]);
   });

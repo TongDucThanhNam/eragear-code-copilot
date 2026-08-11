@@ -126,4 +126,32 @@ describe("WorkerIntegrationService", () => {
     expect(decision).toEqual({ decision: "needs_user", reasons: ["conflict"] });
     expect(workspace.calls).toEqual({ apply: 1, dispose: 1 });
   });
+
+  test("serializes write integration per project without blocking another project", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const port = {
+      fingerprint: () => Promise.resolve({ "src/feature.ts": HASH }),
+      async apply() {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+      },
+      dispose: () => Promise.resolve(),
+    } as unknown as WorkerWorkspacePort;
+    const service = new WorkerIntegrationService(port);
+    const first = createFixture();
+    const second = createFixture();
+    second.workspace.workspaceId = "workspace-2";
+    await Promise.all([service.integrate(first), service.integrate(second)]);
+    expect(maxActive).toBe(1);
+
+    maxActive = 0;
+    const third = createFixture();
+    const fourth = createFixture();
+    fourth.run.projectRoot = "C:/another-project";
+    await Promise.all([service.integrate(third), service.integrate(fourth)]);
+    expect(maxActive).toBe(2);
+  });
 });

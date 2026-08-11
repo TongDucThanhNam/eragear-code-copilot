@@ -56,6 +56,23 @@ describe("initializeModuleEventSubscriptions", () => {
           scheduleReview: () => undefined,
         },
       },
+      supervisorOrchestration: {
+        workerSessions: {
+          claimCompletedTurn: async () => null,
+          claimTerminalDecision: async () => null,
+        },
+        manager: {
+          claimCompletedTurn: async () => null,
+          resumePending: async () => ({}),
+        },
+        resultReader: {
+          latestAssistantText: async () => null,
+        },
+        orchestrator: {
+          recordManagerTurn: async () => ({}),
+          recordWorkerTerminal: async () => ({}),
+        },
+      },
     } as unknown as AppUseCases;
 
     const owner = initializeModuleEventSubscriptions({
@@ -65,7 +82,7 @@ describe("initializeModuleEventSubscriptions", () => {
       logger: { warn: () => undefined } as unknown as LoggerPort,
     });
 
-    expect(subscriptionCount).toBe(8);
+    expect(subscriptionCount).toBe(9);
 
     owner.dispose();
     owner.dispose();
@@ -79,6 +96,7 @@ describe("initializeModuleEventSubscriptions", () => {
       "event-6",
       "event-7",
       "event-8",
+      "event-9",
     ]);
   });
 });

@@ -1,14 +1,13 @@
-export { AiSdkScheduledWorkDecisionAdapter } from "./infra/ai-sdk-scheduled-work-decision.adapter";
-export { AiSdkSupervisorChatAdapter } from "./infra/ai-sdk-supervisor-chat.adapter";
-export {
-  AiSdkSupervisorDecisionAdapter,
-  SupervisorDecisionUnavailableError,
-} from "./infra/ai-sdk-supervisor-decision.adapter";
+export { AcpSupervisorChatAdapter } from "./infra/acp-supervisor-chat.adapter";
 export {
   ExaSupervisorResearchAdapter,
   NoopSupervisorResearchAdapter,
 } from "./infra/exa-supervisor-research.adapter";
 export { FileSystemSupervisorProjectContextAdapter } from "./infra/filesystem-supervisor-project-context.adapter";
+export {
+  GoalDraftScheduledWorkDecisionAdapter,
+  ManagerModeSupervisorDecisionAdapter,
+} from "./infra/manager-mode-supervisor.adapters";
 export {
   NoopSupervisorAuditAdapter,
   NoopSupervisorMemoryAdapter,

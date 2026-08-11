@@ -126,6 +126,12 @@ interface EragearDesktopBridge {
   getBootstrap: () => Promise<unknown>;
   getRuntimeDiagnostics?: () => Promise<unknown>;
   getRemoteConnectStatus?: () => Promise<unknown>;
+  runtimeDaemon?: {
+    status: () => Promise<unknown>;
+    install: () => Promise<unknown>;
+    start: () => Promise<unknown>;
+    stop: () => Promise<unknown>;
+  };
   getDesktopSettings?: () => Promise<unknown>;
   updateRemoteConnectSettings?: (input: unknown) => Promise<unknown>;
   createRemoteConnectToken?: () => Promise<unknown>;

@@ -149,6 +149,149 @@ describe("GitAdapter", () => {
     );
   });
 
+  test("captures hidden turn refs and diffs consecutive workspace snapshots", async () => {
+    const projectRoot = await createTempProjectDir();
+    runGitOrThrow(projectRoot, ["init"]);
+    runGitOrThrow(projectRoot, ["config", "user.email", "test@example.com"]);
+    runGitOrThrow(projectRoot, ["config", "user.name", "Test User"]);
+    const trackedPath = join(projectRoot, "tracked.txt");
+    await writeFile(trackedPath, "initial\n", "utf8");
+    runGitOrThrow(projectRoot, ["add", "tracked.txt"]);
+    runGitOrThrow(projectRoot, ["commit", "-m", "initial"]);
+    const originalHead = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: projectRoot,
+      encoding: "utf8",
+    }).stdout.trim();
+
+    const adapter = new GitAdapter();
+    const baseline = await adapter.captureTurnCheckpoint({
+      projectRoot,
+      sessionId: "chat-1",
+      turnId: "turn-1",
+      turnCount: 0,
+      kind: "baseline",
+    });
+    await writeFile(trackedPath, "changed\n", "utf8");
+    await writeFile(join(projectRoot, "created.txt"), "created\n", "utf8");
+    const turn = await adapter.captureTurnCheckpoint({
+      projectRoot,
+      sessionId: "chat-1",
+      turnId: "turn-1",
+      turnCount: 1,
+      kind: "turn",
+    });
+
+    expect(baseline.ref).toBe("refs/eragear/session-chat-1-turn-0");
+    expect(turn.ref).toBe("refs/eragear/session-chat-1-turn-1");
+    expect(
+      spawnSync("git", ["rev-parse", turn.ref], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      }).stdout.trim()
+    ).toBe(turn.commitSha);
+    expect(
+      await adapter.listTurnCheckpoints({ projectRoot, sessionId: "chat-1" })
+    ).toEqual([
+      expect.objectContaining({ turnCount: 0, kind: "baseline" }),
+      expect.objectContaining({ turnCount: 1, kind: "turn", turnId: "turn-1" }),
+    ]);
+    expect(
+      await adapter.diffTurnCheckpoints({
+        projectRoot,
+        fromRef: baseline.ref,
+        toRef: turn.ref,
+      })
+    ).toEqual([
+      {
+        path: "created.txt",
+        kind: "added",
+        additions: 1,
+        deletions: 0,
+      },
+      {
+        path: "tracked.txt",
+        kind: "modified",
+        additions: 1,
+        deletions: 1,
+      },
+    ]);
+    expect(
+      spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      }).stdout.trim()
+    ).toBe(originalHead);
+  });
+
+  test("restores a turn checkpoint with a safety ref and preserves Eragear data", async () => {
+    const projectRoot = await createTempProjectDir();
+    runGitOrThrow(projectRoot, ["init"]);
+    runGitOrThrow(projectRoot, ["config", "user.email", "test@example.com"]);
+    runGitOrThrow(projectRoot, ["config", "user.name", "Test User"]);
+    const trackedPath = join(projectRoot, "tracked.txt");
+    await writeFile(trackedPath, "initial\n", "utf8");
+    runGitOrThrow(projectRoot, ["add", "tracked.txt"]);
+    runGitOrThrow(projectRoot, ["commit", "-m", "initial"]);
+    const originalHead = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: projectRoot,
+      encoding: "utf8",
+    }).stdout.trim();
+
+    const adapter = new GitAdapter();
+    await adapter.captureTurnCheckpoint({
+      projectRoot,
+      sessionId: "chat-restore",
+      turnCount: 0,
+      kind: "baseline",
+    });
+    await writeFile(trackedPath, "checkpoint\n", "utf8");
+    const target = await adapter.captureTurnCheckpoint({
+      projectRoot,
+      sessionId: "chat-restore",
+      turnId: "turn-1",
+      turnCount: 1,
+      kind: "turn",
+    });
+    await writeFile(trackedPath, "later\n", "utf8");
+    await writeFile(join(projectRoot, "later.txt"), "remove me\n", "utf8");
+    await mkdir(join(projectRoot, ".eragear", "checkpoints"), {
+      recursive: true,
+    });
+    const internalPath = join(
+      projectRoot,
+      ".eragear",
+      "checkpoints",
+      "keep.json"
+    );
+    await writeFile(internalPath, "{}\n", "utf8");
+
+    const restored = await adapter.restoreTurnCheckpoint({
+      projectRoot,
+      targetRef: target.ref,
+    });
+
+    expect((await readFile(trackedPath, "utf8")).replaceAll("\r\n", "\n")).toBe(
+      "checkpoint\n"
+    );
+    await expect(
+      readFile(join(projectRoot, "later.txt"), "utf8")
+    ).rejects.toThrow();
+    expect(await readFile(internalPath, "utf8")).toBe("{}\n");
+    expect(restored.restoredRef).toBe(target.ref);
+    expect(
+      spawnSync("git", ["rev-parse", restored.safetyRef], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      }).status
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      }).stdout.trim()
+    ).toBe(originalHead);
+  });
+
   test("getProjectContext returns filesystem snapshot and excludes .git internals", async () => {
     const projectRoot = await createTempProjectDir();
     await mkdir(join(projectRoot, "src"), { recursive: true });

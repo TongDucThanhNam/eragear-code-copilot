@@ -23,4 +23,25 @@ describe("gitRouter", () => {
     expect(record.checkpoint).toBeUndefined();
     expect(record.gitCheckpoints).toBeUndefined();
   });
+
+  test("exposes ref-based per-turn checkpoint procedures", () => {
+    const procedures = gitRouter._def.procedures as Record<string, unknown>;
+    const record = gitRouter._def.record as Record<string, unknown>;
+
+    expect(record.turnCheckpoints).toBeDefined();
+    expect(procedures["turnCheckpoints.list"]).toBeDefined();
+    expect(procedures["turnCheckpoints.create"]).toBeDefined();
+    expect(procedures["turnCheckpoints.diff"]).toBeDefined();
+    expect(procedures["turnCheckpoints.revert"]).toBeDefined();
+  });
+
+  test("exposes user-triggered Git workflow and progress procedures", () => {
+    const procedures = gitRouter._def.procedures as Record<string, unknown>;
+    const record = gitRouter._def.record as Record<string, unknown>;
+
+    expect(record.actions).toBeDefined();
+    expect(procedures["actions.status"]).toBeDefined();
+    expect(procedures["actions.run"]).toBeDefined();
+    expect(procedures["actions.progress"]).toBeDefined();
+  });
 });

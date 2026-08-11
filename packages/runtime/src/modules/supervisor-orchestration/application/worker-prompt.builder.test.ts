@@ -26,6 +26,12 @@ describe("buildWorkerPrompt", () => {
     expect(prompt).toContain(task.goal);
     expect(prompt).toContain("packages/runtime/src/feature.ts");
     expect(prompt).toContain("bun test");
+    expect(prompt).toContain("Worker success ends after");
+    expect(prompt).toContain("Never attempt those actions");
+    expect(prompt).toContain("blocker fields");
+    expect(prompt).toContain("both arrays must be empty");
+    expect(prompt).toContain('"startedAt": "ISO timestamp before command"');
+    expect(prompt).toContain('"finishedAt": "ISO timestamp after command"');
     expect(prompt).toContain("Interfaces identified");
     expect(prompt.length).toBeLessThanOrEqual(24_000);
     expect(prompt).not.toContain("RAW_TRANSCRIPT_SECRET");

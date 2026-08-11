@@ -305,6 +305,21 @@ export class SendMessageService {
               turnId,
             });
 
+            messageSentEvent = this.buildPromptMessageSentEvent(
+              input,
+              session,
+              turnId
+            );
+            await this.promptLifecycleEvents
+              ?.beforeTurnStart?.(messageSentEvent)
+              .catch((error) => {
+                this.logger.warn("Prompt turn-start lifecycle event failed", {
+                  chatId: input.chatId,
+                  turnId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              });
+
             const promptAbortController = new AbortController();
             const promptTask = this.promptTaskRunner
               .runPromptTask({
@@ -338,11 +353,6 @@ export class SendMessageService {
               promise: promptTask,
               abortController: promptAbortController,
             });
-            messageSentEvent = this.buildPromptMessageSentEvent(
-              input,
-              session,
-              turnId
-            );
             subagentInvocationEvent =
               this.buildSubagentInvocationRequestedEvent(
                 input,

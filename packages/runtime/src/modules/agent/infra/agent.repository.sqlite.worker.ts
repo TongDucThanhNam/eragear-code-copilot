@@ -1,4 +1,5 @@
 import { callSqliteWorker } from "#runtime/platform/storage/sqlite-worker-client";
+import type { SupervisorAgentProfile } from "#runtime/shared/contracts/supervisor-agent-profile.contract";
 import type {
   AgentConfig,
   AgentInput,
@@ -13,6 +14,26 @@ export class AgentSqliteWorkerRepository implements AgentRepositoryPort {
 
   findAll(userId: string): Promise<AgentConfig[]> {
     return callSqliteWorker("agent", "findAll", [userId]);
+  }
+
+  listSupervisorProfiles(
+    userId: string,
+    projectId?: string
+  ): Promise<SupervisorAgentProfile[]> {
+    return callSqliteWorker("agent", "listSupervisorProfiles", [
+      userId,
+      projectId,
+    ]);
+  }
+
+  saveSupervisorProfile(
+    userId: string,
+    profile: SupervisorAgentProfile
+  ): Promise<SupervisorAgentProfile> {
+    return callSqliteWorker("agent", "saveSupervisorProfile", [
+      userId,
+      profile,
+    ]);
   }
 
   getActiveId(userId: string): Promise<string | null> {

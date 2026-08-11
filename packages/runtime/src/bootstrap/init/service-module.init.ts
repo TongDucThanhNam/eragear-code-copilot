@@ -14,6 +14,7 @@ import {
 import { getResponseCache } from "#runtime/platform/caching/response-cache";
 import type { CacheStats } from "#runtime/platform/caching/types";
 import { GitAdapter } from "#runtime/platform/git";
+import { GitWorkflowAdapter } from "#runtime/platform/git/workflow";
 import { AgentRuntimeAdapter } from "#runtime/platform/process";
 import type { BackgroundRunnerState } from "#runtime/shared/types/background.types";
 import { createServerLifecycle, type ServerLifecycle } from "../lifecycle";
@@ -76,7 +77,7 @@ export interface ServiceModule {
     provider: () => BackgroundRunnerState
   ) => void;
   getBackgroundRunnerState: () => BackgroundRunnerState | null;
-  dispose(): void;
+  dispose(): Promise<void>;
 }
 
 interface ServiceModuleInitParams {
@@ -97,6 +98,7 @@ export function initializeServiceModule({
   authRuntime,
 }: ServiceModuleInitParams): ServiceModule {
   const gitAdapter = new GitAdapter();
+  const gitWorkflowAdapter = new GitWorkflowAdapter(gitAdapter);
   const trafficProxyUseCases = createTrafficProxyUseCases();
   const crashReportingUseCases = createCrashReportingUseCases();
   const agentRuntimeAdapter = new AgentRuntimeAdapter({
@@ -129,6 +131,7 @@ export function initializeServiceModule({
     appConfigService,
     uiSettingsService,
     gitAdapter,
+    gitWorkflowAdapter,
     agentRuntimeAdapter,
     sendMessagePolicy: runtimeConfig.sendMessagePolicy,
     promptEnhancer: promptEnhancementUseCases.promptEnhancement,
@@ -158,7 +161,9 @@ export function initializeServiceModule({
   );
   const toolingUseCases = createToolingUseCases(serviceRegistryDependencies);
   const opsUseCases = createOpsUseCases(serviceRegistryDependencies);
-  const gitUseCases = createGitUseCases(serviceRegistryDependencies);
+  const gitUseCases = createGitUseCases(serviceRegistryDependencies, {
+    conversationRollback: sessionUseCases.rollbackConversation,
+  });
   const credentialUseCases = createCredentialUseCases();
   const modelProviderUseCases = createModelProviderUseCases();
   const quotaUseCases = createQuotaUseCases(
@@ -187,7 +192,8 @@ export function initializeServiceModule({
     serviceRegistryDependencies
   );
   const usageStatsUseCases = createUsageStatsUseCases(
-    serviceRegistryDependencies
+    serviceRegistryDependencies,
+    quotaUseCases.provider
   );
   const pluginsUseCases = createPluginsUseCases(settingsUseCases.localAde);
   const repoSnapshotIndexingUseCases = createRepoSnapshotIndexingUseCases(
@@ -201,20 +207,34 @@ export function initializeServiceModule({
       settingsUseCases.localAde,
       scopeResolutionUseCases
     );
-  const supervisorUseCases = createSupervisorUseCases(
-    serviceRegistryDependencies,
-    aiUseCases,
-    { projectIntelligence: supervisorProjectIntelligence }
-  );
   const supervisorOrchestrationUseCases = createSupervisorOrchestrationUseCases(
     serviceRegistryDependencies,
     sessionUseCases,
     aiUseCases,
-    agentUseCases
+    agentUseCases,
+    credentialUseCases,
+    toolingUseCases
   );
-  core.sessionAcpAdapter.setPermissionAutoResolver((input) =>
-    supervisorUseCases.permission.handlePermissionRequest(input)
+  const supervisorUseCases = createSupervisorUseCases(
+    serviceRegistryDependencies,
+    aiUseCases,
+    {
+      projectIntelligence: supervisorProjectIntelligence,
+      session: sessionUseCases,
+      agents: agentUseCases,
+      profiles: supervisorOrchestrationUseCases.profiles,
+      goalDraft: supervisorOrchestrationUseCases.orchestrator,
+    }
   );
+  core.sessionAcpAdapter.setPermissionAutoResolver(async (input) => {
+    const handled =
+      await supervisorOrchestrationUseCases.workerPermissions.handlePermissionRequest(
+        input
+      );
+    if (!handled) {
+      await supervisorUseCases.permission.handlePermissionRequest(input);
+    }
+  });
   const goalModeUseCases = createGoalModeUseCases(
     scopeResolutionUseCases,
     gitAdapter
@@ -318,8 +338,10 @@ export function initializeServiceModule({
     resolveAuthContext,
     setBackgroundRunnerStateProvider,
     getBackgroundRunnerState,
-    dispose() {
+    async dispose() {
       fileWatcherUseCases.fileWatcher.dispose();
+      await supervisorOrchestrationUseCases.telegramPolling.dispose();
+      await supervisorOrchestrationUseCases.power.dispose();
     },
   };
 }

@@ -6,7 +6,6 @@ import { initializeScopeResolutionEvents } from "#runtime/modules/scope-resoluti
 import type { SessionRuntimePort } from "#runtime/modules/session";
 import { initializeSubagentEvents } from "#runtime/modules/session/init/subagent-events.init";
 import { initializeSettingsEvents } from "#runtime/modules/settings/init/settings-events.init";
-import { initializeSupervisorEvents } from "#runtime/modules/supervisor/init/supervisor-events.init";
 import { initializeSupervisorOrchestrationEvents } from "#runtime/modules/supervisor-orchestration/init/supervisor-orchestration-events.init";
 import { initializeUsageStatsEvents } from "#runtime/modules/usage-stats/init/usage-stats-events.init";
 import type { AppUseCases } from "#runtime/modules/use-cases";
@@ -36,6 +35,7 @@ export function initializeModuleEventSubscriptions(params: {
     initializeGitEvents({
       eventBus,
       gitUseCases: useCases.git,
+      sessionRuntime,
       logger,
     }),
     initializeSubagentEvents({
@@ -64,15 +64,13 @@ export function initializeModuleEventSubscriptions(params: {
       botsUseCases: useCases.bots,
       logger,
     }),
-    initializeSupervisorEvents({
-      eventBus,
-      supervisorUseCases: useCases.supervisor,
-      logger,
-    }),
     initializeSupervisorOrchestrationEvents({
       eventBus,
       workerSessions: useCases.supervisorOrchestration.workerSessions,
-      supervisorLoop: useCases.supervisor.loop,
+      manager: useCases.supervisorOrchestration.manager,
+      workerResults: useCases.supervisorOrchestration.resultReader,
+      globalScheduler: useCases.supervisorOrchestration.globalScheduler,
+      capacity: useCases.supervisorOrchestration.capacity,
       orchestrator: useCases.supervisorOrchestration.orchestrator,
       logger,
     }),

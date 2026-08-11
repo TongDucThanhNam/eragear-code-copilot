@@ -1,65 +1,28 @@
 import { z } from "zod";
-import { SUPERVISOR_RUN_LIMIT_CAPS } from "../domain/supervisor-run.schemas";
+import { SupervisorRunPrioritySchema } from "../domain/supervisor-run.schemas";
 
 const RunIdSchema = z.string().trim().min(1).max(160);
 
-export const StartSupervisorRunInputSchema = z
+export const CreateSupervisorRunDraftInputSchema = z
   .object({
     projectId: z.string().trim().min(1).max(160),
-    projectRoot: z.string().trim().min(1).max(4096),
-    originatingChatId: z.string().trim().min(1).max(160).optional(),
-    originalIntent: z.string().trim().min(1).max(32_000),
+    intent: z.string().trim().min(1).max(32_000),
     constraints: z
       .array(z.string().trim().min(1).max(4000))
       .max(128)
       .optional(),
-    limits: z
-      .object({
-        maxConcurrency: z
-          .number()
-          .int()
-          .min(1)
-          .max(SUPERVISOR_RUN_LIMIT_CAPS.maxConcurrency)
-          .optional(),
-        maxTasks: z
-          .number()
-          .int()
-          .min(1)
-          .max(SUPERVISOR_RUN_LIMIT_CAPS.maxTasks)
-          .optional(),
-        maxAttemptsPerTask: z
-          .number()
-          .int()
-          .min(1)
-          .max(SUPERVISOR_RUN_LIMIT_CAPS.maxAttemptsPerTask)
-          .optional(),
-        maxRunDurationMs: z
-          .number()
-          .int()
-          .min(1)
-          .max(SUPERVISOR_RUN_LIMIT_CAPS.maxRunDurationMs)
-          .optional(),
-        maxPlannerReplans: z
-          .number()
-          .int()
-          .min(0)
-          .max(SUPERVISOR_RUN_LIMIT_CAPS.maxPlannerReplans)
-          .optional(),
-      })
-      .strict()
-      .optional(),
-    projectIndexSummary: z.string().trim().min(1).max(12_000).optional(),
-    scopeResolutionSummary: z.string().trim().min(1).max(12_000).optional(),
-    eligibleAgentIds: z
+    priority: SupervisorRunPrioritySchema.optional(),
+    agentAllowlist: z
       .array(z.string().trim().min(1).max(160))
       .min(1)
       .max(32)
       .optional(),
-    workerModelId: z.string().trim().min(1).max(512).optional(),
-    providerId: z.string().trim().min(1).max(160).optional(),
-    scheduleId: z.string().trim().min(1).max(160).optional(),
   })
   .strict();
+
+/** Compatibility alias retained for one public schema version. */
+export const StartSupervisorRunInputSchema =
+  CreateSupervisorRunDraftInputSchema;
 
 export const SupervisorRunIdInputSchema = z
   .object({ runId: RunIdSchema })
@@ -87,7 +50,56 @@ export const SupervisorRunTaskInputSchema = z
   })
   .strict();
 
+export const ApproveSupervisorPlanInputSchema = z
+  .object({
+    runId: RunIdSchema,
+    planVersion: z.number().int().min(1),
+    planHash: z.string().regex(/^[a-f0-9]{64}$/),
+    expectedRevision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const RequestSupervisorPlanChangesInputSchema = z
+  .object({
+    runId: RunIdSchema,
+    requestedChanges: z.string().trim().min(1).max(8000),
+    expectedRevision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const AnswerSupervisorDecisionInputSchema = z
+  .object({
+    runId: RunIdSchema,
+    decisionId: z.string().trim().min(1).max(160),
+    answer: z.string().trim().min(1).max(8000),
+    expectedRevision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const SetSupervisorRunPriorityInputSchema = z
+  .object({
+    runId: RunIdSchema,
+    priority: SupervisorRunPrioritySchema,
+    expectedRevision: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export const SupervisorRunUpdatesInputSchema = z
   .object({ projectId: z.string().trim().min(1).max(160).optional() })
   .strict()
   .optional();
+
+export const SupervisorManagerInboxInputSchema = z
+  .object({
+    projectId: z.string().trim().min(1).max(160).optional(),
+    includeResolved: z.boolean().optional(),
+  })
+  .strict()
+  .optional();
+
+export const ConfigureSupervisorTelegramInputSchema = z
+  .object({
+    botToken: z.string().trim().min(20).max(256),
+    timezone: z.string().trim().min(1).max(120),
+  })
+  .strict();

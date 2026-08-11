@@ -4,12 +4,13 @@ import { createSupervisorOrchestrationE2eHarness } from "./supervisor-orchestrat
 describe("supervisor orchestration cancellation e2e", () => {
   test("stops all fake ACP workers and removes every temporary root", async () => {
     const harness = createSupervisorOrchestrationE2eHarness();
-    const started = await harness.orchestrator.start({
+    const draft = await harness.orchestrator.start({
       userId: "user-1",
       projectId: "project-1",
       projectRoot: "C:/e2e-repo",
       originalIntent: "Cancel deterministic multi-session e2e",
     });
+    const started = await harness.approveDraft(draft);
     expect(harness.activeRoots.size).toBe(2);
     const cancelled = await harness.orchestrator.cancel(
       started.runId,

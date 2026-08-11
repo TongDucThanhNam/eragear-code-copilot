@@ -8,6 +8,19 @@ export const SessionChatIdInputSchema = z.object({
   chatId: z.string(),
 });
 
+export const SessionEnvironmentModeSchema = z.enum(["local", "worktree"]);
+
+export const SwitchSessionEnvironmentInputSchema = z
+  .object({
+    chatId: z.string().min(1),
+    envMode: SessionEnvironmentModeSchema,
+  })
+  .strict();
+
+export const SyncSessionWorktreeBranchInputSchema = z
+  .object({ chatId: z.string().min(1) })
+  .strict();
+
 export const ForkSessionInputSchema = z
   .object({
     chatId: z.string().min(1),
@@ -111,6 +124,15 @@ export const ListSubagentInvocationsInputSchema = z.object({
 });
 
 export type SessionChatIdInput = z.infer<typeof SessionChatIdInputSchema>;
+export type SessionEnvironmentMode = z.infer<
+  typeof SessionEnvironmentModeSchema
+>;
+export type SwitchSessionEnvironmentInput = z.infer<
+  typeof SwitchSessionEnvironmentInputSchema
+>;
+export type SyncSessionWorktreeBranchInput = z.infer<
+  typeof SyncSessionWorktreeBranchInputSchema
+>;
 export type ForkSessionInput = z.infer<typeof ForkSessionInputSchema>;
 export type SessionEventsInput = z.infer<typeof SessionEventsInputSchema>;
 export type CreateSessionInput = z.infer<typeof CreateSessionInputSchema>;

@@ -153,4 +153,60 @@ describe("createTrpcContext", () => {
       "better-auth.session_token=from-header"
     );
   });
+
+  test("maps an authenticated loopback daemon API key to the local desktop owner", async () => {
+    const previousTransport = process.env.ERAGEAR_RUNTIME_TRANSPORT;
+    process.env.ERAGEAR_RUNTIME_TRANSPORT = "user-daemon";
+    try {
+      const context = await createTrpcContext(
+        createDeps(() =>
+          Promise.resolve({ type: "apiKey", userId: "bootstrap-admin" })
+        ),
+        {
+          req: {
+            headers: new Headers({ "x-api-key": "eg_private" }),
+            remoteAddress: "::ffff:127.0.0.1",
+          },
+        }
+      );
+      expect(context.auth).toMatchObject({
+        type: "local",
+        userId: "local-desktop-user",
+      });
+    } finally {
+      if (previousTransport === undefined) {
+        Reflect.deleteProperty(process.env, "ERAGEAR_RUNTIME_TRANSPORT");
+      } else {
+        process.env.ERAGEAR_RUNTIME_TRANSPORT = previousTransport;
+      }
+    }
+  });
+
+  test("never applies daemon ownership mapping to a non-loopback request", async () => {
+    const previousTransport = process.env.ERAGEAR_RUNTIME_TRANSPORT;
+    process.env.ERAGEAR_RUNTIME_TRANSPORT = "user-daemon";
+    try {
+      const context = await createTrpcContext(
+        createDeps(() =>
+          Promise.resolve({ type: "apiKey", userId: "bootstrap-admin" })
+        ),
+        {
+          req: {
+            headers: new Headers({ "x-api-key": "eg_private" }),
+            remoteAddress: "192.0.2.4",
+          },
+        }
+      );
+      expect(context.auth).toMatchObject({
+        type: "apiKey",
+        userId: "bootstrap-admin",
+      });
+    } finally {
+      if (previousTransport === undefined) {
+        Reflect.deleteProperty(process.env, "ERAGEAR_RUNTIME_TRANSPORT");
+      } else {
+        process.env.ERAGEAR_RUNTIME_TRANSPORT = previousTransport;
+      }
+    }
+  });
 });

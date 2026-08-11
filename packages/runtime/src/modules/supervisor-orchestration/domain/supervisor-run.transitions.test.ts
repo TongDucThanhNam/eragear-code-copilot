@@ -60,6 +60,18 @@ describe("supervisor run transitions", () => {
     ).toThrow(InvalidSupervisorRunTransitionError);
   });
 
+  test("allows an in-envelope replan to move directly from planning to queued", () => {
+    const planning = createSupervisorRunFixture({ status: "planning" });
+    const queued = transitionSupervisorRun(planning, {
+      expectedRevision: planning.revision,
+      now: LATER,
+      mutate(draft) {
+        draft.status = "queued";
+      },
+    });
+    expect(queued.status).toBe("queued");
+  });
+
   test("derives dependency readiness and never removes completed work", () => {
     const run = createSupervisorRunFixture();
     expect(deriveReadyTaskIds(run)).toEqual(["task-a"]);

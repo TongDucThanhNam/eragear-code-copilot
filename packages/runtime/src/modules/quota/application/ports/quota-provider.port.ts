@@ -1,4 +1,3 @@
-import type { AgentConfig } from "#runtime/shared/types/agent.types";
 import type {
   QuotaProviderSource,
   QuotaWindow,
@@ -7,7 +6,6 @@ import type { QuotaCredentialResolverPort } from "./quota-credential-resolver.po
 
 export interface QuotaProviderContext {
   userId: string;
-  agents: AgentConfig[];
   now: Date;
   credentialResolver?: QuotaCredentialResolverPort;
 }
@@ -46,7 +44,6 @@ export interface QuotaProviderAdapter {
   aliases: string[];
   displayName: string;
   source: QuotaProviderSource;
-  detect(ctx: QuotaProviderContext): boolean;
   resolveAuth(ctx: QuotaProviderContext): Promise<QuotaAuthResult>;
   fetchQuota(
     auth: QuotaAuthOk,

@@ -42,6 +42,18 @@ import migration0012 from "../../../drizzle/0012_supervisor_runs.sql" with {
 import migration0013 from "../../../drizzle/0013_goal_mode_states.sql" with {
   type: "file",
 };
+import migration0014 from "../../../drizzle/0014_session_git_worktrees.sql" with {
+  type: "file",
+};
+import migration0015 from "../../../drizzle/0015_usage_quota_cycles.sql" with {
+  type: "file",
+};
+import migration0016 from "../../../drizzle/0016_supervisor_agent_profiles.sql" with {
+  type: "file",
+};
+import migration0017 from "../../../drizzle/0017_supervisor_run_v2_statuses.sql" with {
+  type: "file",
+};
 import journalAsset from "../../../drizzle/meta/_journal.json" with {
   type: "file",
 };
@@ -96,6 +108,22 @@ const EMBEDDED_MIGRATION_FILES = [
   {
     relativePath: "0013_goal_mode_states.sql",
     sourcePath: migration0013,
+  },
+  {
+    relativePath: "0014_session_git_worktrees.sql",
+    sourcePath: migration0014,
+  },
+  {
+    relativePath: "0015_usage_quota_cycles.sql",
+    sourcePath: migration0015,
+  },
+  {
+    relativePath: "0016_supervisor_agent_profiles.sql",
+    sourcePath: migration0016,
+  },
+  {
+    relativePath: "0017_supervisor_run_v2_statuses.sql",
+    sourcePath: migration0017,
   },
   {
     relativePath: path.join("meta", "0006_snapshot.json"),

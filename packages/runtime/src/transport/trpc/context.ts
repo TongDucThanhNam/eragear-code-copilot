@@ -9,6 +9,7 @@
 
 import type { AppConfigService } from "#runtime/modules/settings";
 import type { AppUseCases } from "#runtime/modules/use-cases";
+import { LOCAL_DESKTOP_USER_ID } from "#runtime/shared/constants/local-desktop-user.constants";
 import {
   type ConnectionParams,
   createTrpcAuthRequest,
@@ -28,6 +29,15 @@ export interface TrpcContextDependencies {
   useCases: AppUseCases;
   appConfig: AppConfigService;
   resolveAuthContext: (req: RequestLike) => Promise<AuthContext | null>;
+}
+
+function isLoopbackAddress(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "::ffff:127.0.0.1"
+  );
 }
 
 /**
@@ -52,9 +62,23 @@ export async function createTrpcContext(
     opts?.connectionParams
   );
 
-  const authContext = requestWithAuth
+  const resolvedAuthContext = requestWithAuth
     ? await deps.resolveAuthContext(requestWithAuth)
     : null;
+  const authContext =
+    process.env.ERAGEAR_RUNTIME_TRANSPORT === "user-daemon" &&
+    resolvedAuthContext?.type === "apiKey" &&
+    isLoopbackAddress(requestWithAuth?.remoteAddress)
+      ? {
+          type: "local" as const,
+          userId: LOCAL_DESKTOP_USER_ID,
+          user: {
+            id: LOCAL_DESKTOP_USER_ID,
+            username: "local",
+            name: "Local Desktop",
+          },
+        }
+      : resolvedAuthContext;
 
   return {
     useCases: deps.useCases,

@@ -12,10 +12,15 @@ import { FileTree } from "./file-tree";
 
 interface ContextPanelProps {
   chatId?: string | null;
+  projectId?: string | null;
   onClose: () => void;
 }
 
-export function ContextPanel({ chatId, onClose }: ContextPanelProps) {
+export function ContextPanel({
+  chatId,
+  projectId,
+  onClose,
+}: ContextPanelProps) {
   return (
     <aside
       aria-label="Context sidebar"
@@ -74,7 +79,7 @@ export function ContextPanel({ chatId, onClose }: ContextPanelProps) {
             className="relative m-0 h-full min-h-0 overflow-hidden"
             value="diff"
           >
-            <DiffView chatId={chatId} />
+            <DiffView chatId={chatId} projectId={projectId} />
           </TabsContent>
           <TabsContent
             className="relative m-0 h-full min-h-0 overflow-hidden"

@@ -43,6 +43,8 @@ export function initializeUsageStatsEvents(params: {
         providerId: event.providerId,
         providerDisplayName: event.providerDisplayName,
         status: event.status,
+        fetchedAt: event.fetchedAt,
+        windows: event.windows.map((window) => ({ ...window })),
       });
     },
     onError(error, event) {

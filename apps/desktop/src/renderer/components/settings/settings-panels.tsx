@@ -147,11 +147,11 @@ export function SettingsPageHeader({
   action,
 }: SettingsPageHeaderProps) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+    <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
-        <h1 className="font-semibold text-xl">{title}</h1>
+        <h1 className="font-semibold text-2xl tracking-tight">{title}</h1>
         {description ? (
-          <p className="mt-1 max-w-3xl text-muted-foreground text-xs leading-5">
+          <p className="mt-2 max-w-3xl text-muted-foreground text-sm leading-6">
             {description}
           </p>
         ) : null}
@@ -169,22 +169,22 @@ export function SettingsSection({
   children,
 }: SettingsSectionProps) {
   return (
-    <section className="border bg-background">
-      <div className="flex min-h-11 items-start justify-between gap-3 border-b px-4 py-3">
+    <section className="overflow-hidden rounded-xl border border-border/70 bg-card/20">
+      <div className="flex min-h-12 items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
         <div className="min-w-0">
-          <h2 className="flex items-center gap-2 font-medium text-sm">
-            <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <h2 className="flex items-center gap-2.5 font-semibold text-base">
+            <Icon className="h-4 w-4 shrink-0 text-primary" />
             <span className="truncate">{title}</span>
           </h2>
           {description ? (
-            <p className="mt-1 max-w-2xl text-muted-foreground text-xs leading-5">
+            <p className="mt-1.5 max-w-2xl text-muted-foreground text-xs leading-5">
               {description}
             </p>
           ) : null}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className="p-4 sm:p-5">{children}</div>
+      <div className="p-5 sm:p-6">{children}</div>
     </section>
   );
 }
@@ -390,6 +390,31 @@ function sameStringList(left: string[], right: string[]): boolean {
 }
 
 export function SupervisorSettingsPanel() {
+  return (
+    <SettingsSection
+      description="Manager planning and worker execution now run through ACP agent profiles. Legacy direct-model Supervisor settings are retained only for stored-data compatibility."
+      icon={Bot}
+      title="Supervisos Manager Mode"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background p-4">
+        <div className="grid gap-1">
+          <p className="text-sm font-medium">ACP control plane is active</p>
+          <p className="text-xs text-muted-foreground">
+            Configure agent roles, concurrency, readiness, and exact-resume
+            checks in Mission Control. MiniMax credentials are no longer used by
+            active Supervisor paths.
+          </p>
+        </div>
+        <Button asChild variant="outline">
+          <a href="/mission-control">Open Mission Control</a>
+        </Button>
+      </div>
+    </SettingsSection>
+  );
+}
+
+/** @deprecated Compatibility-only form; intentionally absent from navigation. */
+export function LegacySupervisorSettingsPanel() {
   const utils = trpc.useUtils();
   const settingsQuery = trpc.settings.get.useQuery(undefined, {
     staleTime: 30_000,

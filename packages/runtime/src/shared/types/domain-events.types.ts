@@ -76,6 +76,17 @@ export interface PromptMessageSentEvent {
   source: PromptSource;
 }
 
+export interface PromptTurnStartedEvent {
+  type: "prompt_turn_started";
+  userId: string;
+  projectRoot: string;
+  projectId?: string;
+  chatId: string;
+  agentSessionId?: string;
+  turnId: string;
+  source: PromptSource;
+}
+
 export interface PromptTurnCompletedEvent {
   type: "prompt_turn_completed";
   userId: string;
@@ -105,6 +116,51 @@ export interface SupervisorRunUpdatedEvent {
   userId: string;
   projectId?: string;
   update: SupervisorRunClientUpdate;
+}
+
+export interface SupervisorCapacitySuspendedEvent {
+  type: "supervisor_capacity_suspended";
+  userId: string;
+  runId: string;
+  projectId?: string;
+  owner: "manager" | "task";
+  taskId?: string;
+  attemptId?: string;
+  agentId: string;
+  capacityGroup?: string;
+  kind:
+    | "quota_exhausted"
+    | "transient_rate_limit"
+    | "auth_required"
+    | "transport"
+    | "session_fatal"
+    | "unknown";
+  retryAt: string;
+  resetAt?: string;
+}
+
+export interface SupervisorCapacityResumedEvent {
+  type: "supervisor_capacity_resumed";
+  userId: string;
+  runId: string;
+  projectId?: string;
+  waitId: string;
+  owner: "manager" | "task";
+  taskId?: string;
+  attemptId?: string;
+  agentId: string;
+  resumedAt: string;
+}
+
+export interface ManagerInboxUpdatedEvent {
+  type: "manager_inbox_updated";
+  userId: string;
+  runId: string;
+  projectId?: string;
+  decisionId: string;
+  status: "open" | "answered" | "cancelled";
+  kind: string;
+  updatedAt: string;
 }
 
 export interface AgentSessionStoppedEvent {
@@ -146,7 +202,10 @@ export interface ProviderQuotaEventWindow {
   used?: number;
   total?: number;
   remaining?: number;
+  unlimited?: boolean;
+  startedAt?: string;
   resetAt?: string;
+  durationMs?: number;
   scope?: string;
 }
 
@@ -213,9 +272,13 @@ export type DomainEvent =
   | SessionBroadcastEvent
   | AgentSessionCreatedEvent
   | PromptMessageSentEvent
+  | PromptTurnStartedEvent
   | PromptTurnCompletedEvent
   | SupervisorTurnTerminalEvent
   | SupervisorRunUpdatedEvent
+  | SupervisorCapacitySuspendedEvent
+  | SupervisorCapacityResumedEvent
+  | ManagerInboxUpdatedEvent
   | AgentSessionStoppedEvent
   | SubagentInvocationRequestedEvent
   | ProviderQuotaRefreshedEvent

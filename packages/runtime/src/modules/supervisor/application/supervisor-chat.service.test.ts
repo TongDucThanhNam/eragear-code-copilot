@@ -136,8 +136,9 @@ describe("SupervisorChatService", () => {
     expect(captured[0]?.supervisor.status).toBe("reviewing");
   });
 
-  test("enhances implementation requests into a staged main ChatInput prompt", async () => {
+  test("creates a durable Goal Draft for implementation requests", async () => {
     let chatResponded = false;
+    const goalDrafts: unknown[] = [];
     const service = new SupervisorChatService({
       clock: fixedClock(),
       sessionRepo: sessionRepo({
@@ -176,6 +177,15 @@ describe("SupervisorChatService", () => {
           });
         },
       },
+      goalDraft: {
+        createDraft(input) {
+          goalDrafts.push(input);
+          return Promise.resolve({
+            runId: "supervisor-run-1",
+            status: "planning",
+          });
+        },
+      },
     });
 
     const result = await service.execute({
@@ -185,30 +195,31 @@ describe("SupervisorChatService", () => {
     });
 
     expect(chatResponded).toBe(false);
-    expect(result.action?.type).toBe("stage_main_prompt");
-    expect(result.action?.autoSubmit).toBe(true);
-    expect(result.action?.prompt).toContain(
-      "Supervisos delegated enhanced task."
-    );
-    expect(result.action?.prompt).toContain(
-      "Create an AWWWARDS website for a hamburger shop."
-    );
-    expect(result.action?.prompt).toContain("Implementation instructions:");
-    expect(result.message.content).toContain(
-      "Enhanced prompt prepared for the main ChatInput."
-    );
-    expect(result.message.content).toContain("submitted automatically");
-    expect(result.message.content).not.toContain("Prompt sent:");
+    expect(result.action).toEqual({
+      type: "goal_draft_created",
+      runId: "supervisor-run-1",
+      status: "planning",
+      requiresApproval: true,
+    });
+    expect(goalDrafts).toHaveLength(1);
+    expect(goalDrafts[0]).toMatchObject({
+      userId: "user-1",
+      projectId: "project-1",
+      projectRoot: "/repo",
+      intent: "Create an AWWWARDS website for a hamburger shop.",
+    });
+    expect(result.message.content).toContain("Goal Draft supervisor-run-1");
+    expect(result.message.content).toContain("exact plan hash");
   });
 
-  test("stages implementation requests without auto-submit when autopilot is off", async () => {
-    const modeChanges: string[] = [];
+  test("creates the same approval-gated Goal Draft when autopilot is off", async () => {
     let chatResponded = false;
     const service = new SupervisorChatService({
       clock: fixedClock(),
       sessionRepo: sessionRepo({
         id: "chat-1",
         userId: "user-1",
+        projectId: "project-1",
         projectRoot: "/repo",
         status: "running",
         createdAt: 1,
@@ -232,6 +243,14 @@ describe("SupervisorChatService", () => {
           });
         },
       },
+      goalDraft: {
+        createDraft() {
+          return Promise.resolve({
+            runId: "supervisor-run-2",
+            status: "planning",
+          });
+        },
+      },
     });
 
     const result = await service.execute({
@@ -241,15 +260,9 @@ describe("SupervisorChatService", () => {
     });
 
     expect(chatResponded).toBe(false);
-    expect(modeChanges).toEqual([]);
-    expect(result.action?.type).toBe("stage_main_prompt");
-    expect(result.action?.autoSubmit).toBe(false);
-    expect(result.action?.prompt).toContain(
-      "Tạo cho tôi một trang web AWWWARDS cho cửa hàng bán Hamburger."
-    );
-    expect(result.message.content).toContain("Autopilot is off");
-    expect(result.message.content).not.toContain("Prompt sent:");
-    expect(result.message.content).not.toContain("Original user request:");
+    expect(result.action?.type).toBe("goal_draft_created");
+    expect(result.action?.requiresApproval).toBe(true);
+    expect(result.message.content).toContain("Goal Draft supervisor-run-2");
   });
 });
 

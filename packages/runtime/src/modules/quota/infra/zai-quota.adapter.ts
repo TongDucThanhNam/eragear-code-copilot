@@ -8,14 +8,13 @@ import type {
 } from "../application/ports/quota-provider.port";
 import { findApiKeyInLocalAuth } from "./local-auth";
 import {
-  agentsMatchProvider,
   asArray,
   asRecord,
   clampPercent,
+  deriveWindowStartedAt,
   type FetchLike,
   fetchJsonWithTimeout,
   getEnvValue,
-  hasEnvValue,
   parseResetAt,
   readNumber,
   readString,
@@ -50,12 +49,6 @@ export class ZaiQuotaAdapter implements QuotaProviderAdapter {
   constructor(fetchImpl: FetchLike = fetch, timeoutMs = REQUEST_TIMEOUT_MS) {
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
-  }
-
-  detect(ctx: QuotaProviderContext): boolean {
-    return (
-      hasEnvValue(ZAI_ENV_KEYS) || agentsMatchProvider(ctx.agents, this.aliases)
-    );
   }
 
   async resolveAuth(ctx: QuotaProviderContext): Promise<QuotaAuthResult> {
@@ -102,7 +95,7 @@ export class ZaiQuotaAdapter implements QuotaProviderAdapter {
       {
         method: "GET",
         headers: {
-          Authorization: auth.token,
+          Authorization: `Bearer ${auth.token}`,
           "Content-Type": "application/json",
         },
       },
@@ -146,6 +139,10 @@ export function normalizeZaiQuota(payload: unknown, nowMs: number) {
         ? Math.max(0, total - used)
         : undefined;
 
+    const resetAt = parseResetAt(
+      limit.nextResetTime ?? limit.next_reset_time ?? limit.resetAt,
+      nowMs
+    );
     windows.push({
       id: windowMeta.id,
       windowType: windowMeta.id,
@@ -154,10 +151,9 @@ export function normalizeZaiQuota(payload: unknown, nowMs: number) {
       total,
       remaining,
       percentRemaining,
-      resetAt: parseResetAt(
-        limit.nextResetTime ?? limit.next_reset_time ?? limit.resetAt,
-        nowMs
-      ),
+      startedAt: deriveWindowStartedAt(resetAt, windowMeta.durationMs),
+      resetAt,
+      durationMs: windowMeta.durationMs,
     });
   }
 
@@ -184,19 +180,23 @@ function calculatePercentRemaining(params: {
 
 function getZaiWindowMeta(type: string | undefined, unit: number | undefined) {
   if (type === "TIME_LIMIT") {
-    return { id: "mcp", label: "MCP" };
+    return { id: "mcp", label: "MCP", durationMs: undefined };
   }
   if (type !== "TOKENS_LIMIT") {
     return null;
   }
   if (unit === 3) {
-    return { id: "5h", label: "5h" };
+    return { id: "5h", label: "5h", durationMs: 5 * 60 * 60 * 1000 };
   }
   if (unit === 4) {
-    return { id: "daily", label: "Daily" };
+    return { id: "daily", label: "Daily", durationMs: 24 * 60 * 60 * 1000 };
   }
   if (unit === 6) {
-    return { id: "weekly", label: "Weekly" };
+    return {
+      id: "weekly",
+      label: "Weekly",
+      durationMs: 7 * 24 * 60 * 60 * 1000,
+    };
   }
   return null;
 }

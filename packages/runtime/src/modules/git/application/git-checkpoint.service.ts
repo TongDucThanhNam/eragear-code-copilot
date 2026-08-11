@@ -11,8 +11,16 @@ import type {
   GitCheckpointListResult,
   GitCheckpointRestoreInput,
   GitCheckpointRestoreResult,
+  GitTurnCheckpoint,
+  GitTurnCheckpointDiffInput,
+  GitTurnCheckpointDiffResult,
+  GitTurnCheckpointListResult,
+  GitTurnCheckpointRevertInput,
+  GitTurnCheckpointRevertResult,
+  GitTurnCheckpointSessionInput,
 } from "./contracts/git.contract";
 import type { GitCheckpointPort } from "./ports/git-checkpoint.port";
+import type { TurnConversationRollbackPort } from "./ports/turn-conversation-rollback.port";
 
 const MODULE = "git";
 const OP_RESOLVE_PROJECT = "git.checkpoint.resolve-project";
@@ -28,22 +36,31 @@ export interface CreateAutomaticGitCheckpointInput {
   turnId?: string;
 }
 
+export interface TurnCheckpointLifecycleInput
+  extends CreateAutomaticGitCheckpointInput {
+  chatId: string;
+  turnId: string;
+}
+
 export class GitCheckpointService {
   private readonly checkpoints: GitCheckpointPort;
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly activeProjectResolver: ResolveActiveProjectService;
   private readonly clock: ClockPort;
+  private readonly conversationRollback?: TurnConversationRollbackPort;
 
   constructor(
     checkpoints: GitCheckpointPort,
     projectRepo: ProjectRepositoryPort,
     activeProjectResolver: ResolveActiveProjectService,
-    clock: ClockPort
+    clock: ClockPort,
+    conversationRollback?: TurnConversationRollbackPort
   ) {
     this.checkpoints = checkpoints;
     this.projectRepo = projectRepo;
     this.activeProjectResolver = activeProjectResolver;
     this.clock = clock;
+    this.conversationRollback = conversationRollback;
   }
 
   async createCheckpoint(
@@ -118,6 +135,207 @@ export class GitCheckpointService {
     });
   }
 
+  async captureTurnBaseline(
+    input: TurnCheckpointLifecycleInput
+  ): Promise<GitTurnCheckpoint> {
+    const project = await this.resolveLifecycleProject(input);
+    return await this.ensureTurnBaseline({
+      projectRoot: project.path,
+      sessionId: input.chatId,
+      turnId: input.turnId,
+    });
+  }
+
+  async captureCompletedTurn(
+    input: TurnCheckpointLifecycleInput
+  ): Promise<GitTurnCheckpointDiffResult> {
+    const project = await this.resolveLifecycleProject(input);
+    return await this.captureNextTurn({
+      projectRoot: project.path,
+      sessionId: input.chatId,
+      turnId: input.turnId,
+    });
+  }
+
+  async createTurnCheckpoint(
+    userId: string,
+    input: GitTurnCheckpointSessionInput & { turnId?: string }
+  ): Promise<GitTurnCheckpointDiffResult> {
+    const project = await this.resolveSessionProject(userId, input);
+    return await this.captureNextTurn({
+      projectRoot: project.path,
+      sessionId: input.sessionId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+    });
+  }
+
+  async listTurnCheckpoints(
+    userId: string,
+    input: GitTurnCheckpointSessionInput
+  ): Promise<GitTurnCheckpointListResult> {
+    const project = await this.resolveSessionProject(userId, input);
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      projectRoot: project.path,
+      checkpoints: await this.checkpoints.listTurnCheckpoints({
+        projectRoot: project.path,
+        sessionId: input.sessionId,
+      }),
+      checkedAt: new Date(this.clock.nowMs()).toISOString(),
+    };
+  }
+
+  async diffTurnCheckpoints(
+    userId: string,
+    input: GitTurnCheckpointDiffInput
+  ): Promise<GitTurnCheckpointDiffResult> {
+    const project = await this.resolveSessionProject(userId, input);
+    const checkpoints = await this.checkpoints.listTurnCheckpoints({
+      projectRoot: project.path,
+      sessionId: input.sessionId,
+    });
+    const from = requireTurnCheckpoint(checkpoints, input.fromTurnCount);
+    const to = requireTurnCheckpoint(checkpoints, input.toTurnCount);
+    return {
+      from,
+      to,
+      files: await this.checkpoints.diffTurnCheckpoints({
+        projectRoot: project.path,
+        fromRef: from.ref,
+        toRef: to.ref,
+      }),
+    };
+  }
+
+  async revertTurnCheckpoint(
+    userId: string,
+    input: GitTurnCheckpointRevertInput
+  ): Promise<GitTurnCheckpointRevertResult> {
+    if (!this.conversationRollback) {
+      throw new ValidationError("Conversation rollback is unavailable", {
+        module: MODULE,
+        op: "git.turn-checkpoint.revert",
+      });
+    }
+    const project = await this.resolveSessionProject(userId, input);
+    const checkpoints = await this.checkpoints.listTurnCheckpoints({
+      projectRoot: project.path,
+      sessionId: input.sessionId,
+    });
+    const checkpoint = requireTurnCheckpoint(checkpoints, input.turnCount);
+    const currentTurnCount = checkpoints.reduce(
+      (maximum, item) => Math.max(maximum, item.turnCount),
+      0
+    );
+    if (input.turnCount > currentTurnCount) {
+      throw new ValidationError("Turn checkpoint exceeds current turn count", {
+        module: MODULE,
+        op: "git.turn-checkpoint.revert",
+        details: { turnCount: input.turnCount, currentTurnCount },
+      });
+    }
+    const restored = await this.checkpoints.restoreTurnCheckpoint({
+      projectRoot: project.path,
+      targetRef: checkpoint.ref,
+      fallbackToHead: input.turnCount === 0,
+    });
+    const rollback = await this.conversationRollback.execute({
+      userId,
+      sessionId: input.sessionId,
+      projectRoot: project.path,
+      turnCount: input.turnCount,
+    });
+    const stale = await this.checkpoints.deleteTurnCheckpointsAfter({
+      projectRoot: project.path,
+      sessionId: input.sessionId,
+      turnCount: input.turnCount,
+    });
+    return {
+      checkpoint,
+      safetyRef: restored.safetyRef,
+      deletedRefs: stale.deletedRefs,
+      rolledBackTurns: currentTurnCount - input.turnCount,
+      replayedMessages: rollback.replayedMessages,
+    };
+  }
+
+  private async ensureTurnBaseline(input: {
+    projectRoot: string;
+    sessionId: string;
+    turnId?: string;
+  }): Promise<GitTurnCheckpoint> {
+    const checkpoints = await this.checkpoints.listTurnCheckpoints({
+      projectRoot: input.projectRoot,
+      sessionId: input.sessionId,
+    });
+    const current = checkpoints.at(-1);
+    if (current) {
+      return current;
+    }
+    return await this.checkpoints.captureTurnCheckpoint({
+      projectRoot: input.projectRoot,
+      sessionId: input.sessionId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      turnCount: 0,
+      kind: "baseline",
+    });
+  }
+
+  private async captureNextTurn(input: {
+    projectRoot: string;
+    sessionId: string;
+    turnId?: string;
+  }): Promise<GitTurnCheckpointDiffResult> {
+    let checkpoints = await this.checkpoints.listTurnCheckpoints({
+      projectRoot: input.projectRoot,
+      sessionId: input.sessionId,
+    });
+    const duplicate = input.turnId
+      ? checkpoints.find(
+          (checkpoint) =>
+            checkpoint.kind === "turn" && checkpoint.turnId === input.turnId
+        )
+      : undefined;
+    if (duplicate) {
+      const from = requireTurnCheckpoint(
+        checkpoints,
+        Math.max(0, duplicate.turnCount - 1)
+      );
+      return {
+        from,
+        to: duplicate,
+        files: await this.checkpoints.diffTurnCheckpoints({
+          projectRoot: input.projectRoot,
+          fromRef: from.ref,
+          toRef: duplicate.ref,
+        }),
+      };
+    }
+    const baseline = await this.ensureTurnBaseline(input);
+    checkpoints = await this.checkpoints.listTurnCheckpoints({
+      projectRoot: input.projectRoot,
+      sessionId: input.sessionId,
+    });
+    const from = checkpoints.at(-1) ?? baseline;
+    const to = await this.checkpoints.captureTurnCheckpoint({
+      projectRoot: input.projectRoot,
+      sessionId: input.sessionId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      turnCount: from.turnCount + 1,
+      kind: "turn",
+    });
+    return {
+      from,
+      to,
+      files: await this.checkpoints.diffTurnCheckpoints({
+        projectRoot: input.projectRoot,
+        fromRef: from.ref,
+        toRef: to.ref,
+      }),
+    };
+  }
+
   private async resolveProject(userId: string, projectId?: string) {
     const requestedProjectId = projectId?.trim();
     if (requestedProjectId) {
@@ -164,6 +382,11 @@ export class GitCheckpointService {
           details: { projectId: input.projectId },
         });
       }
+      const sessionRoot = await this.resolveStoredSessionRoot(input);
+      if (sessionRoot) {
+        this.assertSameProjectRoot(sessionRoot, projectRoot);
+        return { ...project, path: sessionRoot };
+      }
       this.assertSameProjectRoot(project.path, projectRoot);
       return project;
     }
@@ -179,6 +402,34 @@ export class GitCheckpointService {
     return project;
   }
 
+  private async resolveSessionProject(
+    userId: string,
+    input: GitTurnCheckpointSessionInput
+  ) {
+    const project = await this.resolveProject(userId, input.projectId);
+    const sessionRoot = this.conversationRollback?.resolveProjectRoot
+      ? await this.conversationRollback.resolveProjectRoot({
+          userId,
+          sessionId: input.sessionId,
+          projectId: project.id,
+        })
+      : project.path;
+    return { ...project, path: sessionRoot };
+  }
+
+  private async resolveStoredSessionRoot(
+    input: CreateAutomaticGitCheckpointInput
+  ): Promise<string | undefined> {
+    if (!(input.chatId && this.conversationRollback?.resolveProjectRoot)) {
+      return undefined;
+    }
+    return await this.conversationRollback.resolveProjectRoot({
+      userId: input.userId,
+      sessionId: input.chatId,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+    });
+  }
+
   private assertSameProjectRoot(projectPath: string, eventProjectRoot: string) {
     if (path.resolve(projectPath) === path.resolve(eventProjectRoot)) {
       return;
@@ -192,4 +443,19 @@ export class GitCheckpointService {
       },
     });
   }
+}
+
+function requireTurnCheckpoint(
+  checkpoints: GitTurnCheckpoint[],
+  turnCount: number
+): GitTurnCheckpoint {
+  const checkpoint = checkpoints.find((item) => item.turnCount === turnCount);
+  if (checkpoint) {
+    return checkpoint;
+  }
+  throw new ValidationError("Git turn checkpoint was not found", {
+    module: MODULE,
+    op: "git.turn-checkpoint.resolve",
+    details: { turnCount },
+  });
 }

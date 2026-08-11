@@ -42,6 +42,8 @@ export const SupervisorPlannerAgentSchema = z
     agentId: PlannerIdentifierSchema,
     displayName: z.string().trim().min(1).max(240),
     active: z.boolean(),
+    managerEligible: z.boolean().optional(),
+    overnightEligible: z.boolean().optional(),
     roles: z.array(SupervisorTaskRoleSchema).min(1),
   })
   .strict();

@@ -264,6 +264,7 @@ describe("SUPERVISOR_TURN_SYSTEM_PROMPT", () => {
 describe("buildSupervisorChatPrompt", () => {
   test("builds a compact side-chat prompt without raw main transcript", () => {
     const prompt = buildSupervisorChatPrompt({
+      userId: "user-1",
       chatId: "chat-1",
       projectRoot: "/repo",
       projectContext: {

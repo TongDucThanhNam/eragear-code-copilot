@@ -66,7 +66,12 @@ describe("SessionSqliteRepository.create", () => {
     }
 
     if (tempStorageDir) {
-      await rm(tempStorageDir, { recursive: true, force: true });
+      await rm(tempStorageDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 8,
+        retryDelay: 25,
+      });
     }
   });
 

@@ -1,5 +1,6 @@
 import type {
   SupervisorRunLimits,
+  SupervisorRunPriority,
   SupervisorRunState,
   SupervisorVerificationEvidence,
 } from "../../domain/supervisor-run.schemas";
@@ -25,21 +26,29 @@ export interface SupervisorFinalVerifierPort {
   }): Promise<SupervisorVerificationEvidence[]>;
 }
 
-export interface StartSupervisorRunInput {
+export interface CreateSupervisorRunDraftInput {
   userId: string;
-  projectId?: string;
+  projectId: string;
   projectRoot: string;
-  originatingChatId?: string;
-  originalIntent: string;
+  intent?: string;
+  /** Deprecated internal compatibility field; transport never accepts it. */
+  originalIntent?: string;
   constraints?: string[];
-  limits?: Partial<SupervisorRunLimits>;
-  projectIndexSummary?: string;
-  scopeResolutionSummary?: string;
+  priority?: SupervisorRunPriority;
+  agentAllowlist?: string[];
+  /** Deprecated telemetry-only compatibility fields. */
   eligibleAgentIds?: string[];
   workerModelId?: string;
   providerId?: string;
   scheduleId?: string;
+  /** Internal bounded context assembled by runtime services. */
+  projectIndexSummary?: string;
+  scopeResolutionSummary?: string;
+  /** Internal caps may narrow configuration; never accepted from transport. */
+  limits?: Partial<SupervisorRunLimits>;
 }
+
+export type StartSupervisorRunInput = CreateSupervisorRunDraftInput;
 
 export interface SupervisorDispatchAdmissionPort {
   admit(input: {

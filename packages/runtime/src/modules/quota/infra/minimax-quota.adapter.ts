@@ -8,14 +8,13 @@ import type {
 } from "../application/ports/quota-provider.port";
 import { findApiKeyInLocalAuth } from "./local-auth";
 import {
-  agentsMatchProvider,
   asArray,
   asRecord,
   clampPercent,
+  deriveWindowStartedAt,
   type FetchLike,
   fetchJsonWithTimeout,
   getEnvValue,
-  hasEnvValue,
   parseResetAt,
   percentRemainingFromCounts,
   readNumber,
@@ -71,13 +70,6 @@ export class MiniMaxQuotaAdapter implements QuotaProviderAdapter {
   constructor(fetchImpl: FetchLike = fetch, timeoutMs = REQUEST_TIMEOUT_MS) {
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
-  }
-
-  detect(ctx: QuotaProviderContext): boolean {
-    return (
-      hasEnvValue([...GLOBAL_ENV_KEYS, ...CHINA_ENV_KEYS]) ||
-      agentsMatchProvider(ctx.agents, this.aliases)
-    );
   }
 
   async resolveAuth(ctx: QuotaProviderContext): Promise<QuotaAuthResult> {
@@ -415,6 +407,12 @@ function buildMiniMaxWindow(
       params.nowMs
     );
   const modelSuffix = params.modelName ? `:${params.modelName}` : "";
+  let durationMs: number | undefined;
+  if (params.windowType === "5h") {
+    durationMs = 5 * 60 * 60 * 1000;
+  } else if (params.windowType === "weekly") {
+    durationMs = 7 * 24 * 60 * 60 * 1000;
+  }
 
   return {
     id: `${params.windowType}${modelSuffix}`,
@@ -443,7 +441,9 @@ function buildMiniMaxWindow(
       (remaining !== undefined && total === undefined
         ? undefined
         : clampPercent(0)),
+    startedAt: deriveWindowStartedAt(resetAt, durationMs),
     resetAt,
+    durationMs,
   };
 }
 

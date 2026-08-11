@@ -112,6 +112,15 @@ describe("UsageStatsService", () => {
       providerId: "zai",
       providerDisplayName: "Z.ai",
       status: "ready",
+      fetchedAt: "2026-06-12T00:00:00.000Z",
+      windows: [
+        {
+          id: "5h",
+          label: "5h",
+          percentRemaining: 52,
+          resetAt: "2026-06-12T05:00:00.000Z",
+        },
+      ],
     });
 
     const summary = await service.getSummary("user-1", { range: "7d" });
@@ -122,6 +131,10 @@ describe("UsageStatsService", () => {
     expect(summary.totals.activeProjects).toBe(1);
     expect(summary.totals.activeChats).toBe(1);
     expect(summary.byProject[0]?.key).toBe("project-1");
+    expect(
+      summary.recent.find((record) => record.kind === "quota_refreshed")
+        ?.quotaWindows?.[0]?.percentRemaining
+    ).toBe(52);
   });
 
   test("keeps telemetry disabled until explicitly opted in", async () => {

@@ -1,13 +1,22 @@
 export type {
+  GetQuotaCycleUsageInput,
   ListProviderQuotasInput,
+  ProviderQuotaCycleUsage,
   ProviderQuotaListResult,
   ProviderQuotaSnapshot,
+  QuotaCycleBoundarySource,
+  QuotaCycleEfficiencyEstimate,
+  QuotaCycleEstimateConfidence,
+  QuotaCycleObservedUsage,
+  QuotaCycleUsageResult,
+  QuotaCycleUsageWindow,
   QuotaProviderSource,
   QuotaProviderStatus,
   QuotaWindow,
   RefreshProviderQuotaInput,
 } from "./application/contracts/quota.contract";
 export {
+  GetQuotaCycleUsageInputSchema,
   ListProviderQuotasInputSchema,
   ProviderQuotaSnapshotSchema,
   QuotaProviderSourceSchema,
@@ -35,3 +44,4 @@ export {
   type ProviderQuotaRefreshNotification,
 } from "./application/provider-quota.notifier";
 export { ProviderQuotaService } from "./application/provider-quota.service";
+export * from "./application/quota-cycle-usage.service";

@@ -29,8 +29,8 @@ function createEventBusStub() {
 }
 
 describe("initializeSupervisorOrchestrationEvents", () => {
-  test("routes a bound orchestrator turn exactly once and excludes unrelated sources", async () => {
-    const reviews: unknown[] = [];
+  test("records a bound ACP worker result exactly once and excludes unrelated sources", async () => {
+    const recorded: unknown[] = [];
     const claims = new Set<string>();
     const workerSessions = {
       claimCompletedTurn(input: { chatId: string; turnId: string }) {
@@ -56,14 +56,15 @@ describe("initializeSupervisorOrchestrationEvents", () => {
     initializeSupervisorOrchestrationEvents({
       eventBus,
       workerSessions,
-      supervisorLoop: {
-        scheduleReview(input: unknown) {
-          reviews.push(input);
+      workerResults: {
+        latestAssistantText() {
+          return Promise.resolve('{"semanticStatus":"succeeded"}');
         },
       },
       orchestrator: {
-        recordWorkerTerminal() {
-          throw new Error("not expected");
+        recordWorkerTerminal(input) {
+          recorded.push(input);
+          return Promise.resolve({} as never);
         },
       },
       logger: { warn: () => undefined } as never,
@@ -88,13 +89,15 @@ describe("initializeSupervisorOrchestrationEvents", () => {
     await dispatch({ ...workerEvent, source: "automation", turnId: "turn-3" });
     await dispatch({ ...workerEvent, source: "client", turnId: "turn-4" });
 
-    expect(reviews).toEqual([
+    expect(recorded).toEqual([
       {
-        chatId: "worker-chat",
+        runId: "run-1",
         userId: "user-1",
-        turnId: "turn-1",
-        stopReason: "end_turn",
-        source: "orchestrator",
+        taskId: "task-1",
+        attemptId: "attempt-1",
+        action: "done",
+        reason: "ACP worker submitted its structured result",
+        resultText: '{"semanticStatus":"succeeded"}',
       },
     ]);
   });
@@ -120,7 +123,7 @@ describe("initializeSupervisorOrchestrationEvents", () => {
           });
         },
       } as unknown as WorkerSessionManagerPort,
-      supervisorLoop: { scheduleReview: () => undefined },
+      workerResults: { latestAssistantText: () => Promise.resolve(null) },
       orchestrator: {
         recordWorkerTerminal(input) {
           recorded.push(input);

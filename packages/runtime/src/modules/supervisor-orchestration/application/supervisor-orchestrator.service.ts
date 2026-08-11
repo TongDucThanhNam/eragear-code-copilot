@@ -1,6 +1,12 @@
 import { createId } from "#runtime/shared/utils/id.util";
 import {
+  computeSupervisorPlanHash,
+  isReplanInsideApprovedEnvelope,
+  supervisorPlanHashMatches,
+} from "../domain/supervisor-plan-hash";
+import {
   createDefaultSupervisorRunLimits,
+  type SupervisorExecutionEnvelope,
   type SupervisorRunState,
   SupervisorRunStateSchema,
   type SupervisorTaskRecord,
@@ -10,9 +16,14 @@ import {
   recomputeSupervisorTaskReadiness,
   transitionSupervisorRun,
 } from "../domain/supervisor-run.transitions";
+import type { AcpManagerSessionCoordinator } from "./acp-manager-session-coordinator.service";
+import type {
+  AcpManagerPlanTurn,
+  AcpManagerTurn,
+} from "./contracts/acp-manager-turn.contract";
 import type { SupervisorPlannerAgent } from "./contracts/supervisor-planner.contract";
 import type {
-  StartSupervisorRunInput,
+  CreateSupervisorRunDraftInput,
   SupervisorAgentCatalogPort,
   SupervisorBaseSnapshotPort,
   SupervisorDispatchAdmissionPort,
@@ -24,6 +35,7 @@ import type {
   PreparedWorkerWorkspace,
   WorkerWorkspacePort,
 } from "./ports/worker-workspace.port";
+import type { SupervisorFinalCommitService } from "./supervisor-final-commit.service";
 import type { SupervisorPlannerService } from "./supervisor-planner.service";
 import type { SupervisorSchedulerService } from "./supervisor-scheduler.service";
 import type { WorkerIntegrationService } from "./worker-integration.service";
@@ -34,7 +46,17 @@ const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 export interface SupervisorOrchestratorDeps {
   runs: SupervisorRunRepositoryPort;
-  planner: Pick<SupervisorPlannerService, "plan" | "replan">;
+  planner: Pick<SupervisorPlannerService, "plan" | "replan"> &
+    Partial<Pick<SupervisorPlannerService, "validateProposal">>;
+  manager?: Pick<AcpManagerSessionCoordinator, "dispatch" | "stop">;
+  agentCapacity?: {
+    admit(input: {
+      userId: string;
+      projectId?: string;
+      agentId: string;
+      overnight?: boolean;
+    }): Promise<{ eligible: boolean; reason?: string }>;
+  };
   scheduler: SupervisorSchedulerService;
   workers: WorkerSessionManagerPort;
   agents: SupervisorAgentCatalogPort;
@@ -43,6 +65,7 @@ export interface SupervisorOrchestratorDeps {
   integration: Pick<WorkerIntegrationService, "integrate">;
   results: WorkerResultService;
   finalVerifier: SupervisorFinalVerifierPort;
+  finalCommit?: Pick<SupervisorFinalCommitService, "commit">;
   configuredLimits?: Partial<
     ReturnType<typeof createDefaultSupervisorRunLimits>
   >;
@@ -52,7 +75,13 @@ export interface SupervisorOrchestratorDeps {
 
 export class SupervisorOrchestratorService {
   private readonly runs: SupervisorRunRepositoryPort;
-  private readonly planner: Pick<SupervisorPlannerService, "plan" | "replan">;
+  private readonly planner: Pick<SupervisorPlannerService, "plan" | "replan"> &
+    Partial<Pick<SupervisorPlannerService, "validateProposal">>;
+  private readonly manager?: Pick<
+    AcpManagerSessionCoordinator,
+    "dispatch" | "stop"
+  >;
+  private readonly agentCapacity?: SupervisorOrchestratorDeps["agentCapacity"];
   private readonly scheduler: SupervisorSchedulerService;
   private readonly workers: WorkerSessionManagerPort;
   private readonly agents: SupervisorAgentCatalogPort;
@@ -61,16 +90,20 @@ export class SupervisorOrchestratorService {
   private readonly integration: Pick<WorkerIntegrationService, "integrate">;
   private readonly results: WorkerResultService;
   private readonly finalVerifier: SupervisorFinalVerifierPort;
+  private readonly finalCommit?: Pick<SupervisorFinalCommitService, "commit">;
   private readonly configuredLimits: Partial<
     ReturnType<typeof createDefaultSupervisorRunLimits>
   >;
   private readonly now: () => string;
   private readonly idFactory: (prefix: string) => string;
   private dispatchAdmission?: SupervisorDispatchAdmissionPort;
+  private globalSchedule?: () => Promise<unknown>;
 
   constructor(deps: SupervisorOrchestratorDeps) {
     this.runs = deps.runs;
     this.planner = deps.planner;
+    this.manager = deps.manager;
+    this.agentCapacity = deps.agentCapacity;
     this.scheduler = deps.scheduler;
     this.workers = deps.workers;
     this.agents = deps.agents;
@@ -79,6 +112,7 @@ export class SupervisorOrchestratorService {
     this.integration = deps.integration;
     this.results = deps.results;
     this.finalVerifier = deps.finalVerifier;
+    this.finalCommit = deps.finalCommit;
     this.configuredLimits = deps.configuredLimits ?? {};
     this.now = deps.now ?? (() => new Date().toISOString());
     this.idFactory = deps.createId ?? createId;
@@ -88,8 +122,24 @@ export class SupervisorOrchestratorService {
     this.dispatchAdmission = port;
   }
 
-  async start(input: StartSupervisorRunInput): Promise<SupervisorRunState> {
+  setGlobalScheduler(schedule: () => Promise<unknown>): void {
+    this.globalSchedule = schedule;
+  }
+
+  start(input: CreateSupervisorRunDraftInput): Promise<SupervisorRunState> {
+    return this.createDraft(input);
+  }
+
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Draft creation intentionally keeps fail-closed planning transitions in one audited transaction flow.
+  async createDraft(
+    input: CreateSupervisorRunDraftInput
+  ): Promise<SupervisorRunState> {
     const now = this.now();
+    const intent = input.intent?.trim() || input.originalIntent?.trim();
+    if (!intent) {
+      throw new Error("Supervisor goal intent is required");
+    }
+    const agentAllowlist = input.agentAllowlist ?? input.eligibleAgentIds;
     const configured = {
       ...createDefaultSupervisorRunLimits(),
       ...this.configuredLimits,
@@ -108,33 +158,35 @@ export class SupervisorOrchestratorService {
         requested.maxAttemptsPerTask,
         configured.maxAttemptsPerTask
       ),
-      maxRunDurationMs: Math.min(
-        requested.maxRunDurationMs,
-        configured.maxRunDurationMs
-      ),
       maxPlannerReplans: Math.min(
         requested.maxPlannerReplans,
         configured.maxPlannerReplans
       ),
     };
     const run = SupervisorRunStateSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       runId: this.idFactory("supervisor-run"),
       revision: 0,
       userId: input.userId,
       ...(input.projectId ? { projectId: input.projectId } : {}),
       projectRoot: input.projectRoot,
-      ...(input.originatingChatId
-        ? { originatingChatId: input.originatingChatId }
+      ...(input.scheduleId || input.providerId || input.workerModelId
+        ? {
+            legacyAutomation: {
+              ...(input.scheduleId ? { scheduleId: input.scheduleId } : {}),
+              ...(input.providerId ? { providerId: input.providerId } : {}),
+              ...(input.workerModelId
+                ? { workerModelId: input.workerModelId }
+                : {}),
+            },
+          }
         : {}),
-      ...(input.scheduleId ? { scheduleId: input.scheduleId } : {}),
-      ...(input.providerId ? { providerId: input.providerId } : {}),
-      ...(input.workerModelId ? { workerModelId: input.workerModelId } : {}),
-      ...(input.eligibleAgentIds
-        ? { eligibleAgentIds: [...new Set(input.eligibleAgentIds)] }
+      ...(agentAllowlist
+        ? { agentAllowlist: [...new Set(agentAllowlist)] }
         : {}),
-      originalIntent: input.originalIntent,
+      originalIntent: intent,
       constraints: input.constraints ?? [],
+      priority: input.priority ?? "normal",
       status: "planning",
       baseSnapshot: await this.baseSnapshot.capture({
         projectRoot: input.projectRoot,
@@ -152,6 +204,8 @@ export class SupervisorOrchestratorService {
         },
       ],
       processedEventIds: [],
+      capacityWaits: [],
+      decisions: [],
       plannerReplanCount: 0,
       finalVerification: [],
       createdAt: now,
@@ -159,19 +213,44 @@ export class SupervisorOrchestratorService {
     });
     await this.runs.create(run);
 
-    let planned: SupervisorRunState;
     try {
       const agents = filterEligibleAgents(
         await this.agents.listEligible({
           userId: input.userId,
           ...(input.projectId ? { projectId: input.projectId } : {}),
         }),
-        input.eligibleAgentIds
+        agentAllowlist
       );
       if (agents.length === 0) {
         throw new Error("No configured agent satisfies the run restriction.");
       }
-      const plan = await this.planner.plan({
+      const managerAgent =
+        agents.find(
+          (agent) =>
+            agent.managerEligible &&
+            (!input.scheduleId || agent.overnightEligible === true)
+        ) ??
+        (agents.every((agent) => agent.managerEligible === undefined)
+          ? agents[0]
+          : undefined);
+      if (!managerAgent) {
+        throw new Error("No configured manager agent is available");
+      }
+      if (this.manager) {
+        return await this.manager.dispatch({
+          runId: run.runId,
+          userId: run.userId,
+          managerAgentId: managerAgent.agentId,
+          turnKind: "plan",
+          ...(input.projectIndexSummary
+            ? { projectIndexSummary: input.projectIndexSummary }
+            : {}),
+          ...(input.scopeResolutionSummary
+            ? { scopeResolutionSummary: input.scopeResolutionSummary }
+            : {}),
+        });
+      }
+      const legacyPlan = await this.planner.plan({
         runId: run.runId,
         originalIntent: run.originalIntent,
         constraints: run.constraints,
@@ -186,22 +265,18 @@ export class SupervisorOrchestratorService {
           : {}),
         completedTaskSummaries: [],
       });
-      planned = transitionSupervisorRun(run, {
-        expectedRevision: run.revision,
-        now: this.now(),
-        mutate: (draft) => {
-          draft.tasks = plan.tasks;
-          draft.status = "queued";
-          draft.audit.push({
-            auditId: this.idFactory("audit"),
-            kind: "plan_accepted",
-            actor: "orchestrator",
-            summary: `Accepted planner DAG with ${plan.tasks.length} tasks`,
-            createdAt: this.now(),
-          });
+      return await this.persistProposedPlan(
+        run,
+        {
+          schemaVersion: 1,
+          kind: "plan",
+          summary: legacyPlan.proposal.summary,
+          risks: [],
+          tasks: legacyPlan.proposal.tasks,
+          envelope: buildLegacyEnvelope(run, legacyPlan.tasks),
         },
-      });
-      await this.runs.save(planned, run.revision);
+        legacyPlan.tasks
+      );
     } catch (error) {
       const current = await this.requireRun(run.runId, run.userId);
       const failed = transitionSupervisorRun(current, {
@@ -221,7 +296,6 @@ export class SupervisorOrchestratorService {
       await this.runs.save(failed, current.revision);
       throw error;
     }
-    return await this.schedule(planned.runId, planned.userId);
   }
 
   get(runId: string, userId: string): Promise<SupervisorRunState | null> {
@@ -235,6 +309,257 @@ export class SupervisorOrchestratorService {
     includeTerminal?: boolean;
   }): Promise<SupervisorRunState[]> {
     return this.runs.list(input);
+  }
+
+  async recordManagerTurn(input: {
+    runId: string;
+    userId: string;
+    turn: AcpManagerTurn;
+  }): Promise<SupervisorRunState> {
+    const run = await this.requireRun(input.runId, input.userId);
+    const turn = input.turn;
+    if (turn.kind === "plan" || turn.kind === "replan") {
+      try {
+        return await this.persistProposedPlan(run, turn);
+      } catch (error) {
+        const current = await this.requireRun(input.runId, input.userId);
+        if (current.status !== "planning") {
+          throw error;
+        }
+        const reason =
+          error instanceof Error
+            ? error.message
+            : "Manager proposal failed deterministic validation";
+        return await this.saveTransition(current, (draft) => {
+          draft.status = "needs_user";
+          if (
+            !draft.decisions.some(
+              (decision) =>
+                decision.status === "open" &&
+                decision.kind === "classifier_uncertain"
+            )
+          ) {
+            draft.decisions.push({
+              decisionId: this.idFactory("decision"),
+              kind: "classifier_uncertain",
+              status: "open",
+              prompt: `Manager proposal was rejected: ${reason}`,
+              createdAt: this.now(),
+            });
+          }
+          draft.audit.push({
+            auditId: this.idFactory("audit"),
+            kind: "plan_rejected",
+            actor: "orchestrator",
+            summary: "Manager proposal failed deterministic validation",
+            createdAt: this.now(),
+          });
+        });
+      }
+    }
+    if (turn.kind === "question") {
+      return await this.saveTransition(run, (draft) => {
+        draft.status = "needs_user";
+        draft.decisions.push({
+          decisionId: this.idFactory("decision"),
+          kind: turn.decisionKind,
+          status: "open",
+          prompt: turn.prompt,
+          createdAt: this.now(),
+        });
+        draft.audit.push({
+          auditId: this.idFactory("audit"),
+          kind: "decision_opened",
+          actor: "orchestrator",
+          summary: `Manager requested ${turn.decisionKind}`,
+          createdAt: this.now(),
+        });
+      });
+    }
+    if (turn.kind === "continue") {
+      return run.status === "queued" || run.status === "running"
+        ? await this.scheduleFair(run)
+        : run;
+    }
+    if (
+      run.status === "completing" &&
+      run.finalVerification.length > 0 &&
+      run.finalVerification.every((item) => item.exitCode === 0)
+    ) {
+      return await this.saveTransition(run, (draft) => {
+        draft.audit.push({
+          auditId: this.idFactory("audit"),
+          kind: "final_verification_recorded",
+          actor: "orchestrator",
+          summary: turn.summary,
+          createdAt: this.now(),
+        });
+      });
+    }
+    return await this.saveTransition(run, (draft) => {
+      draft.status = "needs_user";
+      draft.decisions.push({
+        decisionId: this.idFactory("decision"),
+        kind: "classifier_uncertain",
+        status: "open",
+        prompt:
+          "Manager attempted completion before deterministic evidence was ready",
+        createdAt: this.now(),
+      });
+    });
+  }
+
+  async approvePlan(input: {
+    runId: string;
+    userId: string;
+    planVersion: number;
+    planHash: string;
+    expectedRevision: number;
+  }): Promise<SupervisorRunState> {
+    const run = await this.requireRun(input.runId, input.userId);
+    if (run.revision !== input.expectedRevision) {
+      throw new Error(
+        `Supervisor run revision changed: expected ${input.expectedRevision}, actual ${run.revision}`
+      );
+    }
+    if (run.status !== "awaiting_approval" || !run.plan) {
+      throw new Error(`Run ${run.runId} has no plan awaiting approval`);
+    }
+    if (
+      run.plan.version !== input.planVersion ||
+      run.plan.hash !== input.planHash ||
+      !supervisorPlanHashMatches(input.planHash, {
+        version: run.plan.version,
+        summary: run.plan.summary,
+        envelope: run.plan.envelope,
+        tasks: run.tasks,
+      })
+    ) {
+      throw new Error(
+        "Plan version/hash does not match the persisted proposal"
+      );
+    }
+    const approved = await this.saveTransition(run, (draft) => {
+      if (!draft.plan) {
+        throw new Error("Plan disappeared during approval");
+      }
+      draft.plan.approvedAt = this.now();
+      draft.plan.approvedByUserId = input.userId;
+      draft.status = "queued";
+      draft.audit.push({
+        auditId: this.idFactory("audit"),
+        kind: "plan_approved",
+        actor: "user",
+        summary: `Approved plan v${input.planVersion} ${input.planHash.slice(0, 12)}`,
+        createdAt: this.now(),
+      });
+    });
+    return await this.scheduleFair(approved);
+  }
+
+  async requestPlanChanges(input: {
+    runId: string;
+    userId: string;
+    requestedChanges: string;
+    expectedRevision: number;
+  }): Promise<SupervisorRunState> {
+    const run = await this.requireRun(input.runId, input.userId);
+    if (run.revision !== input.expectedRevision) {
+      throw new Error("Supervisor run revision changed before plan changes");
+    }
+    if (run.status !== "awaiting_approval") {
+      throw new Error(`Run ${run.runId} is not awaiting plan approval`);
+    }
+    const manager = run.managerSession;
+    if (!(this.manager && manager)) {
+      throw new Error("ACP manager session is unavailable for plan changes");
+    }
+    const planning = await this.saveTransition(run, (draft) => {
+      draft.status = "planning";
+      draft.audit.push({
+        auditId: this.idFactory("audit"),
+        kind: "plan_changes_requested",
+        actor: "user",
+        summary: input.requestedChanges,
+        createdAt: this.now(),
+      });
+    });
+    return await this.manager.dispatch({
+      runId: planning.runId,
+      userId: planning.userId,
+      managerAgentId: manager.agentId,
+      turnKind: "replan",
+      requestedChanges: input.requestedChanges,
+    });
+  }
+
+  async answerDecision(input: {
+    runId: string;
+    userId: string;
+    decisionId: string;
+    answer: string;
+    expectedRevision: number;
+  }): Promise<SupervisorRunState> {
+    const run = await this.requireRun(input.runId, input.userId);
+    if (run.revision !== input.expectedRevision) {
+      throw new Error("Supervisor run revision changed before decision answer");
+    }
+    const decision = run.decisions.find(
+      (candidate) => candidate.decisionId === input.decisionId
+    );
+    if (!decision || decision.status !== "open") {
+      throw new Error(`Manager decision is not open: ${input.decisionId}`);
+    }
+    const retryFinalDelivery = isFinalDeliveryRetry(run, decision.decisionId);
+    const answered = await this.saveTransition(run, (draft) => {
+      const target = draft.decisions.find(
+        (candidate) => candidate.decisionId === input.decisionId
+      );
+      if (!target || target.status !== "open") {
+        throw new Error("Manager decision changed before answer persistence");
+      }
+      target.status = "answered";
+      target.answer = input.answer;
+      target.answeredAt = this.now();
+      target.answeredByUserId = input.userId;
+      draft.status = retryFinalDelivery ? "needs_user" : "planning";
+      draft.audit.push({
+        auditId: this.idFactory("audit"),
+        kind: "decision_answered",
+        actor: "user",
+        summary: `Answered manager decision ${input.decisionId}`,
+        createdAt: this.now(),
+      });
+    });
+    if (retryFinalDelivery) {
+      return await this.finalize(answered);
+    }
+    const manager = answered.managerSession;
+    if (!(this.manager && manager)) {
+      return answered;
+    }
+    return await this.manager.dispatch({
+      runId: answered.runId,
+      userId: answered.userId,
+      managerAgentId: manager.agentId,
+      turnKind: "replan",
+      requestedChanges: input.answer,
+    });
+  }
+
+  async setPriority(input: {
+    runId: string;
+    userId: string;
+    priority: SupervisorRunState["priority"];
+    expectedRevision: number;
+  }): Promise<SupervisorRunState> {
+    const run = await this.requireRun(input.runId, input.userId);
+    if (run.revision !== input.expectedRevision) {
+      throw new Error("Supervisor run revision changed before priority update");
+    }
+    return await this.saveTransition(run, (draft) => {
+      draft.priority = input.priority;
+    });
   }
 
   async pause(runId: string, userId: string): Promise<SupervisorRunState> {
@@ -258,7 +583,7 @@ export class SupervisorOrchestratorService {
     const resumed = await this.saveTransition(run, (draft) => {
       draft.status = "queued";
     });
-    return await this.schedule(resumed.runId, resumed.userId);
+    return await this.scheduleFair(resumed);
   }
 
   async cancel(runId: string, userId: string): Promise<SupervisorRunState> {
@@ -278,6 +603,7 @@ export class SupervisorOrchestratorService {
         }
       }
     });
+    await this.manager?.stop({ runId, userId });
     await Promise.all(
       activeAttempts.map(async (item) => {
         await this.workers.stop({
@@ -315,7 +641,7 @@ export class SupervisorOrchestratorService {
         draft.status = "queued";
       }
     });
-    return await this.schedule(retried.runId, retried.userId);
+    return await this.scheduleFair(retried);
   }
 
   async replan(runId: string, userId: string): Promise<SupervisorRunState> {
@@ -331,12 +657,23 @@ export class SupervisorOrchestratorService {
     if (run.plannerReplanCount >= run.limits.maxPlannerReplans) {
       throw new Error(`Run ${runId} exhausted its replan budget`);
     }
+    if (this.manager && run.managerSession) {
+      const planning = await this.saveTransition(run, (draft) => {
+        draft.status = "planning";
+      });
+      return await this.manager.dispatch({
+        runId: planning.runId,
+        userId: planning.userId,
+        managerAgentId: run.managerSession.agentId,
+        turnKind: "replan",
+      });
+    }
     const agents = filterEligibleAgents(
       await this.agents.listEligible({
         userId,
         ...(run.projectId ? { projectId: run.projectId } : {}),
       }),
-      run.eligibleAgentIds
+      run.agentAllowlist
     );
     const completedTaskSummaries = run.tasks
       .filter((task) => task.status === "completed")
@@ -358,19 +695,18 @@ export class SupervisorOrchestratorService {
       },
       run.tasks
     );
-    const replanned = await this.saveTransition(run, (draft) => {
-      draft.tasks = plan.tasks;
-      draft.plannerReplanCount += 1;
-      draft.status = "queued";
-      draft.audit.push({
-        auditId: this.idFactory("audit"),
-        kind: "plan_accepted",
-        actor: "orchestrator",
-        summary: `Accepted replan ${draft.plannerReplanCount} with ${plan.tasks.length} tasks`,
-        createdAt: this.now(),
-      });
-    });
-    return await this.schedule(replanned.runId, replanned.userId);
+    return await this.persistProposedPlan(
+      run,
+      {
+        schemaVersion: 1,
+        kind: "replan",
+        summary: plan.proposal.summary,
+        risks: [],
+        tasks: plan.proposal.tasks,
+        envelope: buildLegacyEnvelope(run, plan.tasks),
+      },
+      plan.tasks
+    );
   }
 
   async approveGate(input: {
@@ -435,7 +771,7 @@ export class SupervisorOrchestratorService {
     const queued = await this.saveTransition(decided, (draft) => {
       draft.status = "queued";
     });
-    return await this.schedule(queued.runId, queued.userId);
+    return await this.scheduleFair(queued);
   }
 
   async rejectGate(input: {
@@ -454,7 +790,12 @@ export class SupervisorOrchestratorService {
     });
   }
 
-  async schedule(runId: string, userId: string): Promise<SupervisorRunState> {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Dispatch admission, capacity, and workspace fail-closed branches form one state-machine transition.
+  async schedule(
+    runId: string,
+    userId: string,
+    maxDispatches?: number
+  ): Promise<SupervisorRunState> {
     let run = await this.requireRun(runId, userId);
     if (run.status !== "queued" && run.status !== "running") {
       return run;
@@ -463,22 +804,45 @@ export class SupervisorOrchestratorService {
     if (readinessChanged) {
       run = await this.saveTransition(run, recomputeSupervisorTaskReadiness);
     }
-    const decision = this.scheduler.evaluate(run, Date.parse(this.now()));
-    if (decision.deadlineExceeded) {
-      return await this.saveTransition(run, (draft) => {
-        draft.status = "failed";
-      });
+    const evaluated = this.scheduler.evaluate(run);
+    let decision = {
+      ...evaluated,
+      dispatchTaskIds:
+        maxDispatches === undefined
+          ? evaluated.dispatchTaskIds
+          : evaluated.dispatchTaskIds.slice(0, Math.max(0, maxDispatches)),
+    };
+    if (this.agentCapacity && decision.dispatchTaskIds.length > 0) {
+      const admitted: string[] = [];
+      for (const taskId of decision.dispatchTaskIds) {
+        const task = requireTask(run, taskId);
+        if (!task.preferredAgentId) {
+          continue;
+        }
+        const capacity = await this.agentCapacity.admit({
+          userId: run.userId,
+          ...(run.projectId ? { projectId: run.projectId } : {}),
+          agentId: task.preferredAgentId,
+          overnight: Boolean(run.legacyAutomation?.scheduleId),
+        });
+        if (capacity.eligible) {
+          admitted.push(taskId);
+        }
+      }
+      decision = { ...decision, dispatchTaskIds: admitted };
     }
     if (decision.dispatchTaskIds.length === 0) {
       return run;
     }
-    if (run.scheduleId && run.providerId && this.dispatchAdmission) {
+    const scheduleId = run.legacyAutomation?.scheduleId;
+    const providerId = run.legacyAutomation?.providerId;
+    if (scheduleId && providerId && this.dispatchAdmission) {
       for (const taskId of decision.dispatchTaskIds) {
         const admission = await this.dispatchAdmission.admit({
           userId: run.userId,
           runId: run.runId,
-          scheduleId: run.scheduleId,
-          providerId: run.providerId,
+          scheduleId,
+          providerId,
           taskId,
         });
         if (!admission.eligible) {
@@ -619,6 +983,12 @@ export class SupervisorOrchestratorService {
         `Worker attempt ${attempt.attemptId} has no workspace evidence`
       );
     }
+    await this.workers.release({
+      runId: run.runId,
+      userId: run.userId,
+      taskId: task.taskId,
+      attemptId: attempt.attemptId,
+    });
     if (task.executionMode === "write" && task.status !== "integrating") {
       run = await this.saveTransition(run, (draft) => {
         requireTask(draft, input.taskId).status = "integrating";
@@ -635,10 +1005,18 @@ export class SupervisorOrchestratorService {
         ? { destructiveActions: input.destructiveActions }
         : {}),
     });
+    const deliveryFingerprints =
+      gate.decision === "allow" && task.executionMode === "write"
+        ? await this.workspaces.fingerprint({
+            projectRoot: run.projectRoot,
+            relativePaths: result.files.touched,
+          })
+        : {};
     run = await this.saveTransition(run, (draft) => {
       const draftTask = requireTask(draft, input.taskId);
       if (gate.decision === "allow") {
         draftTask.status = "completed";
+        Object.assign(draft.deliveryFingerprints, deliveryFingerprints);
       } else {
         draftTask.status = "needs_user";
         draft.status = "needs_user";
@@ -659,7 +1037,7 @@ export class SupervisorOrchestratorService {
     if (run.tasks.every((candidate) => candidate.status === "completed")) {
       return await this.finalize(run);
     }
-    return await this.schedule(run.runId, run.userId);
+    return await this.scheduleFair(run);
   }
 
   async recordWorkerTerminal(input: {
@@ -706,6 +1084,97 @@ export class SupervisorOrchestratorService {
     });
   }
 
+  private async persistProposedPlan(
+    run: SupervisorRunState,
+    turn: AcpManagerPlanTurn,
+    prevalidatedLegacyTasks?: SupervisorTaskRecord[]
+  ): Promise<SupervisorRunState> {
+    const validateProposal = this.planner.validateProposal;
+    if (!(validateProposal || prevalidatedLegacyTasks)) {
+      throw new Error("Deterministic manager plan validation is unavailable");
+    }
+    const agents = filterEligibleAgents(
+      await this.agents.listEligible({
+        userId: run.userId,
+        ...(run.projectId ? { projectId: run.projectId } : {}),
+      }),
+      run.agentAllowlist
+    );
+    const validatedTasks =
+      prevalidatedLegacyTasks ??
+      validateProposal?.call(
+        this.planner,
+        {
+          runId: run.runId,
+          originalIntent: run.originalIntent,
+          constraints: run.constraints,
+          projectRoot: run.projectRoot,
+          limits: run.limits,
+          agents,
+          completedTaskSummaries: run.tasks
+            .filter((task) => task.status === "completed")
+            .map((task) => ({
+              taskId: task.taskId,
+              summary:
+                [...task.attempts].reverse().find((attempt) => attempt.result)
+                  ?.result?.outcomeSummary ??
+                "Completed with persisted evidence",
+            })),
+        },
+        {
+          schemaVersion: 1,
+          summary: turn.summary,
+          tasks: turn.tasks,
+        }
+      ).tasks;
+    if (!validatedTasks) {
+      throw new Error("Deterministic manager plan validation is unavailable");
+    }
+    assertManagerEnvelope(run, turn.envelope, validatedTasks);
+    const version = (run.plan?.version ?? 0) + 1;
+    const hash = computeSupervisorPlanHash({
+      version,
+      summary: turn.summary,
+      envelope: turn.envelope,
+      tasks: validatedTasks,
+    });
+    const autoApproved = Boolean(
+      turn.kind === "replan" &&
+        run.plan?.approvedAt &&
+        isReplanInsideApprovedEnvelope({
+          approved: run.plan.envelope,
+          proposed: turn.envelope,
+        })
+    );
+    const proposed = await this.saveTransition(run, (draft) => {
+      draft.tasks = validatedTasks;
+      if (turn.kind === "replan") {
+        draft.plannerReplanCount += 1;
+      }
+      draft.plan = {
+        version,
+        hash,
+        summary: turn.summary,
+        envelope: turn.envelope,
+        ...(autoApproved && run.plan?.approvedAt && run.plan.approvedByUserId
+          ? {
+              approvedAt: run.plan.approvedAt,
+              approvedByUserId: run.plan.approvedByUserId,
+            }
+          : {}),
+      };
+      draft.status = autoApproved ? "queued" : "awaiting_approval";
+      draft.audit.push({
+        auditId: this.idFactory("audit"),
+        kind: autoApproved ? "plan_accepted" : "plan_awaiting_approval",
+        actor: "orchestrator",
+        summary: `${autoApproved ? "Auto-approved" : "Proposed"} plan v${version} ${hash.slice(0, 12)}`,
+        createdAt: this.now(),
+      });
+    });
+    return autoApproved ? await this.scheduleFair(proposed) : proposed;
+  }
+
   private async failResultWithoutWorkspace(
     run: SupervisorRunState,
     taskId: string,
@@ -744,9 +1213,52 @@ export class SupervisorOrchestratorService {
     );
     completing = await this.saveTransition(completing, (draft) => {
       draft.finalVerification = evidence;
-      draft.status = passed ? "completed" : "needs_user";
+      draft.status = passed ? "completing" : "needs_user";
     });
-    return completing;
+    if (!passed) {
+      return completing;
+    }
+    if (!this.finalCommit) {
+      return await this.saveTransition(completing, (draft) => {
+        draft.status = "completed";
+      });
+    }
+    try {
+      const committed = await this.finalCommit.commit(completing);
+      return await this.saveTransition(completing, (draft) => {
+        draft.finalCommitSha = committed.commitSha;
+        draft.status = "completed";
+        draft.audit.push({
+          auditId: this.idFactory("audit"),
+          kind: "final_commit_created",
+          actor: "orchestrator",
+          summary: `Created scoped final commit ${committed.commitSha.slice(0, 12)}`,
+          metadata: { safetyRef: committed.safetyRef },
+          createdAt: this.now(),
+        });
+      });
+    } catch (error) {
+      return await this.saveTransition(completing, (draft) => {
+        draft.status = "needs_user";
+        draft.decisions.push({
+          decisionId: this.idFactory("decision"),
+          kind: "baseline_drift",
+          status: "open",
+          prompt:
+            error instanceof Error
+              ? error.message
+              : "Final scoped commit failed closed",
+          createdAt: this.now(),
+        });
+        draft.audit.push({
+          auditId: this.idFactory("audit"),
+          kind: "decision_opened",
+          actor: "orchestrator",
+          summary: "Final scoped commit requires user review",
+          createdAt: this.now(),
+        });
+      });
+    }
   }
 
   private async saveTransition(
@@ -770,6 +1282,16 @@ export class SupervisorOrchestratorService {
       throw new Error(`Supervisor run not found: ${runId}`);
     }
     return run;
+  }
+
+  private async scheduleFair(
+    run: SupervisorRunState
+  ): Promise<SupervisorRunState> {
+    if (!this.globalSchedule) {
+      return await this.schedule(run.runId, run.userId);
+    }
+    await this.globalSchedule();
+    return await this.requireRun(run.runId, run.userId);
   }
 }
 
@@ -861,6 +1383,25 @@ function collectActiveAttempts(run: SupervisorRunState) {
   );
 }
 
+function isFinalDeliveryRetry(
+  run: SupervisorRunState,
+  decisionId: string
+): boolean {
+  const decision = run.decisions.find(
+    (candidate) => candidate.decisionId === decisionId
+  );
+  return Boolean(
+    run.status === "needs_user" &&
+      decision?.kind === "baseline_drift" &&
+      run.tasks.length > 0 &&
+      run.tasks.every((task) => task.status === "completed") &&
+      !run.gates.some((gate) => gate.status === "pending") &&
+      run.plan?.approvedAt &&
+      run.plan.approvedByUserId &&
+      run.plan.envelope.delivery.createCommit
+  );
+}
+
 function createTerminalFailureResult(input: {
   attempt: ReturnType<typeof requireAttempt>;
   status: "needs_user" | "failed";
@@ -894,4 +1435,54 @@ function filterEligibleAgents(
   }
   const allowed = new Set(eligibleAgentIds);
   return agents.filter((agent) => allowed.has(agent.agentId));
+}
+
+function assertManagerEnvelope(
+  run: SupervisorRunState,
+  envelope: SupervisorExecutionEnvelope,
+  tasks: SupervisorTaskRecord[]
+): void {
+  if (envelope.goal !== run.originalIntent) {
+    throw new Error("Manager plan changed the authoritative goal");
+  }
+  if (
+    run.managerSession &&
+    (!(run.baseSnapshot.branch && run.baseSnapshot.head) ||
+      envelope.delivery.targetBranch !== run.baseSnapshot.branch ||
+      envelope.delivery.targetHead !== run.baseSnapshot.head)
+  ) {
+    throw new Error(
+      "Manager delivery branch/HEAD does not match the captured project state"
+    );
+  }
+  const allowedFiles = new Set(envelope.fileScopes);
+  for (const file of tasks.flatMap((task) => task.filesAllowed)) {
+    if (!allowedFiles.has(file)) {
+      throw new Error(
+        `Manager task file is outside the plan envelope: ${file}`
+      );
+    }
+  }
+}
+
+function buildLegacyEnvelope(
+  run: SupervisorRunState,
+  tasks: SupervisorTaskRecord[]
+): SupervisorExecutionEnvelope {
+  return {
+    goal: run.originalIntent,
+    fileScopes: [...new Set(tasks.flatMap((task) => task.filesAllowed))],
+    verificationCommands: [
+      ...new Set(tasks.flatMap((task) => task.verificationCommands)),
+    ],
+    successCriteria: ["All deterministic task and aggregate gates pass"],
+    permissionScopes: ["project-root-sandbox", "existing-command-allowlists"],
+    destructiveActions: [],
+    delivery: {
+      createCommit: true,
+      targetBranch: run.baseSnapshot.branch ?? "HEAD",
+      targetHead: run.baseSnapshot.head ?? "unborn",
+      allowDefaultBranch: false,
+    },
+  };
 }

@@ -82,6 +82,33 @@ describe("UsageStatsSqliteRepository", () => {
     expect(records.map((record) => record.id)).toEqual(["usage-3", "usage-2"]);
   });
 
+  test("round-trips quota window snapshots for cycle correlation", async () => {
+    const repo = new UsageStatsSqliteRepository();
+    const quotaRecord: UsageStatsRecord = {
+      id: "quota-1",
+      userId: "user-1",
+      kind: "quota_refreshed",
+      providerId: "openai",
+      providerDisplayName: "OpenAI / ChatGPT",
+      status: "ready",
+      quotaWindows: [
+        {
+          id: "5h",
+          label: "5h",
+          percentRemaining: 52,
+          startedAt: "2026-08-09T00:00:00.000Z",
+          resetAt: "2026-08-09T05:00:00.000Z",
+          durationMs: 18_000_000,
+        },
+      ],
+      createdAt: 100,
+    };
+
+    await repo.appendRecord(quotaRecord);
+
+    await expect(repo.listRecords("user-1")).resolves.toEqual([quotaRecord]);
+  });
+
   test("upserts telemetry settings by user", async () => {
     const repo = new UsageStatsSqliteRepository();
 

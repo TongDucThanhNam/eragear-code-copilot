@@ -175,6 +175,36 @@ describe("quota adapter normalizers", () => {
     ]);
   });
 
+  test("sends the Z.ai provider credential as a Bearer token", async () => {
+    const authorizationHeaders: (string | null)[] = [];
+    const fetchImpl = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      authorizationHeaders.push(
+        new Headers(init?.headers).get("Authorization")
+      );
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: { limits: [] } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }) as typeof fetch;
+    const adapter = new ZaiQuotaAdapter(fetchImpl);
+
+    await adapter.fetchQuota(
+      {
+        ok: true,
+        token: "zai-secret",
+        source: "credential",
+      },
+      {
+        userId: "user-1",
+        now: new Date(NOW_MS),
+      }
+    );
+
+    expect(authorizationHeaders).toEqual(["Bearer zai-secret"]);
+  });
+
   test("normalizes OpenAI ChatGPT rate limit windows", () => {
     const windows = normalizeOpenAIQuota(
       {
@@ -230,7 +260,6 @@ describe("quota adapter normalizers", () => {
 
         const auth = await adapter.resolveAuth({
           userId: "user-1",
-          agents: [],
           now: new Date(NOW_MS),
           credentialResolver: {
             resolveFirst: (userId, input) => {
@@ -268,7 +297,6 @@ describe("quota adapter normalizers", () => {
         const adapter = new MiniMaxQuotaAdapter();
         const auth = await adapter.resolveAuth({
           userId: "user-1",
-          agents: [],
           now: new Date(NOW_MS),
           credentialResolver: {
             resolveFirst: (_userId, input) => {

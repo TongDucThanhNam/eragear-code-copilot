@@ -79,6 +79,7 @@ export class CreateSessionService {
         userId: params.userId,
         projectId: params.projectId,
         projectRoot: params.projectRoot,
+        trustedProjectRoot: params.trustedProjectRoot,
       });
 
     const resolvedAgent =

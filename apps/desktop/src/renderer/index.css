@@ -219,6 +219,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html,
+  body,
+  #app {
+    @apply h-full min-h-0 overflow-hidden;
+  }
   body {
     @apply font-sans bg-background text-foreground;
   }

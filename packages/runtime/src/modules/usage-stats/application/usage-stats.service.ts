@@ -102,6 +102,7 @@ export class UsageStatsService {
   async recordQuotaRefresh(
     input: RecordQuotaRefreshInput
   ): Promise<UsageStatsRecord> {
+    const fetchedAtMs = Date.parse(input.fetchedAt);
     return await this.repository.appendRecord({
       id: createId("usage"),
       userId: input.userId,
@@ -109,7 +110,8 @@ export class UsageStatsService {
       providerId: input.providerId,
       providerDisplayName: input.providerDisplayName,
       status: input.status,
-      createdAt: this.nowMs(),
+      quotaWindows: input.windows,
+      createdAt: Number.isFinite(fetchedAtMs) ? fetchedAtMs : this.nowMs(),
     });
   }
 

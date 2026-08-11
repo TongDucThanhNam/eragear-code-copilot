@@ -4,7 +4,10 @@ import type { ChatSession } from "#runtime/shared/types/session.types";
 import type { CreateSessionService } from "./create-session.service";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
-import { ResumeSessionService } from "./resume-session.service";
+import {
+  ExactSessionResumeError,
+  ResumeSessionService,
+} from "./resume-session.service";
 
 const SESSION_NOT_FOUND_REGEX = /session not found in store/i;
 
@@ -305,5 +308,55 @@ describe("ResumeSessionService", () => {
       supportsModelSwitching: false,
       plan: null,
     });
+  });
+
+  test("exact-only resume never creates a replacement ACP session", async () => {
+    let executeCalls = 0;
+    const repo = {
+      findById: async () => createStoredSession({ sessionId: "sess-stale" }),
+    } as unknown as SessionRepositoryPort;
+    const runtime = {
+      get: () => undefined,
+    } as unknown as SessionRuntimePort;
+    const createSession = {
+      execute: () => {
+        executeCalls += 1;
+        throw new AppError({
+          message: "ACP load failed",
+          code: "AGENT_SESSION_LOAD_FAILED",
+          statusCode: 502,
+          module: "session",
+          op: "session.lifecycle.create",
+        });
+      },
+    } as unknown as CreateSessionService;
+
+    const service = new ResumeSessionService(repo, runtime, createSession);
+    await expect(
+      service.execute("user-1", "chat-1", { mode: "exact_only" })
+    ).rejects.toBeInstanceOf(ExactSessionResumeError);
+    expect(executeCalls).toBe(1);
+  });
+
+  test("exact-only resume fails closed without a persisted ACP session id", async () => {
+    let executeCalls = 0;
+    const repo = {
+      findById: async () => createStoredSession({ sessionId: undefined }),
+    } as unknown as SessionRepositoryPort;
+    const runtime = {
+      get: () => undefined,
+    } as unknown as SessionRuntimePort;
+    const createSession = {
+      execute: () => {
+        executeCalls += 1;
+        return createRunningSession();
+      },
+    } as unknown as CreateSessionService;
+
+    const service = new ResumeSessionService(repo, runtime, createSession);
+    await expect(
+      service.execute("user-1", "chat-1", { mode: "exact_only" })
+    ).rejects.toBeInstanceOf(ExactSessionResumeError);
+    expect(executeCalls).toBe(0);
   });
 });

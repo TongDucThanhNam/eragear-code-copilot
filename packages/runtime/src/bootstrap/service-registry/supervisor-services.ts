@@ -21,20 +21,27 @@ import {
   type SupervisorResearchResult,
 } from "#runtime/modules/supervisor";
 import {
-  AiSdkScheduledWorkDecisionAdapter,
-  AiSdkSupervisorChatAdapter,
-  AiSdkSupervisorDecisionAdapter,
+  AcpSupervisorChatAdapter,
   ExaSupervisorResearchAdapter,
   FileSystemSupervisorProjectContextAdapter,
+  GoalDraftScheduledWorkDecisionAdapter,
+  ManagerModeSupervisorDecisionAdapter,
   NoopSupervisorAuditAdapter,
   NoopSupervisorMemoryAdapter,
   NoopSupervisorResearchAdapter,
   ObsidianSupervisorMemoryAdapter,
   ScopeSupervisorProjectIntelligenceAdapter,
 } from "#runtime/modules/supervisor/di";
+import type { SupervisorAgentProfileService } from "#runtime/modules/supervisor-orchestration";
+import {
+  ConfiguredAgentCatalogAdapter,
+  SessionRepositoryAcpManagerResultReaderAdapter,
+} from "#runtime/modules/supervisor-orchestration/di";
 import type {
+  AgentUseCases,
   AiUseCases,
   ScopeResolutionUseCases,
+  SessionUseCases,
   SupervisorUseCases,
 } from "#runtime/modules/use-cases";
 import type { LoggerPort } from "#runtime/shared/ports/logger.port";
@@ -122,16 +129,43 @@ export function createSupervisorUseCases(
   aiUseCases: Pick<AiUseCases, "sendMessage">,
   options: {
     projectIntelligence?: SupervisorProjectIntelligencePort;
-  } = {}
+    session: Pick<SessionUseCases, "create" | "stop">;
+    agents: Pick<AgentUseCases, "list">;
+    profiles: Pick<SupervisorAgentProfileService, "list">;
+    goalDraft: {
+      createDraft(input: {
+        userId: string;
+        projectId: string;
+        projectRoot: string;
+        intent: string;
+        constraints: string[];
+        priority: "normal";
+      }): Promise<{ runId: string; status: string }>;
+    };
+  }
 ): SupervisorUseCases {
-  const supervisorDecisionAdapter = new AiSdkSupervisorDecisionAdapter(
-    deps.supervisorPolicy,
-    deps.appLogger
+  const supervisorDecisionAdapter = new ManagerModeSupervisorDecisionAdapter();
+  const agentCatalog = new ConfiguredAgentCatalogAdapter(
+    options.agents.list,
+    options.profiles
   );
-  const supervisorChatAdapter = new AiSdkSupervisorChatAdapter(
-    deps.supervisorPolicy,
-    deps.appLogger
-  );
+  const supervisorChatAdapter = new AcpSupervisorChatAdapter({
+    createSession: options.session.create,
+    sendMessage: aiUseCases.sendMessage,
+    stopSession: options.session.stop,
+    results: new SessionRepositoryAcpManagerResultReaderAdapter(
+      deps.sessionRepo
+    ),
+    agents: {
+      async list(input) {
+        const agents = await agentCatalog.listEligible(input);
+        return agents.map((agent) => ({
+          agentId: agent.agentId,
+          displayName: agent.displayName,
+        }));
+      },
+    },
+  });
   const supervisorProjectContextAdapter =
     new FileSystemSupervisorProjectContextAdapter();
   const supervisorResearchAdapter: SupervisorResearchPort =
@@ -187,13 +221,11 @@ export function createSupervisorUseCases(
       chatPort: supervisorChatAdapter,
       projectContext: supervisorProjectContextAdapter,
       projectIntelligence: options.projectIntelligence,
+      goalDraft: options.goalDraft,
       clock: deps.clock,
     }),
     scheduledWork: new ScheduledWorkDecisionService({
-      decision: new AiSdkScheduledWorkDecisionAdapter(
-        deps.supervisorPolicy,
-        deps.appLogger
-      ),
+      decision: new GoalDraftScheduledWorkDecisionAdapter(),
       projectContext: supervisorProjectContextAdapter,
       projectIntelligence: options.projectIntelligence,
       memory: supervisorMemoryAdapter,

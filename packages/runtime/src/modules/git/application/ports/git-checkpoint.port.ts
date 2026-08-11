@@ -1,6 +1,9 @@
 import type {
   GitCheckpoint,
   GitCheckpointKind,
+  GitTurnCheckpoint,
+  GitTurnCheckpointKind,
+  TurnDiffFile,
 } from "../contracts/git.contract";
 
 export interface GitCheckpointCreateParams {
@@ -25,6 +28,32 @@ export interface GitCheckpointRestorePortResult {
   restoredAt: string;
 }
 
+export interface GitTurnCheckpointCaptureParams {
+  projectRoot: string;
+  sessionId: string;
+  turnId?: string;
+  turnCount: number;
+  kind: GitTurnCheckpointKind;
+}
+
+export interface GitTurnCheckpointDiffParams {
+  projectRoot: string;
+  fromRef: string;
+  toRef: string;
+  ignoreWhitespace?: boolean;
+}
+
+export interface GitTurnCheckpointRestoreParams {
+  projectRoot: string;
+  targetRef: string;
+  fallbackToHead?: boolean;
+}
+
+export interface GitTurnCheckpointRestoreResult {
+  restoredRef: string;
+  safetyRef: string;
+}
+
 /**
  * Git-backed checkpoint adapter.
  *
@@ -40,4 +69,22 @@ export interface GitCheckpointPort {
   restoreCheckpoint(
     params: GitCheckpointRestoreParams
   ): Promise<GitCheckpointRestorePortResult>;
+  captureTurnCheckpoint(
+    params: GitTurnCheckpointCaptureParams
+  ): Promise<GitTurnCheckpoint>;
+  listTurnCheckpoints(params: {
+    projectRoot: string;
+    sessionId: string;
+  }): Promise<GitTurnCheckpoint[]>;
+  diffTurnCheckpoints(
+    params: GitTurnCheckpointDiffParams
+  ): Promise<TurnDiffFile[]>;
+  restoreTurnCheckpoint(
+    params: GitTurnCheckpointRestoreParams
+  ): Promise<GitTurnCheckpointRestoreResult>;
+  deleteTurnCheckpointsAfter(params: {
+    projectRoot: string;
+    sessionId: string;
+    turnCount: number;
+  }): Promise<{ deletedRefs: string[] }>;
 }

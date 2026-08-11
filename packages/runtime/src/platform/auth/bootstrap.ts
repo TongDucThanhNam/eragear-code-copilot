@@ -1,4 +1,10 @@
-import { chmodSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { getMigrations } from "better-auth/db";
 import { createLogger } from "../logging/structured-logger";
 import type { AuthRuntime } from "./auth";
@@ -111,7 +117,41 @@ function resolveAdminUserId(runtime: AuthRuntime): string | null {
   }
 }
 
-async function ensureBootstrapApiKey(
+function readPersistedBootstrapApiKey(apiKeyPath: string): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(apiKeyPath, "utf8")) as {
+      key?: unknown;
+    };
+    return typeof parsed.key === "string" && parsed.key.trim().length > 0
+      ? parsed.key
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeBootstrapApiKey(apiKeyPath: string, key: string): void {
+  const temporaryPath = `${apiKeyPath}.${process.pid}.${Date.now()}.tmp`;
+  const payload = {
+    key,
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    writeFileSync(temporaryPath, JSON.stringify(payload, null, 2), {
+      encoding: "utf-8",
+      mode: AUTH_FILE_PRIVATE_MODE,
+      flag: "wx",
+    });
+    chmodSync(temporaryPath, AUTH_FILE_PRIVATE_MODE);
+    renameSync(temporaryPath, apiKeyPath);
+    chmodSync(apiKeyPath, AUTH_FILE_PRIVATE_MODE);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+}
+
+export async function ensureBootstrapApiKey(
   runtime: AuthRuntime,
   policy: AuthBootstrapPolicy
 ): Promise<void> {
@@ -119,9 +159,21 @@ async function ensureBootstrapApiKey(
     return;
   }
 
-  const keyCount = getTableCount(runtime, "apikey");
-  if (keyCount > 0) {
-    return;
+  const apiKeyPath = getAuthStorageFile("api-key.json");
+  const persistedKey = readPersistedBootstrapApiKey(apiKeyPath);
+  if (persistedKey) {
+    try {
+      const verification = (await runtime.auth.api.verifyApiKey({
+        body: { key: persistedKey },
+      })) as { valid?: boolean; key?: { userId?: string } } | null | undefined;
+      if (verification?.valid && verification.key?.userId) {
+        runtime.authState.bootstrapApiKey = persistedKey;
+        return;
+      }
+    } catch {
+      // Treat verification failures as stale bootstrap credentials. The
+      // replacement below leaves every existing database key untouched.
+    }
   }
 
   const adminUserId = resolveAdminUserId(runtime);
@@ -140,16 +192,7 @@ async function ensureBootstrapApiKey(
 
     if (result?.key) {
       runtime.authState.bootstrapApiKey = result.key;
-      const apiKeyPath = getAuthStorageFile("api-key.json");
-      const payload = {
-        key: result.key,
-        createdAt: new Date().toISOString(),
-      };
-      writeFileSync(apiKeyPath, JSON.stringify(payload, null, 2), {
-        encoding: "utf-8",
-        mode: AUTH_FILE_PRIVATE_MODE,
-      });
-      chmodSync(apiKeyPath, AUTH_FILE_PRIVATE_MODE);
+      writeBootstrapApiKey(apiKeyPath, result.key);
       logger.info("Bootstrap API key generated", { apiKeyPath });
       logger.warn(
         `Plaintext API key stored at ${apiKeyPath}. Consider saving the key elsewhere and deleting this file after initial setup.`

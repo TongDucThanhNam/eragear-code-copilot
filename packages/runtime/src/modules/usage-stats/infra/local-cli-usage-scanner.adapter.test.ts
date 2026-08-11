@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { file as bunFile } from "bun";
 import { LocalCliUsageScannerAdapter } from "./local-cli-usage-scanner.adapter";
 import type { PricingSnapshot } from "./usage-pricing";
 import { calculateUsageCost } from "./usage-pricing";
@@ -140,6 +141,49 @@ describe("LocalCliUsageScannerAdapter", () => {
     expect(cost.unpricedTokens).toBe(0);
   });
 
+  test("infers canonical DeepSeek pricing for unprefixed Zcode model names", () => {
+    const pricingSnapshot: PricingSnapshot = {
+      _meta: {
+        source: "test",
+        generatedAt: 0,
+        units: "USD per 1M tokens",
+      },
+      providers: {
+        deepseek: {
+          "deepseek-v4-flash": { input: 0.09, output: 0.18 },
+          "deepseek-v4-pro": { input: 0.435, output: 0.87 },
+        },
+      },
+    };
+    const tokens = {
+      inputTokens: 120,
+      outputTokens: 50,
+      cacheInputTokens: 20,
+      cacheOutputTokens: 0,
+      totalTokens: 170,
+    };
+
+    const flashCost = calculateUsageCost({
+      providerId: "zcode",
+      modelName: "deepseek-v4-flash",
+      pricingSnapshot,
+      tokens,
+    });
+    const proCost = calculateUsageCost({
+      providerId: "zcode",
+      modelName: "deepseek-v4-pro",
+      pricingSnapshot,
+      tokens,
+    });
+
+    expect(flashCost.totalUsd).toBeCloseTo(0.000_019_8, 10);
+    expect(flashCost.pricedTokens).toBe(170);
+    expect(flashCost.unpricedTokens).toBe(0);
+    expect(proCost.totalUsd).toBeCloseTo(0.000_095_7, 10);
+    expect(proCost.pricedTokens).toBe(170);
+    expect(proCost.unpricedTokens).toBe(0);
+  });
+
   test("scans Zcode SQLite usage and aggregates provider-prefixed model hints", async () => {
     const tempDir = await mkdtemp(path.join(tmpdir(), "eragear-zcode-usage-"));
     try {
@@ -217,7 +261,9 @@ describe("LocalCliUsageScannerAdapter", () => {
         db.close();
       }
 
-      const result = await new LocalCliUsageScannerAdapter().scan({
+      const result = await new LocalCliUsageScannerAdapter({
+        persistCodexIndex: false,
+      }).scan({
         range: "all",
         providers: ["zcode"],
         startMs: Date.UTC(2026, 5, 1),
@@ -231,13 +277,15 @@ describe("LocalCliUsageScannerAdapter", () => {
       expect(result.totals.inputTokens).toBe(360);
       expect(result.totals.outputTokens).toBe(150);
       expect(result.totals.cacheInputTokens).toBe(60);
-      expect(result.modelUsage).toHaveLength(1);
-      expect(result.modelUsage[0]?.name).toBe("glm-5.2");
-      expect(result.modelUsage[0]?.cost.totalUsd).toBeCloseTo(0.001_095_6, 8);
-      expect(result.providers[0]?.modelUsage).toHaveLength(1);
-      expect(result.providers[0]?.modelUsage[0]?.name).toBe("glm-5.2");
-      expect(result.daily[0]?.breakdown).toHaveLength(1);
-      expect(result.daily[0]?.breakdown[0]?.name).toBe("glm-5.2");
+      expect(result.modelUsage).toHaveLength(2);
+      expect(
+        result.modelUsage.map((model) => model.upstreamProviderId).sort()
+      ).toEqual(["anthropic", "zai"]);
+      expect(
+        result.modelUsage.reduce((sum, model) => sum + model.cost.totalUsd, 0)
+      ).toBeCloseTo(result.cost.totalUsd, 12);
+      expect(result.providers[0]?.modelUsage).toHaveLength(2);
+      expect(result.daily[0]?.breakdown).toHaveLength(2);
       expect(result.pricing.pricedTokens).toBe(510);
       expect(result.pricing.unpricedTokens).toBe(0);
     } finally {
@@ -292,7 +340,9 @@ describe("LocalCliUsageScannerAdapter", () => {
         ].join("\n")
       );
 
-      const result = await new LocalCliUsageScannerAdapter().scan({
+      const result = await new LocalCliUsageScannerAdapter({
+        persistCodexIndex: false,
+      }).scan({
         range: "all",
         providers: ["codex"],
         startMs: Date.UTC(2026, 5, 1),
@@ -305,6 +355,7 @@ describe("LocalCliUsageScannerAdapter", () => {
       expect(result.totals.inputTokens).toBe(150);
       expect(result.totals.outputTokens).toBe(60);
       expect(result.modelUsage[0]?.name).toBe("gpt-5");
+      expect(result.modelUsage[0]?.upstreamProviderId).toBe("openai");
       expect(result.modelUsage[0]?.tokens.totalTokens).toBe(210);
       expect(result.modelUsage[0]?.cost.totalUsd).toBeCloseTo(0.000_753_75, 8);
       expect(result.cost.totalUsd).toBeCloseTo(0.000_753_75, 8);
@@ -312,6 +363,155 @@ describe("LocalCliUsageScannerAdapter", () => {
       expect(result.pricing.unpricedTokens).toBe(0);
       expect(result.daily[0]?.tokens.totalTokens).toBe(210);
       expect(result.daily[0]?.cost.totalUsd).toBeCloseTo(0.000_753_75, 8);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test("backfills a sole late model only for Codex subagent logs", async () => {
+    const tempDir = await mkdtemp(
+      path.join(tmpdir(), "eragear-codex-subagent-")
+    );
+    try {
+      process.env.CODEX_HOME = tempDir;
+      const sessionsDir = path.join(tempDir, "sessions", "2026", "06");
+      await mkdir(sessionsDir, { recursive: true });
+      const tokenCount = (totalTokens: number) =>
+        JSON.stringify({
+          type: "event_msg",
+          timestamp: "2026-06-10T09:00:02.000Z",
+          payload: {
+            type: "token_count",
+            info: {
+              total_token_usage: {
+                input_tokens: totalTokens - 40,
+                cached_input_tokens: 20,
+                output_tokens: 40,
+                total_tokens: totalTokens,
+              },
+            },
+          },
+        });
+      const lateContext = JSON.stringify({
+        type: "turn_context",
+        timestamp: "2026-06-10T09:00:04.000Z",
+        payload: { model: "gpt-5-20250601" },
+      });
+      await writeFile(
+        path.join(sessionsDir, "subagent.jsonl"),
+        [
+          JSON.stringify({
+            type: "session_meta",
+            timestamp: "2026-06-10T09:00:00.000Z",
+            payload: { thread_source: "subagent" },
+          }),
+          tokenCount(140),
+          lateContext,
+        ].join("\n")
+      );
+      await writeFile(
+        path.join(sessionsDir, "main.jsonl"),
+        [tokenCount(70), lateContext].join("\n")
+      );
+
+      const result = await new LocalCliUsageScannerAdapter({
+        persistCodexIndex: false,
+      }).scan({
+        range: "all",
+        providers: ["codex"],
+        startMs: Date.UTC(2026, 5, 1),
+        endMs: Date.UTC(2026, 5, 12),
+      });
+
+      expect(result.totals.totalTokens).toBe(210);
+      expect(result.modelUsage).toHaveLength(1);
+      expect(result.modelUsage[0]?.name).toBe("gpt-5");
+      expect(result.modelUsage[0]?.tokens.totalTokens).toBe(140);
+      expect(result.pricing.pricedTokens).toBe(140);
+      expect(result.pricing.unpricedTokens).toBe(70);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test("persists a prompt-free Codex usage index and invalidates changed files", async () => {
+    const tempDir = await mkdtemp(path.join(tmpdir(), "eragear-codex-index-"));
+    try {
+      process.env.CODEX_HOME = tempDir;
+      const sessionsDir = path.join(tempDir, "sessions", "2026", "06");
+      const sessionPath = path.join(sessionsDir, "session.jsonl");
+      const indexPath = path.join(tempDir, "usage-index.json");
+      await mkdir(sessionsDir, { recursive: true });
+      const initialLines = [
+        JSON.stringify({
+          type: "turn_context",
+          timestamp: "2026-06-10T09:00:00.000Z",
+          payload: { model: "gpt-5-20250601" },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          timestamp: "2026-06-10T09:00:01.000Z",
+          payload: { text: "SECRET_PROMPT_MUST_NOT_BE_CACHED" },
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          timestamp: "2026-06-10T09:00:02.000Z",
+          payload: {
+            type: "token_count",
+            info: {
+              total_token_usage: {
+                input_tokens: 100,
+                cached_input_tokens: 20,
+                output_tokens: 40,
+                total_tokens: 140,
+              },
+            },
+          },
+        }),
+      ];
+      await writeFile(sessionPath, initialLines.join("\n"));
+      const scanInput = {
+        range: "all" as const,
+        providers: ["codex" as const],
+        startMs: Date.UTC(2026, 5, 1),
+        endMs: Date.UTC(2026, 5, 12),
+      };
+
+      const first = await new LocalCliUsageScannerAdapter({
+        codexIndexFilePath: () => indexPath,
+      }).scan(scanInput);
+      const persistedIndex = await bunFile(indexPath).text();
+
+      expect(first.totals.totalTokens).toBe(140);
+      expect(persistedIndex).toContain('"version":3');
+      expect(persistedIndex).not.toContain("SECRET_PROMPT_MUST_NOT_BE_CACHED");
+
+      await writeFile(
+        sessionPath,
+        [
+          ...initialLines,
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-06-10T09:00:04.000Z",
+            payload: {
+              type: "token_count",
+              info: {
+                total_token_usage: {
+                  input_tokens: 150,
+                  cached_input_tokens: 30,
+                  output_tokens: 60,
+                  total_tokens: 210,
+                },
+              },
+            },
+          }),
+        ].join("\n")
+      );
+
+      const refreshed = await new LocalCliUsageScannerAdapter({
+        codexIndexFilePath: () => indexPath,
+      }).scan(scanInput);
+      expect(refreshed.totals.totalTokens).toBe(210);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

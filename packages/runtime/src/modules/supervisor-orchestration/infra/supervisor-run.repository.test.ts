@@ -98,7 +98,11 @@ describe("SupervisorRunSqliteRepository", () => {
       .set({ schemaVersion: 0, stateJson: JSON.stringify(legacy) })
       .where(eq(sqliteSchema.supervisorRuns.runId, run.runId))
       .run();
-    expect((await repo.get(run.runId, run.userId))?.schemaVersion).toBe(1);
+    expect(await repo.get(run.runId, run.userId)).toMatchObject({
+      schemaVersion: 2,
+      status: "needs_user",
+      migratedFromVersion: 1,
+    });
 
     orm
       .update(sqliteSchema.supervisorRuns)

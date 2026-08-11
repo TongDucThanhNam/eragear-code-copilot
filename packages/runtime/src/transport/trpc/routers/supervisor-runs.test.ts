@@ -24,6 +24,8 @@ function createCaller(userId = "user-1") {
       },
       supervisorOrchestration: {
         orchestrator: {
+          createDraft: (input: { userId: string }) =>
+            returnRun("createDraft", input.userId),
           start: (input: { userId: string }) =>
             returnRun("start", input.userId),
           get: (_runId: string, owner: string) => {
@@ -38,6 +40,14 @@ function createCaller(userId = "user-1") {
           resume: (_runId: string, owner: string) => returnRun("resume", owner),
           cancel: (_runId: string, owner: string) => returnRun("cancel", owner),
           replan: (_runId: string, owner: string) => returnRun("replan", owner),
+          approvePlan: (input: { userId: string }) =>
+            returnRun("approvePlan", input.userId),
+          requestPlanChanges: (input: { userId: string }) =>
+            returnRun("requestPlanChanges", input.userId),
+          answerDecision: (input: { userId: string }) =>
+            returnRun("answerDecision", input.userId),
+          setPriority: (input: { userId: string }) =>
+            returnRun("setPriority", input.userId),
           retryTask: (input: { userId: string }) =>
             returnRun("retryTask", input.userId),
           approveGate: (input: { userId: string }) =>
@@ -60,16 +70,29 @@ describe("supervisorRunsRouter", () => {
     >;
     for (const name of [
       "start",
+      "createDraft",
       "get",
       "list",
       "pause",
       "resume",
       "cancel",
       "replan",
+      "approvePlan",
+      "requestPlanChanges",
+      "answerDecision",
+      "setPriority",
       "retryTask",
       "approveGate",
       "rejectGate",
       "updates",
+      "profiles.list",
+      "profiles.upsert",
+      "profiles.testResume",
+      "inbox.list",
+      "inbox.updates",
+      "telegram.status",
+      "telegram.configure",
+      "telegram.beginPairing",
     ]) {
       expect(procedures[name]).toBeDefined();
     }
@@ -79,8 +102,11 @@ describe("supervisorRunsRouter", () => {
     const { caller, calls } = createCaller();
     await caller.start({
       projectId: "project-1",
-      projectRoot: "C:/repo",
-      originalIntent: "Implement safely",
+      intent: "Implement safely",
+    });
+    await caller.createDraft({
+      projectId: "project-1",
+      intent: "Implement safely",
     });
     await caller.get({ runId: "run-1" });
     await caller.list();
@@ -88,24 +114,43 @@ describe("supervisorRunsRouter", () => {
     await caller.resume({ runId: "run-1" });
     await caller.cancel({ runId: "run-1" });
     await caller.replan({ runId: "run-1" });
+    await caller.approvePlan({
+      runId: "run-1",
+      planVersion: 1,
+      planHash: "a".repeat(64),
+      expectedRevision: 0,
+    });
+    await caller.requestPlanChanges({
+      runId: "run-1",
+      requestedChanges: "Narrow scope",
+      expectedRevision: 0,
+    });
+    await caller.answerDecision({
+      runId: "run-1",
+      decisionId: "decision-1",
+      answer: "Use option A",
+      expectedRevision: 0,
+    });
+    await caller.setPriority({
+      runId: "run-1",
+      priority: "high",
+      expectedRevision: 0,
+    });
     await caller.retryTask({ runId: "run-1", taskId: "task-1" });
     await caller.approveGate({ runId: "run-1", gateId: "gate-1" });
     await caller.rejectGate({ runId: "run-1", gateId: "gate-1" });
 
-    expect(calls).toHaveLength(10);
+    expect(calls).toHaveLength(15);
     expect(calls.every((call) => call.userId === "user-1")).toBe(true);
   });
 
-  test("rejects a project root that is not owned by the authenticated project", async () => {
+  test("resolves project root server-side and rejects an unknown project", async () => {
     const { caller } = createCaller();
     await expect(
-      caller.start({
-        projectId: "project-1",
-        projectRoot: "C:/someone-else/repo",
-        originalIntent: "Cross project attempt",
+      caller.createDraft({
+        projectId: "missing-project",
+        intent: "Cross project attempt",
       })
-    ).rejects.toThrow(
-      "Project not found or project root does not match ownership"
-    );
+    ).rejects.toThrow("Project not found or does not belong to the user");
   });
 });

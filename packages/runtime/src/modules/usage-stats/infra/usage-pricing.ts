@@ -70,6 +70,7 @@ const OPENAI_GPT_VERSION_PATTERN = /^gpt-(\d+)\.(\d+)(-.*)?$/;
 
 const MODEL_PROVIDER_HINTS: [RegExp, string][] = [
   [/^claude|sonnet|opus|haiku/i, "anthropic"],
+  [/^deepseek/i, "deepseek"],
   [/^gemini/i, "google"],
   [/^gpt|^o\d|codex/i, "openai"],
   [/^glm/i, "zai"],

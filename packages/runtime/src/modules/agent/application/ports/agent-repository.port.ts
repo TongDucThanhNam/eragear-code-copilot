@@ -1,3 +1,4 @@
+import type { SupervisorAgentProfile } from "#runtime/shared/contracts/supervisor-agent-profile.contract";
 import type {
   AgentConfig,
   AgentInput,
@@ -21,6 +22,14 @@ export interface AgentRepositoryPort {
   findById(id: string, userId: string): Promise<AgentConfig | undefined>;
   /** Find all agents */
   findAll(userId: string): Promise<AgentConfig[]>;
+  listSupervisorProfiles?(
+    userId: string,
+    projectId?: string
+  ): Promise<SupervisorAgentProfile[]>;
+  saveSupervisorProfile?(
+    userId: string,
+    profile: SupervisorAgentProfile
+  ): Promise<SupervisorAgentProfile>;
   /** Get the currently active agent ID */
   getActiveId(userId: string): Promise<string | null>;
   /** List agents by project */

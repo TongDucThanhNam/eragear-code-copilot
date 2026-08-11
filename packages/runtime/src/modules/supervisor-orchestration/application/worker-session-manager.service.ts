@@ -22,7 +22,7 @@ export interface WorkerSessionCreatePort {
   execute(input: {
     userId: string;
     projectId?: string;
-    projectRoot?: string;
+    trustedProjectRoot?: string;
     agentId?: string;
     chatId?: string;
   }): Promise<{
@@ -53,7 +53,11 @@ export interface WorkerSessionStopPort {
 }
 
 export interface WorkerSessionResumePort {
-  execute(userId: string, chatId: string): Promise<unknown>;
+  execute(
+    userId: string,
+    chatId: string,
+    options?: { mode?: "allow_fallback" | "exact_only" }
+  ): Promise<unknown>;
 }
 
 export interface WorkerModelSetPort {
@@ -67,6 +71,15 @@ export interface WorkerSessionManagerDeps {
   stopSession: WorkerSessionStopPort;
   resumeSession: WorkerSessionResumePort;
   setModel?: WorkerModelSetPort;
+  capacity?: {
+    suspendWorker(input: {
+      runId: string;
+      userId: string;
+      taskId: string;
+      attemptId: string;
+      failure: { error?: unknown };
+    }): Promise<{ suspended: boolean; run: SupervisorRunState }>;
+  };
   now?: () => string;
   createId?: (prefix: string) => string;
 }
@@ -78,6 +91,7 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
   private readonly stopSession: WorkerSessionStopPort;
   private readonly resumeSession: WorkerSessionResumePort;
   private readonly setModel?: WorkerModelSetPort;
+  private readonly capacity?: WorkerSessionManagerDeps["capacity"];
   private readonly now: () => string;
   private readonly idFactory: (prefix: string) => string;
 
@@ -88,6 +102,7 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     this.stopSession = deps.stopSession;
     this.resumeSession = deps.resumeSession;
     this.setModel = deps.setModel;
+    this.capacity = deps.capacity;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.idFactory = deps.createId ?? createId;
   }
@@ -111,7 +126,7 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
       session = await this.createSession.execute({
         userId: input.userId,
         ...(run.projectId ? { projectId: run.projectId } : {}),
-        projectRoot:
+        trustedProjectRoot:
           input.workspace?.projectRoot ??
           input.isolatedProjectRoot ??
           run.projectRoot,
@@ -158,6 +173,23 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
       );
       return { attempt: updated, alreadyDispatched: false };
     } catch (error) {
+      const suspension = await this.capacity?.suspendWorker({
+        runId: input.runId,
+        userId: input.userId,
+        taskId: input.taskId,
+        attemptId: attempt.attemptId,
+        failure: { error },
+      });
+      if (suspension?.suspended) {
+        return {
+          attempt: requireAttempt(
+            suspension.run,
+            input.taskId,
+            attempt.attemptId
+          ),
+          alreadyDispatched: false,
+        };
+      }
       await this.stopSession
         .execute(input.userId, attempt.chatId)
         .catch(() => undefined);
@@ -291,6 +323,17 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     });
   }
 
+  async release(input: {
+    runId: string;
+    userId: string;
+    taskId: string;
+    attemptId: string;
+  }): Promise<void> {
+    const run = await this.requireRun(input.runId, input.userId);
+    const attempt = requireAttempt(run, input.taskId, input.attemptId);
+    await this.stopSession.execute(input.userId, attempt.chatId);
+  }
+
   async resume(input: {
     runId: string;
     userId: string;
@@ -299,7 +342,48 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
   }): Promise<void> {
     const run = await this.requireRun(input.runId, input.userId);
     const attempt = requireAttempt(run, input.taskId, input.attemptId);
-    await this.resumeSession.execute(input.userId, attempt.chatId);
+    await this.resumeSession.execute(input.userId, attempt.chatId, {
+      mode: "exact_only",
+    });
+  }
+
+  async resumePendingCapacity(input: {
+    runId: string;
+    userId: string;
+    taskId: string;
+    attemptId: string;
+  }): Promise<void> {
+    const run = await this.requireRun(input.runId, input.userId);
+    const task = requireTask(run, input.taskId);
+    const attempt = requireAttempt(run, input.taskId, input.attemptId);
+    if (attempt.turnId) {
+      return;
+    }
+    try {
+      const submitted = await this.sendMessage.execute({
+        userId: input.userId,
+        chatId: attempt.chatId,
+        source: "orchestrator",
+        text: buildWorkerPrompt({
+          run,
+          task,
+          attempt,
+          dependencySummaries: collectDependencySummaries(run, task),
+        }),
+      });
+      await this.updateAttempt(input, input.attemptId, (draftAttempt) => {
+        draftAttempt.status = "running";
+        draftAttempt.turnId = submitted.turnId;
+      });
+    } catch (error) {
+      const suspension = await this.capacity?.suspendWorker({
+        ...input,
+        failure: { error },
+      });
+      if (!suspension?.suspended) {
+        throw error;
+      }
+    }
   }
 
   private async reserveAttempt(input: DispatchSupervisorWorkerInput): Promise<{
@@ -376,7 +460,8 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     chatId: string;
     models?: Awaited<ReturnType<WorkerSessionCreatePort["execute"]>>["models"];
   }): Promise<void> {
-    if (!input.run.providerId) {
+    const providerId = input.run.legacyAutomation?.providerId;
+    if (!providerId) {
       return;
     }
     if (!input.models) {
@@ -384,13 +469,14 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
         "Scheduled worker model provider could not be proven compatible"
       );
     }
-    const modelId = input.run.workerModelId ?? input.models.currentModelId;
+    const modelId =
+      input.run.legacyAutomation?.workerModelId ?? input.models.currentModelId;
     const model = input.models.availableModels.find(
       (candidate) => candidate.modelId === modelId
     );
-    if (!(model && workerModelMatchesProvider(model, input.run.providerId))) {
+    if (!(model && workerModelMatchesProvider(model, providerId))) {
       throw new Error(
-        `Scheduled worker model ${modelId} is incompatible with provider ${input.run.providerId}`
+        `Scheduled worker model ${modelId} is incompatible with provider ${providerId}`
       );
     }
     if (input.models.currentModelId !== modelId) {

@@ -1,5 +1,300 @@
 # GOAL Progress - Electron ADE Overnight Sprint
 
+## Supervisos Manager Mode v2 - 2026-08-10
+
+Source of truth: `GOAL.md`.
+
+Status: implementation, deterministic verification, Windows user-daemon
+recovery, Codex ACP manager exact-resume, and the combined worker/final-commit
+smoke are complete. The developer-machine scheduled task is disabled after the
+acceptance cleanup; development uses the child runtime unless explicitly opted
+in. External acceptance still requires a real provider quota reset, a paired
+Telegram bot/chat, and a login/reboot cycle.
+
+### Phase 1 - Run schema v2, migration, and exact capacity resume
+
+What changed:
+- Upgraded durable Supervisor runs to schema v2 with plan approval,
+  `awaiting_approval`/`waiting_capacity`, manager session bindings, priority,
+  capacity waits, durable decisions, delivery authorization, and final commit
+  evidence. Removed the overall calendar deadline while retaining bounded
+  turns, attempts, replans, and loop detection.
+- Added SQLite migration `0017_supervisor_run_v2_statuses` so the durable table
+  constraint accepts the new approval/capacity states, including databases
+  originally created with the v1 status constraint.
+- Added deterministic plan hashing and an execution envelope that binds file
+  scope, verification, success criteria, permissions, destructive actions,
+  target branch/HEAD, and commit authorization.
+- Kept terminal v1 runs readable. Non-terminal v1 runs migrate fail-closed to
+  `needs_user` for an ACP-manager replan.
+- Added `exactOnly` session resume. Quota suspension stops the ACP process,
+  releases capacity, and preserves `agentId`, `chatId`, ACP session,
+  `attemptId`, and worktree without consuming another attempt.
+- Added typed/redacted ACP capacity classification and ETA+jitter/backoff
+  scheduling for quota, transient rate-limit, auth, transport, session-fatal,
+  and unknown failures.
+
+Verification:
+- Schema, migration, plan hash/envelope, capacity classifier/coordinator, and
+  exact-resume tests are included in the 102-test orchestration suite below.
+
+### Phase 2 - ACP manager, approval, and active Supervisor wiring
+
+What changed:
+- Added a sticky `AcpManagerSessionCoordinator` using the existing session
+  create/send/stop/resume services with prompt source `orchestrator` and strict
+  structured `plan`, `replan`, `question`, `continue`, and `complete` turns.
+- Bounded/redacted Project Index, Scope Resolution, Memory, MCP, and repository
+  context before manager turns. The manager remains read-only; runtime owns
+  worker dispatch, state transitions, gates, integration, and delivery.
+- Side-chat implementation requests now create Goal Drafts for Mission Control
+  approval instead of staging a prompt in the main chat input.
+- Removed AI SDK/MiniMax adapters from active composition and DI barrels. Legacy
+  files/settings remain compatibility-only and the legacy settings form is
+  hidden from active navigation.
+- Added plan approval/change APIs with version/hash/revision compare-and-swap,
+  durable Manager Inbox list/subscription, and server-side project-root
+  resolution. `start` remains a one-version compatibility alias for
+  `createDraft`.
+
+Verification:
+- Active-wiring audit test confirms the composition roots and active DI barrels
+  contain no AI SDK or MiniMax Supervisor calls.
+- Public router/context/desktop projection tests: 17 passed, 0 failed.
+
+### Phase 3 - Agent profiles, fair scheduling, quota, and integration locking
+
+What changed:
+- Added persisted Supervisor agent profiles with manager/worker roles,
+  concurrency, optional capacity groups/quota telemetry bindings, ACP handshake,
+  exact-resume readiness, and readiness test APIs. Codex, Claude, Gemini, and
+  OpenCode receive default profiles; unverified custom agents fail closed for
+  overnight work.
+- Added the global weighted-fair scheduler (`urgent=8`, `high=4`, `normal=2`,
+  `low=1`) with one dispatch per runnable run before spending extra weight.
+- Reused quota snapshots/reset/cache/backoff/dedupe/cooldown/lease events as
+  dispatch signals. Quota refresh wakes existing capacity waits instead of
+  creating duplicate runs.
+- Serialized write integration per project while allowing read-only work and
+  unrelated projects to continue concurrently.
+- Bots and Scheduled Tasks now enter through the Goal API.
+
+Verification:
+- Fairness, shared capacity groups, readiness, quota wake-up, and project-lock
+  concurrency are covered by the orchestration suite.
+
+### Phase 4 - Daemon, Mission Control, Telegram, power, and final commit
+
+What changed:
+- Added a loopback-only, single-instance user daemon with a public endpoint
+  manifest and a separate per-user token file. Electron main owns Windows Task
+  Scheduler/Linux `systemd --user` install/start/stop/status operations; preload
+  exposes only narrow contextBridge methods and never exposes the token.
+- Added Mission Control for the global goal portfolio, plan approvals, quota
+  waits/ETA, decisions, task DAG/evidence, final commit, agent readiness,
+  daemon control, encrypted Telegram setup, and one-time pairing.
+- Added outbound Telegram long polling, encrypted credentials, opaque
+  revision-bound callback tokens, replay protection, plan approval/change and
+  run controls, free-form answers only for one open decision, immediate
+  blocker/completion notifications, and a 09:00 timezone digest.
+- Added AC-aware power leases and wake timers. Long capacity waits over 30
+  minutes release the inhibitor and reconcile on the wake timer/next OS wake.
+- Added final scoped delivery: revalidate branch/HEAD/fingerprints/overlap,
+  create a safety ref, stage only run-owned files in an isolated index, run Git
+  hooks, and create exactly one local commit. It does not push, open a PR,
+  deploy, switch branches, or absorb pre-existing user changes.
+
+Verification:
+- Isolated daemon smoke passed with loopback health, token-free manifest,
+  separate token path, and child cleanup:
+  `{"ready":true,"host":"127.0.0.1","port":52442,"pid":25676,"tokenEmbedded":false,"tokenPathMatches":true,"tokenLength":67}`.
+- Scoped final-commit test confirms the user's real index is preserved.
+- Telegram approve/replay, request-changes, and free-form decision tests pass.
+
+### Phase 5 - Final local verification
+
+Commands run:
+- `bun test packages/runtime/src/modules/supervisor-orchestration/domain packages/runtime/src/modules/supervisor-orchestration/application packages/runtime/src/modules/supervisor-orchestration/infra`
+  with the required Bun command/env allowlists: 102 passed, 0 failed.
+- The quota/restart integration recreates SQLite and the capacity coordinator,
+  then exact-resumes the same ACP session, attempt, agent, and worktree.
+- Focused public API, daemon controller, Mission Control projection, and active
+  wiring tests: 17 passed, 0 failed.
+- `bun run audit:blockers`: runtime 54 passed, shared 47 passed, desktop 104
+  passed; all typechecks in the audit passed.
+- `bun run --cwd packages/runtime check-types`,
+  `bun run --cwd packages/api-contract check-types`, and
+  `bun run --cwd apps/desktop check-types`: passed.
+- `bun run --cwd apps/desktop build:main`,
+  `bun run --cwd apps/desktop build:renderer`, and `bun run build`: passed.
+- Focused Biome checks with `--write --error-on-warnings` and
+  `git diff --check`: passed.
+
+### Phase 6 - Live Windows daemon and manager lifecycle verification
+
+What changed:
+- Hardened the Windows daemon controller around the shared per-user Eragear
+  storage/auth paths, exact-manifest PID shutdown, private token/manifest files,
+  and a real Task Scheduler restart policy (`RestartCount=999`, one-minute
+  interval, `StartWhenAvailable`, no execution time limit, and no battery-stop).
+  Production launchers cannot inherit insecure development defaults or
+  provider/Telegram secrets; only explicit command/env policy keys persist.
+- Made bootstrap API-key recovery verify the persisted key and atomically
+  replace a stale/malformed file without revoking unrelated valid keys.
+- Fixed the daemon crash caused by an invalid WebSocket credential. Better Auth
+  can throw a cross-realm 401 object; guards now treat that as invalid auth, and
+  the EventEmitter upgrade callback owns/catches its async task instead of
+  leaking an unhandled rejection.
+- Kept missing Telegram configuration lookup read-only so idle long polling
+  does not rewrite the encrypted credential store.
+- Closed two manager lifecycle gaps found by the live smoke: invalid structured
+  output now moves the run to `needs_user`, opens a
+  `classifier_uncertain` decision, and stops the manager; cancelling a planning
+  run also stops its sticky ACP session and clears active/pending turn state.
+
+Live evidence:
+- Installed and started `EragearRuntimeDaemon` on loopback port 43119. The
+  endpoint manifest contains no token, the bootstrap API key verifies, and the
+  daemon remained healthy after Desktop shutdown/reconnect testing.
+- An intentionally invalid WebSocket credential was rejected while the daemon
+  retained PID 23708 and `/api/health` remained healthy. No orphan `opencode
+  acp` process remained after manager cancellation.
+- Registered this workspace through the public project API. The configured
+  OpenCode profile passed both the ACP handshake and `exact_only` resume live.
+- Public portfolio APIs returned the project/profile/inbox/run/Telegram state.
+  Telegram is correctly reported as unconfigured/unpaired on this machine.
+- A real manager Goal Draft bound one sticky manager session with
+  `exactResumeRequired=true`. The current OpenCode model returned prose instead
+  of the strict JSON schema; after the lifecycle fix the run transitioned to
+  `needs_user` at revision 4, the manager became `stopped`, and cleanup left no
+  worker dispatch or worktree changes.
+
+Verification after the live fixes:
+- Complete Supervisor orchestration domain/application/infra suite: 102 passed,
+  0 failed.
+- Focused daemon/auth/Telegram/public API/desktop projection suite: 20 passed,
+  0 failed.
+- `bun run audit:blockers`, runtime/API-contract/desktop typechecks, desktop
+  main and renderer builds, active Supervisor AI-SDK/MiniMax wiring audit,
+  full Biome (`1463 files`), and `git diff --check`: passed.
+
+### Phase 7 - Daemon disconnect regression recovery
+
+- Diagnosed quota/usage queries stuck in loading after the Windows daemon died
+  with `0xC000013A`: Desktop had already selected `client-only`, while pending
+  WebSocket queries had no runtime failover and therefore never reached the
+  usage or quota services.
+- Made the user daemon opt-in during development with
+  `ERAGEAR_USER_DAEMON_ENABLED=1`. Packaged Windows/Linux builds retain the
+  daemon default and still honor explicit `=0`; client-only mode and macOS stay
+  excluded.
+- Disabled the developer-machine `EragearRuntimeDaemon` scheduled task. It is
+  preserved for later packaged/reconnect work but no longer starts in the
+  current development workflow.
+- Verification passed: daemon-controller tests (`7 pass`), focused Biome,
+  desktop typecheck, and a timed Electron smoke. The smoke reported
+  `main-thread`, private `desktop-service`, runtime `ready: true`, renderer
+  loaded, and clean runtime shutdown.
+
+### Phase 8 - Live Codex ACP manager and exact-resume verification
+
+- Registered the locally installed `@agentclientprotocol/codex-acp` 1.1.14 as
+  a separate Codex agent without replacing the existing OpenCode agent.
+- Tightened the manager prompt contract around exact authoritative goal
+  copying, role/execution-mode enums, array-valued fields, repo-relative
+  `scopeIntent`, empty destructive-action representation, and the complete
+  delivery object. Strict parsing remains fail-closed; no output coercion was
+  added.
+- Manager plans rejected after structured parsing now transition from
+  `planning` to `needs_user`, create a durable `classifier_uncertain` decision,
+  and record `plan_rejected` instead of leaving the run stuck indefinitely.
+- A successful exact resume from a real manager lifecycle now records Agent
+  Profile readiness. This avoids the Codex empty-session readiness probe's
+  false negative while still requiring real same-session resume evidence.
+- Cancelling a manager binding whose ACP session was never created no longer
+  invokes StopSession for a nonexistent chat.
+
+Live evidence:
+- Codex ACP created plan v1, stopped cleanly, exact-resumed after Request
+  Changes with the same manager chat/session binding, and returned plan v2 in
+  `awaiting_approval` (`sameManagerChat=true`, `planVersionAdvanced=true`).
+- The persisted Codex Agent Profile now reports handshake and exact resume as
+  `passed`, checked at `2026-08-11T03:10:04.669Z`.
+- All smoke runs were cancelled, the temporary daemon was stopped, the Windows
+  Scheduled Task was disabled again, port 43119 had no listener, and no
+  `codex-acp`/Codex app-server process remained.
+
+Verification:
+- Focused manager prompt/session/profile/orchestrator tests: 11 passed, 0
+  failed.
+- Complete Supervisor orchestration domain/application/infra suite: 106
+  passed, 0 failed.
+- Runtime typecheck, focused Biome, and patch hygiene passed.
+
+External verification remaining:
+- Run a real ACP manager and workers through a provider quota exhaustion/reset,
+  restart the daemon, and confirm exact resume of the same ACP
+  session/attempt/worktree.
+- Pair a real Telegram bot and exercise approval, request changes, question,
+  pause/resume/cancel, digest, and completion delivery end-to-end.
+- Re-enable Windows Task Scheduler for a real login/reboot cycle. Linux
+  `systemd --user` remains covered deterministically rather than on this
+  Windows host.
+
+### Phase 9 - Live daemon recovery and Codex ACP delivery acceptance
+
+What changed:
+- Added an Electron-main daemon recovery monitor and renderer reconnect hook.
+  A dead user daemon is restarted through the existing controller; the second
+  WebSocket open refetches active queries so Quota/Usage and portfolio queries
+  cannot remain permanently pending. Runtime business rules remain in
+  `packages/runtime`, and preload exposes no daemon token.
+- Bound write workers to their detached worktree as the trusted session root,
+  added fail-closed runtime permission handling for the exact worker binding,
+  and allowed only scoped edits, exact verification commands, and bounded
+  read-only inspection. Runtime-owned Git delivery actions remain denied to
+  workers.
+- Released terminal ACP worker processes before worktree integration so a
+  Windows process cwd cannot pin cleanup. Tightened structured result guidance
+  around timestamps and blocker-only failure evidence.
+- Added delivery-only decision retry: when every task and aggregate gate has
+  passed, answering a final commit `baseline_drift` decision reruns deterministic
+  verification and the scoped commit without spending manager replan budget or
+  changing the approved envelope. Short approved Git refs are resolved to a
+  commit before comparison with the full current HEAD.
+
+Live evidence:
+- A real Task Scheduler daemon was killed and recovered with a new PID while
+  the same loopback endpoint became queryable again; the reconnect contract
+  observed two WebSocket opens and refetched active queries on the second.
+- Codex ACP run `supervisor-run-81f2f5c0-ad4f-46e3-afb9-65994d5614b5`
+  exact-resumed its sticky manager across replans, completed worker task
+  `implement-result-txt`, passed aggregate `bun test`, and reached terminal
+  `completed` at revision 51.
+- Approved plan v3 targeted branch `acceptance` at short ref `e8da48f`.
+  Runtime created exactly one commit
+  `b66e1f8686f71a310e466fcf7e1b8dd71f5c3d28`, whose parent is the approved full
+  baseline `e8da48f7dba63b7aa69cd77a95bab38aa7ff29ec` and whose only path is the
+  run-owned `result.txt`. The pre-existing untracked `.eragear/` state stayed
+  outside the commit; no push, PR, deploy, or branch switch occurred.
+- All acceptance runs were terminal before the temporary project was
+  unregistered. The daemon process was stopped and `EragearRuntimeDaemon` was
+  disabled after the smoke.
+
+Verification:
+- Complete Supervisor orchestration domain/application/infra suite: 113
+  passed, 0 failed.
+- Daemon recovery, renderer reconnect, ACP permission, public Supervisor API,
+  and desktop run-hook suite: 16 passed, 0 failed.
+- Runtime/API-contract/desktop typechecks, active Manager Mode wiring audit,
+  and repository blocker audit passed.
+- Desktop main and renderer production builds passed. Focused Biome checked
+  109 files with no warnings, and focused patch hygiene passed.
+
+Known non-blocking build warnings:
+- Existing renderer chunk-size/caniuse-lite warnings and Bun `bun:sqlite`
+  externalization warnings remain; builds exit successfully.
+
 ## Multi-session Supervisos Orchestration Goal - 2026-07-11
 
 Source of truth: `GOAL.md`.
@@ -2963,3 +3258,492 @@ were left running.
   `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop` (exit `0`,
   Electron renderer loaded through the desktop-service runtime channel).
 - Remaining work: none for this chat virtualization slice.
+
+## 2026-08-09 Settings information architecture refresh
+
+- Reworked the desktop Settings navigation after comparing it with the T3 Code
+  (Alpha) reference. The desktop sidebar now uses progressive disclosure:
+  `Overview` plus eight intent-based groups are visible at rest, only the
+  current group opens automatically, and search opens only matching groups.
+- Reorganized the visible surface into `General`, `AI and Providers`,
+  `Workspace`, `Tools and Extensions`, `Automation`, `Connections`, `Account
+  and Access`, and `Diagnostics and History`. Labels now distinguish runtime
+  diagnostics, project memory, code index snapshots, server connection, and
+  ACP auth files instead of presenting similarly named concepts as peers.
+- Audited all 29 prior navigation destinations. The legacy
+  `/settings/automation` Local ADE page duplicated the dedicated Hooks and
+  Plugins destinations, so it is no longer shown in navigation. Its route is
+  preserved for existing deep links; no runtime configuration or stored data
+  was removed.
+- Simplified the Settings overview from a dense grid of every leaf route to
+  four essentials and eight category rows. Refreshed shared page/section chrome
+  with a narrower reading width, clearer hierarchy, rounded low-contrast
+  surfaces, and consistent content spacing.
+- Preserved Electron boundaries: this slice changes renderer navigation and
+  presentation only; no setting behavior moved into Electron main/preload and
+  no runtime/API contract changed.
+- Changed files:
+  `apps/desktop/src/renderer/routes/settings.tsx`,
+  `apps/desktop/src/renderer/routes/settings.index.tsx`,
+  `apps/desktop/src/renderer/components/settings/settings-navigation.ts`,
+  `apps/desktop/src/renderer/components/settings/settings-navigation.test.ts`,
+  `apps/desktop/src/renderer/components/settings/settings-panels.tsx`, and
+  `GOAL_PROGRESS.md`.
+- Verification passed:
+  `bunx biome check apps/desktop/src/renderer/routes/settings.tsx apps/desktop/src/renderer/routes/settings.index.tsx apps/desktop/src/renderer/components/settings/settings-navigation.ts apps/desktop/src/renderer/components/settings/settings-navigation.test.ts apps/desktop/src/renderer/components/settings/settings-panels.tsx --write --error-on-warnings`;
+  `bun test apps/desktop/src/renderer/components/settings/settings-navigation.test.ts`
+  (`4 pass, 0 fail`);
+  `bun run --cwd apps/desktop test:blockers` (`104 pass, 0 fail`);
+  `bun run --cwd apps/desktop check-types`;
+  `bun run --cwd apps/desktop build:renderer`;
+  focused `git diff --check`; and
+  `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop` (exit `0`,
+  renderer loaded through the Electron IPC/desktop-service runtime channel on
+  the automatically selected loopback port).
+- Visual QA limitation: the supplied T3 screenshot and live T3 window were
+  available for comparison, but Windows capture automation failed to return a
+  frame. A browser-only renderer check reached the expected sign-in boundary
+  and was not given credentials, so no authenticated browser screenshot is
+  claimed. Build, route-model tests, typecheck, blocker tests, and the real
+  Electron renderer smoke are authoritative for this slice.
+- Remaining work: none for the Settings information architecture refresh.
+
+## 2026-08-09 Usage and quota separation
+
+- Split current subscription capacity from historical consumption in the
+  desktop Settings information architecture. `Usage` remains the historical
+  token/cost view by time range; the new `Quota` route shows remaining provider
+  limits and reset timing.
+- Moved `ProviderQuotaPanel` out of `Settings > Runtime` into
+  `/settings/quota`. Runtime now focuses only on desktop health, updates, CLI
+  detection, and provider readiness.
+- Added distinct navigation language and search intent: `Usage` is described as
+  historical tokens/cost and matches monthly-spend queries, while `Quota` is
+  described as remaining limits/resets and matches subscription/capacity/reset
+  queries.
+- Changed quota reset timestamps to a compact relative duration such as
+  `Resets in 4h 12m`, while retaining the absolute reset date/time as hover
+  context.
+- Changed files:
+  `apps/desktop/src/renderer/routes/settings.runtime.tsx`,
+  `apps/desktop/src/renderer/routes/settings.quota.tsx`,
+  `apps/desktop/src/renderer/components/settings/provider-quota-panel.tsx`,
+  `apps/desktop/src/renderer/components/settings/provider-quota-utils.ts`,
+  `apps/desktop/src/renderer/components/settings/provider-quota-utils.test.ts`,
+  `apps/desktop/src/renderer/components/settings/usage-stats-settings-panel.tsx`,
+  `apps/desktop/src/renderer/components/settings/settings-navigation.ts`,
+  `apps/desktop/src/renderer/components/settings/settings-navigation.test.ts`,
+  generated `apps/desktop/src/renderer/routeTree.gen.ts`, and
+  `GOAL_PROGRESS.md`.
+- Verification passed:
+  focused Biome formatting/checks;
+  `bun test apps/desktop/src/renderer/components/settings/settings-navigation.test.ts apps/desktop/src/renderer/components/settings/provider-quota-utils.test.ts`
+  (`6 pass, 0 fail`);
+  `bun run --cwd apps/desktop check-types`; and
+  `bun run --cwd apps/desktop build:renderer`.
+- Remaining work: none for the Usage/Quota separation slice.
+
+## 2026-08-09 Git feature goal — Phase 0 investigation and decisions
+
+- Preserved the pre-existing dirty quota/settings work and the extracted
+  Electron window controls change in `chat-header.tsx`; no Phase 0 source code
+  was changed.
+- Confirmed that runtime currently publishes `prompt_message_sent` only after
+  prompt submission and `prompt_turn_completed` after completion. There is no
+  pre-turn event. The implementation will add `prompt_turn_started` through the
+  existing prompt lifecycle notifier and await it before `PromptTaskRunner`
+  starts ACP work, so the baseline is captured before agent filesystem writes.
+- Confirmed from installed `@agentclientprotocol/sdk@0.16.1` declarations that
+  ACP exposes cancel/load/resume/fork but no rollback or conversation-history
+  truncation operation. The fail-closed fallback is: stop the active runtime,
+  atomically truncate persisted messages to the requested completed-turn
+  boundary, clear the stale agent session id, restart a fresh ACP session under
+  the same local chat id/root, and replay the retained stored timeline to the
+  renderer. The stale ACP session is never loaded after a revert.
+- Confirmed that `StoredSession` currently has no environment metadata and that
+  `UpdateSessionMetaService` only exposes name/pinned/archive. Phase 4 will add
+  optional `envMode`, `worktreePath`, and worktree branch metadata, plus a
+  dedicated mode-switch service that owns stop/create ordering.
+- Selected GitHub CLI for the Phase 3 PR provider. `gh 2.96.0` is installed and
+  authenticated in the current environment, and the adapter will use
+  non-interactive `gh pr create` arguments. Other source-control providers stay
+  out of scope as specified by the goal.
+- Selected parallel compatibility for checkpoints: hidden
+  `refs/eragear/session-*-turn-*` refs become the turn checkpoint source, while
+  existing patch checkpoints in `.eragear/checkpoints/` remain available for
+  manual create/list/restore. No patch migration or deletion is required.
+- Reviewed the current T3 source for `CheckpointReactor`, `CheckpointStore`,
+  `GitVcsDriver`, `GitActionsControl.logic`, and `BranchToolbar.logic`. Eragear
+  will adapt the isolated-index capture and `git restore`-based restore behavior
+  behind its existing ports instead of copying T3's Effect/event-sourcing
+  implementation.
+- Baseline verification passed after applying the repository-documented strict
+  Bun command/env allowlist: Git module and renderer event tests (`29 pass` in
+  the first run), followed by the two allowlist-gated files (`9 pass, 0 fail`).
+- Remaining work: Phases 1–5 of `implement-git-feature-goal.md`.
+
+## 2026-08-09 Git feature goal — Phase 1 ref checkpoint core
+
+- Extended the Git application contract and `GitCheckpointPort` with strict
+  turn checkpoint/diff types and capture/list/diff/restore/stale-ref operations.
+- Added `buildTurnCheckpointRef` and the pure `parseTurnDiffFiles` parser with
+  add/modify/delete/rename coverage and line-count summaries.
+- Implemented hidden ref capture in `GitAdapter` using an isolated temporary Git
+  index, `read-tree`, `add -A`, `write-tree`, `commit-tree`, and `update-ref`.
+  Checkpoint commits do not move `HEAD` or mutate the user's index/worktree, and
+  internal `.eragear` data is excluded from snapshots.
+- Implemented ref diff, ordered metadata listing, stale-ref deletion, and safe
+  restore using `git restore` plus a pre-restore safety ref. Restore preserves
+  branch `HEAD`, keeps `.eragear/checkpoints`, and maps failures through
+  structured logging.
+- Changed files:
+  `packages/runtime/src/modules/git/application/contracts/git.contract.ts`,
+  `packages/runtime/src/modules/git/application/ports/git-checkpoint.port.ts`,
+  `packages/runtime/src/modules/git/application/turn-diff-parser.ts`,
+  `packages/runtime/src/modules/git/application/turn-diff-parser.test.ts`,
+  `packages/runtime/src/modules/git/application/git-checkpoint.service.test.ts`,
+  `packages/runtime/src/modules/git/index.ts`,
+  `packages/runtime/src/platform/git/index.ts`, and
+  `packages/runtime/src/platform/git/index.test.ts`.
+- Verification passed:
+  `bun test packages/runtime/src/modules/git/application/turn-diff-parser.test.ts packages/runtime/src/platform/git/index.test.ts`
+  (`13 pass, 0 fail`);
+  `bun run --cwd packages/runtime check-types`;
+  focused Biome checks with `--write --error-on-warnings`; and
+  focused `git diff --check` (line-ending warnings only).
+- Remaining work: Phases 2–5; event lifecycle, revert orchestration, workflow
+  actions, session worktree mode, renderer UI, and full audit are not yet done.
+
+## 2026-08-09 Git feature goal — Phase 2 lifecycle, diff broadcast, and revert
+
+- Added the awaited `prompt_turn_started` lifecycle fact before ACP prompt work
+  begins. Git event wiring captures the turn-zero baseline at start, captures
+  the next hidden ref on completion, keeps the legacy patch checkpoint in
+  parallel, and broadcasts `prompt_turn_diff_ready` to the renderer.
+- Added strict shared/runtime event schemas and a per-chat renderer turn-diff
+  store. The shared event processor now routes completed diff summaries, and
+  the desktop handler records file kind and addition/deletion totals by turn.
+- Added authenticated `git.turnCheckpoints.list/create/diff/revert` tRPC
+  procedures while preserving the existing `git.checkpoints.*` namespace.
+- Implemented turn-scoped revert orchestration: resolve the owned project and
+  target ref, create/retain a safety ref through the Git adapter, restore the
+  workspace, stop the old runtime, atomically truncate persisted conversation
+  history, clear the stale ACP identity, start a fresh runtime under the same
+  local chat id, broadcast `session_reverted`, and delete later turn refs.
+- Added `RollbackConversationService` as the session-owned fallback because the
+  installed ACP SDK has no history rollback API. Tests prove the fresh session
+  never receives `sessionIdToLoad` and retained history ends on the requested
+  completed user turn.
+- Made two existing session tests portable for the required whole-directory
+  evidence: canonicalized a POSIX fixture expectation with `path.resolve`, and
+  used `delete process.env` so Bun on Windows does not preserve the literal
+  string `"undefined"` between MCP env tests. Product behavior is unchanged.
+- Key changed files:
+  `packages/runtime/src/modules/ai/application/send-message.service.ts`,
+  `packages/runtime/src/modules/ai/application/prompt-lifecycle.notifier.ts`,
+  `packages/runtime/src/modules/git/init/git-events.init.ts`,
+  `packages/runtime/src/modules/git/application/git-checkpoint.service.ts`,
+  `packages/runtime/src/modules/session/application/rollback-conversation.service.ts`,
+  `packages/runtime/src/transport/trpc/routers/git-turn-checkpoints-router.ts`,
+  `packages/shared/src/chat/types.ts`,
+  `packages/shared/src/chat/event-schema.ts`,
+  `packages/shared/src/chat/use-chat-core.ts`,
+  `apps/desktop/src/renderer/store/chat-turn-diff-store.ts`, and
+  `apps/desktop/src/renderer/hooks/use-chat-session-event-handler.ts`, plus
+  focused tests and composition/export updates.
+- Verification passed:
+  `bun run --cwd packages/runtime check-types`;
+  `bun run --cwd apps/desktop check-types`;
+  focused Biome with `--error-on-warnings`;
+  Git lifecycle/service/adapter/session revert tests (`17 pass, 0 fail`);
+  `bun test apps/desktop/src/renderer/hooks/use-chat-session-event-handler.test.ts`
+  (`20 pass, 0 fail`);
+  and the exact C2 directory command
+  `bun test packages/runtime/src/modules/session/application/`
+  (`119 pass, 0 fail`) under the documented strict allowlist environment.
+- Remaining work: Phases 3–5 — Git action workflows and protected-branch UI,
+  local/worktree session mode plus diff/timeline UI, then the full goal audit.
+
+## 2026-08-09 Git feature goal — Phase 3 Git actions and protected branches
+
+- Added strict workflow status/action/progress contracts, `GitWorkflowPort`,
+  `GitWorkflowService`, and a dedicated `GitWorkflowAdapter`. All project roots
+  are resolved through the owned project repository before the adapter sees
+  them; renderer input cannot supply an arbitrary filesystem path.
+- Implemented status/default-ref/origin/upstream detection, stage-all commit,
+  push with automatic origin upstream setup, commit+push, stacked progress, and
+  GitHub-only PR creation through non-interactive `gh pr create` arguments.
+  Every Git write logs structured start/completion/failure metadata and maps
+  command failures to typed validation errors.
+- Added `git.actions.status/run/progress` tRPC procedures. Actions only run from
+  an authenticated mutation, and progress subscriptions are owner-scoped by a
+  client-generated action id.
+- Enforced the default-branch guard in both layers: the runtime rejects writes
+  without `confirmDefaultBranch: true`, while the renderer always opens a
+  confirmation dialog that shows the branch, changed-file summary, warning,
+  and optional commit message before supplying that flag.
+- Added the compact chat-header split control modeled on the supplied visual:
+  the primary action is selected from dirty/ahead/PR/remote state and the menu
+  exposes Commit, Push, Commit & push, Create PR, and the stacked PR action.
+  Stage progress is surfaced through persistent Sonner toasts.
+- Key changed files:
+  `packages/runtime/src/modules/git/application/contracts/git-workflow.contract.ts`,
+  `packages/runtime/src/modules/git/application/ports/git-workflow.port.ts`,
+  `packages/runtime/src/modules/git/application/git-workflow.service.ts`,
+  `packages/runtime/src/platform/git/workflow.ts`,
+  `packages/runtime/src/transport/trpc/routers/git-actions-router.ts`,
+  composition/use-case exports,
+  `apps/desktop/src/renderer/components/chat-ui/git-actions-control.logic.ts`,
+  `apps/desktop/src/renderer/components/chat-ui/git-actions-control.tsx`,
+  `chat-header.tsx`, and `chat-interface.tsx`, plus focused tests.
+- Verification passed:
+  `bun test packages/runtime/src/platform/git/workflow.test.ts`
+  (real temporary repositories/bare remotes prove commit, push, combined
+  action, new upstream, progress, and stubbed GitHub PR invocation);
+  `bun test packages/runtime/src/modules/git/application/git-workflow.service.test.ts`
+  (runtime protected-branch rejection and confirmed progress relay);
+  D2 (`2 pass, 0 fail`); D3 (`1 pass, 0 fail`);
+  runtime and desktop typechecks; and the exact V2 Biome command
+  (`113 files checked`, no warnings).
+- Remaining work: Phases 4–5 — worktree session mode, scoped diff/timeline UI,
+  full verification, documentation, and smoke audit.
+
+## 2026-08-09 Git feature goal — Phase 4 worktrees and scoped diff UI
+
+- Extended `GitWorkflowPort` and the platform adapter with persistent worktree
+  create/list/remove operations and branch-vs-default-ref diff. Worktrees use
+  `eragear/worktree/<session-id>` branches under Eragear storage, are
+  idempotently reused, validate their destination stays inside the owned
+  storage subtree, and retain structured logging/error mapping for writes.
+- Added session environment persistence through migration
+  `0014_session_git_worktrees.sql`: `envMode`, `worktreePath`, and
+  `worktreeBranch` now flow through SQLite mappers, list/state queries,
+  runtime bootstrap, resume, and rollback. The migration keeps existing rows
+  in local mode by default and leaves persistent worktrees intact when a
+  session switches back to its canonical project root.
+- Added `SwitchSessionEnvironmentService` and authenticated lifecycle
+  mutations. Switching verifies/creates the target worktree first, stops the
+  current runtime, persists the target root, and starts a fresh ACP session
+  under the same local chat id. The internal trusted-root override is absent
+  from client schemas, requires an owned persisted project, and resolves only
+  an existing directory. Branch metadata is synchronized after branch changes
+  by reading status from the owned session root.
+- Made checkpoint, workflow-action, and branch-diff services session-root
+  aware through the owned session resolver, so worktree sessions keep the
+  same sandbox root for turn capture, revert, commit/push/PR, and DiffView.
+- Added the compact Branch Toolbar with Local project / Persistent worktree
+  modes and pure resolution/synchronization logic. The chat header passes the
+  active chat to both branch and Git action controls.
+- Expanded DiffView to Working, Branch, and Turn scopes. Working/branch views
+  render unified patches; Turn renders file kind, rename source, per-file and
+  aggregate additions/deletions, turn selection, and a guarded file-plus-
+  conversation revert action that explains the safety checkpoint.
+- Linked user timeline messages to their turn ids and render inline file/
+  additions/deletions badges as soon as `prompt_turn_diff_ready` arrives.
+- Fixed fresh SQLite migration splitting with explicit statement breakpoints
+  and made storage shutdown release cached Drizzle statements before the
+  Bun database close; the Windows repository suite can now delete every temp
+  database deterministically.
+- Key changed files:
+  `packages/runtime/src/platform/git/workflow.ts`,
+  `packages/runtime/src/modules/git/application/git-workflow.service.ts`,
+  `packages/runtime/src/modules/session/application/switch-session-environment.service.ts`,
+  session persistence/mapping/query files,
+  `packages/runtime/drizzle/0014_session_git_worktrees.sql`,
+  `packages/runtime/src/platform/storage/sqlite-db.ts`,
+  `apps/desktop/src/renderer/components/chat-ui/branch-toolbar.tsx`,
+  `branch-toolbar.logic.ts`,
+  `apps/desktop/src/renderer/components/right-sidebar/diff-view.tsx`,
+  `apps/desktop/src/renderer/store/chat-turn-diff-store.ts`, and renderer
+  event/header/timeline wiring, plus focused tests and tRPC/composition exports.
+- Verification passed:
+  E1 exact command (`4 pass, 0 fail`);
+  E2 exact whole session command (`158 pass, 0 fail`);
+  B2 exact renderer handler command (`21 pass, 0 fail`);
+  real Git worktree create/reuse/diff/remove tests as part of workflow D1
+  (`4 pass, 0 fail`);
+  runtime and desktop typechecks; and exact V2 Biome
+  (`116 files checked`, no warnings).
+- Remaining work: Phase 5 only — document the Git behavior in `AGENTS.md`,
+  retain the legacy patch checkpoint fallback, then run every A1–E2 and V1–V4
+  command plus final patch hygiene.
+
+## 2026-08-09 Git feature goal — Phase 5 completion audit
+
+- Documented the final local Git model in `AGENTS.md`: awaited ref-based turn
+  capture, file-plus-conversation rollback ordering, authenticated workflow
+  actions and default-branch confirmation, persistent normal-chat worktrees,
+  and owned session-root resolution.
+- Kept the existing `.eragear/checkpoints/` patch create/list/restore path in
+  parallel with hidden `refs/eragear/session-*-turn-*` refs. Ref cleanup does
+  not delete the patch fallback or its metadata.
+- Closed the Git workflow progress channel on every terminal path, including
+  status lookup, non-repository rejection, and protected-branch rejection.
+- Exact success-criteria matrix passed on the final tree:
+  A1 (`2 pass`); A2/C1 (`9 pass`); B1 (`4 pass`); B2 (`21 pass`);
+  C2 application suite (`121 pass`); D1 (`4 pass`); D2 (`2 pass`);
+  D3 (`1 pass`); E1 (`4 pass`); and E2 full session suite
+  (`158 pass`), all with zero failures.
+- V1 passed for runtime and desktop TypeScript projects. V2 passed both the
+  requested focused paths and the broader repository check (`1420 files`, no
+  warnings). V3 `audit:blockers` passed (`54 runtime`, `47 shared`, and
+  `104 desktop` tests, plus desktop typecheck).
+- V4 timed desktop smoke exited 0: port 3001 was occupied and the launcher
+  correctly selected 3002, the runtime channel became ready, Vite loaded the
+  renderer, and SQLite shut down without the prior locked-database warning.
+  Renderer unsubscribe/request warnings occur only after the forced smoke
+  timer has already stopped the runtime process.
+- Final focused Git workflow regression test, runtime typecheck, Biome, and
+  `git diff --check` passed. No implementation work remains for this goal.
+
+## 2026-08-09 Usage dashboard visual refresh
+
+- Rebuilt the desktop `Usage` renderer around the supplied T3-style dashboard
+  hierarchy: compact range/refresh controls, estimated cost and provider-share
+  summary, stacked daily cost/token area chart, five-metric token strip,
+  model/day breakdown table, and cost-quality coverage panel.
+- Kept every displayed value execution-backed by the existing usage-stats tRPC
+  response. Cache hit rate, priced/unpriced coverage, active-day averages, and
+  provider readiness are derived locally from returned totals; no synthetic
+  cache-savings or provider-billing figures were introduced.
+- Preserved the CLI-data fallback, warnings, unpriced-token disclosure,
+  telemetry control, responsive small-screen stacking, loading/error states,
+  and theme tokens. Expanded only `/settings/usage` to a 1440px content maximum;
+  other Settings routes keep their existing reading width.
+- Changed files:
+  `apps/desktop/src/renderer/components/settings/usage-stats-settings-panel.tsx`,
+  `apps/desktop/src/renderer/routes/settings.tsx`, and `GOAL_PROGRESS.md`.
+- Verification passed: focused Biome with `--write --error-on-warnings`;
+  `bun run --cwd apps/desktop check-types`;
+  `bun run --cwd apps/desktop build:renderer`; focused `git diff --check`; and
+  `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='8000'; bun run dev:desktop` (exit `0`,
+  runtime ready and renderer loaded through the Electron desktop-service IPC
+  channel; forced-timer teardown produced the existing post-shutdown
+  unsubscribe warnings).
+- Visual automation limitation: the installed Computer Use skill references a
+  documentation API absent from its bundled runtime, so no automated Windows
+  screenshot is claimed for this slice.
+- Remaining work: none for the Usage dashboard visual refresh.
+
+## 2026-08-09 Quota-cycle usage correlation
+
+- Added a runtime-owned quota-cycle correlation path that combines live quota
+  windows with exact-range local CLI scans. Each window now reports locally
+  observed input/cache/output/total tokens, public API-equivalent cost,
+  tokens-per-quota-point and projected full-cycle capacity when sufficient
+  evidence exists.
+- Capacity is deliberately labeled as an estimate. The service distinguishes
+  provider-reported, reset-plus-duration, first-observation, and unavailable
+  cycle boundaries; emits `low`/`medium`/`high`/`unavailable` confidence; and
+  always discloses that unsupported clients and other devices are not counted.
+- Preserved upstream attribution through Codex, OpenCode, and Zcode scanners so
+  CLI transport is no longer confused with the billed provider. Canonical
+  attribution covers OpenAI, MiniMax Coding Plan, Z.ai, Anthropic, and Google
+  where the local source exposes it.
+- Persisted full quota-window snapshots with SQLite migration
+  `0015_usage_quota_cycles.sql`. Historical snapshots now survive restarts and
+  let later refreshes measure quota movement inside the same reset cycle.
+- Exposed the composite read through `quota.cycleUsage`; kept all correlation,
+  confidence, persistence, and provider mapping in runtime/application code.
+  Electron main and preload remain unchanged and renderer access stays on the
+  existing typed tRPC-over-IPC bridge.
+- Expanded Settings > Quota with per-window cycle token composition,
+  API-equivalent value, capacity estimates, confidence badges, reset metadata,
+  and a Usage link. Added a cross-provider Quota efficiency table to Settings >
+  Usage and widened only the Quota route enough for the denser cards.
+- Focused verification passed: quota/usage/persistence/scanner suites (`34
+  pass`), Settings quota/navigation suites (`6 pass`), runtime/API-contract/
+  desktop typechecks, renderer production build, focused Biome, and patch
+  hygiene. Repository blocker audit also passed (`54 runtime`, `47 shared`,
+  `104 desktop`, plus desktop typecheck).
+- Timed Electron smoke exited `0`: the renderer moved to port 3002 because 3001
+  was occupied, SQLite applied the embedded migration, the desktop-service IPC
+  runtime became ready, and the renderer loaded. Post-shutdown unsubscribe
+  warnings occurred only after the forced smoke timer stopped the runtime.
+- Learning behavior: existing installs begin with `Learning` confidence. A
+  manual Quota refresh records the first snapshot; later refreshes after real
+  usage provide the quota delta needed for stronger provider comparisons.
+- Remaining work: none for quota-cycle usage correlation.
+
+## 2026-08-09 Usage scan performance and caching
+
+- Profiled the real local dataset instead of optimizing by assumption. A 30-day
+  all-provider scan took `79.8s`; Codex alone accounted for `74.7s` because the
+  machine has 1,419 session JSONL files totaling about 13.5GB (about 11.7GB
+  modified within the last 30 days). OpenCode, Zcode, Claude, Gemini, Amp, Pi,
+  and Cursor each completed between about `0.2s` and `2.0s`.
+- Added a durable, prompt-free Codex usage index under Eragear storage. Each
+  file is keyed by absolute path, size, and modification time, and stores only
+  timestamp/model/token deltas. Prompt text, tool output, and arbitrary JSONL
+  records are filtered before parsing and are never written into the index.
+- Used Bun-native `file()` metadata/text reads and `write()` persistence. JSONL
+  discovery now skips files older than the requested range, Codex parsing
+  rejects irrelevant lines before `JSON.parse`, and OpenCode pushes its time
+  range down into SQLite instead of loading the whole message table.
+- Added a shared runtime TTL/LRU scanner cache with in-flight request
+  coalescing. Usage summary and quota-cycle correlation share the same scanner
+  instance, preventing equivalent scans from running more than once. Failures
+  are not cached, and changed Codex files invalidate independently by
+  size/mtime.
+- Tuned renderer query behavior without moving business rules into Electron or
+  React: Usage/Quota results remain warm for five minutes, survive route
+  remounts for fifteen minutes, do not refetch on focus, and preserve the prior
+  range while a new range loads. Quota-efficiency scanning begins only after
+  the main Usage summary resolves, avoiding cold-start disk contention.
+- Measured on the same dataset after implementation: initial index construction
+  took `61.8s` once; a new scanner/runtime using the persisted index took
+  `2.9–5.5s`; an equivalent repeat query served from the runtime cache in less
+  than `1ms`. The generated local index is about 28.5MB for the current 13.5GB
+  source archive.
+- Regression coverage verifies TTL expiry, equivalent-request coalescing,
+  exact quota-cycle cache separation, persisted-index invalidation, token total
+  correctness, and that a secret prompt marker never appears in the cache.
+- Verification passed: focused quota/usage/cache/persistence suites (`37 pass`),
+  Settings suites (`6 pass`), runtime/API-contract/desktop typechecks, renderer
+  production build, focused Biome, and repository blocker audit (`54 runtime`,
+  `47 shared`, `104 desktop`). Timed Electron smoke exited `0`, brought the
+  desktop-service IPC runtime ready, and loaded the renderer; the known
+  unsubscribe warnings appeared only after forced-timer shutdown.
+- Remaining work: none for Usage scan performance and caching.
+
+## 2026-08-09 Usage pricing attribution corrections
+
+- Canonicalized unprefixed Zcode `deepseek-v4-flash` and
+  `deepseek-v4-pro` model observations to the DeepSeek provider pricing
+  catalog. Live verification now prices both models through the canonical
+  `deepseek/deepseek-v4-*` OpenRouter IDs instead of classifying 229.34M tokens
+  as unpriced.
+- Traced the apparent Codex unknown-model usage to subagent rollout schema, not
+  an unknown provider model. Twenty-five subagent logs recorded token events
+  before their first `turn_context`, while the sole explicit model later in
+  each file was `gpt-5.6-sol`.
+- Added conservative backward attribution only for files identified as Codex
+  subagent sessions and only when the entire file exposes exactly one explicit
+  model. Main sessions and multi-model subagent sessions remain unpriced rather
+  than receiving a guessed model.
+- Reads only the bounded session-metadata prefix needed to classify subagent
+  files, which also handles oversized `session_meta` records without relaxing
+  the JSONL record safety limit. Bumped the durable Codex usage index format to
+  version 3 so prior ambiguous attribution is rebuilt once.
+- Real 30-day verification reduced unpriced usage from 1,317,917,136 tokens to
+  46,134 tokens. No unknown-model tokens remain; the residual is the explicitly
+  named `codex-auto-review` model. A persisted-index warm scan completed in
+  3.58 seconds.
+- Verification passed: complete Usage Stats module suite (`21 pass`), runtime
+  typecheck, focused Biome, and the live 30-day pricing/index scan.
+- Remaining work: none for Usage pricing attribution corrections.
+
+## 2026-08-09 Quota projected API cost presentation
+
+- Removed the redundant per-quota-point token figure from provider quota cards.
+  Estimated capacity now presents projected full-cycle API-priced cost beside
+  projected token capacity, using the existing runtime-owned
+  `projectedApiEquivalent` and `projectedTokenCapacity` evidence.
+- Renamed the already-consumed value to `Observed API cost`, so observed spend
+  equivalent is not confused with the full-cycle projection. Applied the same
+  presentation to the cross-provider table on Settings > Usage.
+- Kept all quota estimation math in runtime contracts/services; this slice only
+  changes renderer presentation and leaves Electron main/preload untouched.
+- Verification passed: desktop typecheck, renderer production build, focused
+  Settings tests (`6 pass`), Biome, and patch hygiene.
+- Remaining work: none for Quota projected API cost presentation.

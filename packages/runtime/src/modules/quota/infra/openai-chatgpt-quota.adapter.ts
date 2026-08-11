@@ -8,13 +8,12 @@ import type {
 } from "../application/ports/quota-provider.port";
 import { findOAuthTokenInLocalAuth } from "./local-auth";
 import {
-  agentsMatchProvider,
   asRecord,
   clampPercent,
+  deriveWindowStartedAt,
   type FetchLike,
   fetchJsonWithTimeout,
   getEnvValue,
-  hasEnvValue,
   parseResetAfterSeconds,
   parseResetAt,
   readNumber,
@@ -47,13 +46,6 @@ export class OpenAIChatGPTQuotaAdapter implements QuotaProviderAdapter {
   constructor(fetchImpl: FetchLike = fetch, timeoutMs = REQUEST_TIMEOUT_MS) {
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
-  }
-
-  detect(ctx: QuotaProviderContext): boolean {
-    return (
-      hasEnvValue(OPENAI_TOKEN_ENV_KEYS) ||
-      agentsMatchProvider(ctx.agents, this.aliases)
-    );
   }
 
   async resolveAuth(_ctx: QuotaProviderContext): Promise<QuotaAuthResult> {
@@ -170,6 +162,24 @@ function buildOpenAIWindow(
   const total = readNumber(window, ["total", "limit"]);
   const used = readNumber(window, ["used", "current"]);
   const remaining = readNumber(window, ["remaining", "available"]);
+  const durationSeconds = readNumber(window, [
+    "limit_window_seconds",
+    "window_seconds",
+    "duration_seconds",
+  ]);
+  const durationMs =
+    durationSeconds !== undefined && durationSeconds > 0
+      ? Math.round(durationSeconds * 1000)
+      : undefined;
+  const resetAt =
+    parseResetAt(window.reset_at ?? window.resetAt, nowMs) ??
+    parseResetAfterSeconds(
+      window.reset_after_seconds ?? window.resetAfterSeconds,
+      nowMs
+    );
+  const startedAt =
+    parseResetAt(window.started_at ?? window.start_at, nowMs) ??
+    deriveWindowStartedAt(resetAt, durationMs);
   return {
     id,
     windowType: id,
@@ -183,12 +193,9 @@ function buildOpenAIWindow(
       used,
       remaining,
     }),
-    resetAt:
-      parseResetAt(window.reset_at ?? window.resetAt, nowMs) ??
-      parseResetAfterSeconds(
-        window.reset_after_seconds ?? window.resetAfterSeconds,
-        nowMs
-      ),
+    startedAt,
+    resetAt,
+    durationMs,
   };
 }
 

@@ -99,6 +99,34 @@
       "when": 1783814400000,
       "tag": "0013_goal_mode_states",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786233600000,
+      "tag": "0014_session_git_worktrees",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786262400000,
+      "tag": "0015_usage_quota_cycles",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786320000000,
+      "tag": "0016_supervisor_agent_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786406400000,
+      "tag": "0017_supervisor_run_v2_statuses",
+      "breakpoints": true
     }
   ]
 }

@@ -32,9 +32,20 @@ import type {
   GitFileStatus,
   GitRepositoryPort,
   GitRepositoryReadResult,
+  GitTurnCheckpoint,
+  GitTurnCheckpointCaptureParams,
+  GitTurnCheckpointDiffParams,
+  GitTurnCheckpointRestoreParams,
+  GitTurnCheckpointRestoreResult,
+  TurnDiffFile,
+} from "#runtime/modules/git";
+import {
+  buildTurnCheckpointRef,
+  parseTurnDiffFiles,
 } from "#runtime/modules/git";
 import type { GitPort } from "#runtime/modules/tooling";
 import { createLogger } from "#runtime/platform/logging/structured-logger";
+import { toError } from "#runtime/shared/utils/error.util";
 import { isNodeErrno } from "#runtime/shared/utils/node-error.util";
 
 const execFileAsync = promisify(execFile);
@@ -47,6 +58,11 @@ const CHECKPOINT_DIR_NAME = "checkpoints";
 const CHECKPOINT_ID_REGEX = /^checkpoint-[0-9a-f-]{36}$/i;
 const LINE_BREAK_REGEX = /\r?\n/;
 const GIT_BRANCH_TRACKING_REGEX = /^([^\s[]+)(?:\s+\[(.+)\])?$/;
+const TURN_CHECKPOINT_SUBJECT_PREFIX = "eragear-turn-checkpoint ";
+const TURN_CHECKPOINT_REF_REGEX =
+  /^refs\/eragear\/session-[A-Za-z0-9._-]+-turn-\d+$/;
+const TURN_CHECKPOINT_SAFETY_REF_REGEX =
+  /^refs\/eragear\/session-[A-Za-z0-9._-]+-turn-\d+-safety-[A-Za-z0-9._-]+$/;
 
 interface ExecFileFailure extends Error {
   code?: number | string | null;
@@ -66,10 +82,14 @@ async function runGitCommand(params: {
   cwd: string;
   args: string[];
   maxBuffer?: number;
+  env?: NodeJS.ProcessEnv;
 }): Promise<{ stdout: string; stderr: string }> {
   return await execFileAsync("git", params.args, {
     cwd: params.cwd,
     maxBuffer: params.maxBuffer ?? GIT_EXEC_MAX_BUFFER_BYTES,
+    env: params.env,
+    encoding: "utf8",
+    windowsHide: true,
   });
 }
 
@@ -336,6 +356,203 @@ export class GitAdapter
     };
   }
 
+  async captureTurnCheckpoint(
+    params: GitTurnCheckpointCaptureParams
+  ): Promise<GitTurnCheckpoint> {
+    const projectRoot = await assertGitRepository(params.projectRoot);
+    const checkpointRef = buildTurnCheckpointRef(
+      params.sessionId,
+      params.turnCount
+    );
+    const createdAt = new Date().toISOString();
+    const metadata: TurnCheckpointCommitMetadata = {
+      sessionId: params.sessionId,
+      turnCount: params.turnCount,
+      kind: params.kind,
+      createdAt,
+      ...(params.turnId ? { turnId: params.turnId } : {}),
+    };
+    try {
+      const commitSha = await captureCheckpointCommit({
+        projectRoot,
+        checkpointRef,
+        subject: encodeTurnCheckpointSubject(metadata),
+      });
+      logger.info("Captured Git turn checkpoint", {
+        projectRoot,
+        sessionId: params.sessionId,
+        turnCount: params.turnCount,
+        kind: params.kind,
+        checkpointRef,
+        commitSha,
+      });
+      return {
+        ...metadata,
+        ref: checkpointRef,
+        commitSha,
+      };
+    } catch (error) {
+      const failure = toError(error, "Failed to capture Git turn checkpoint");
+      logger.error("Git turn checkpoint capture failed", failure, {
+        projectRoot,
+        sessionId: params.sessionId,
+        turnCount: params.turnCount,
+        checkpointRef,
+      });
+      throw failure;
+    }
+  }
+
+  async listTurnCheckpoints(params: {
+    projectRoot: string;
+    sessionId: string;
+  }): Promise<GitTurnCheckpoint[]> {
+    const projectRoot = await assertGitRepository(params.projectRoot);
+    const refPrefix = `${buildTurnCheckpointRef(params.sessionId, 0).slice(
+      0,
+      -1
+    )}`;
+    const { stdout } = await runGitCommand({
+      cwd: projectRoot,
+      args: ["for-each-ref", "--format=%(refname)", `${refPrefix}*`],
+    });
+    const refs = stdout
+      .split(LINE_BREAK_REGEX)
+      .map((value) => value.trim())
+      .filter((value) => TURN_CHECKPOINT_REF_REGEX.test(value));
+    const checkpoints = await Promise.all(
+      refs.map((checkpointRef) =>
+        readTurnCheckpoint(projectRoot, checkpointRef)
+      )
+    );
+    return checkpoints
+      .filter(
+        (checkpoint): checkpoint is GitTurnCheckpoint => checkpoint !== null
+      )
+      .filter((checkpoint) => checkpoint.sessionId === params.sessionId)
+      .sort((left, right) => left.turnCount - right.turnCount);
+  }
+
+  async diffTurnCheckpoints(
+    params: GitTurnCheckpointDiffParams
+  ): Promise<TurnDiffFile[]> {
+    const projectRoot = await assertGitRepository(params.projectRoot);
+    assertSafeTurnCheckpointRef(params.fromRef);
+    assertSafeTurnCheckpointRef(params.toRef);
+    const { stdout } = await runGitCommand({
+      cwd: projectRoot,
+      args: [
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--patch",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-M",
+        ...(params.ignoreWhitespace ? ["--ignore-all-space"] : []),
+        `${params.fromRef}^{commit}`,
+        `${params.toRef}^{commit}`,
+      ],
+    });
+    return parseTurnDiffFiles(stdout);
+  }
+
+  async restoreTurnCheckpoint(
+    params: GitTurnCheckpointRestoreParams
+  ): Promise<GitTurnCheckpointRestoreResult> {
+    const projectRoot = await assertGitRepository(params.projectRoot);
+    assertSafeTurnCheckpointRef(params.targetRef);
+    const targetExists = await resolveCommit(projectRoot, params.targetRef);
+    const sourceRef =
+      targetExists ??
+      (params.fallbackToHead
+        ? await resolveCommit(projectRoot, "HEAD")
+        : undefined);
+    if (!sourceRef) {
+      throw new Error(
+        `Git turn checkpoint is unavailable: ${params.targetRef}`
+      );
+    }
+
+    const safetyRef = `${params.targetRef}-safety-${Date.now()}-${randomUUID().slice(0, 8)}`;
+    assertSafeTurnCheckpointRef(safetyRef, true);
+    try {
+      await captureCheckpointCommit({
+        projectRoot,
+        checkpointRef: safetyRef,
+        subject: `eragear safety checkpoint target=${params.targetRef}`,
+      });
+      await runGitCommand({
+        cwd: projectRoot,
+        args: [
+          "restore",
+          "--source",
+          sourceRef,
+          "--worktree",
+          "--staged",
+          "--",
+          ".",
+        ],
+      });
+      await runGitCommand({
+        cwd: projectRoot,
+        args: ["clean", "-fd", "-e", ".eragear/", "--", "."],
+      });
+      if (await resolveCommit(projectRoot, "HEAD")) {
+        await runGitCommand({
+          cwd: projectRoot,
+          args: ["reset", "--quiet", "--", "."],
+        });
+      }
+      logger.info("Restored Git turn checkpoint", {
+        projectRoot,
+        targetRef: params.targetRef,
+        safetyRef,
+      });
+      return { restoredRef: params.targetRef, safetyRef };
+    } catch (error) {
+      const failure = toError(error, "Failed to restore Git turn checkpoint");
+      logger.error("Git turn checkpoint restore failed", failure, {
+        projectRoot,
+        targetRef: params.targetRef,
+        safetyRef,
+      });
+      throw failure;
+    }
+  }
+
+  async deleteTurnCheckpointsAfter(params: {
+    projectRoot: string;
+    sessionId: string;
+    turnCount: number;
+  }): Promise<{ deletedRefs: string[] }> {
+    const projectRoot = await assertGitRepository(params.projectRoot);
+    const checkpoints = await this.listTurnCheckpoints({
+      projectRoot,
+      sessionId: params.sessionId,
+    });
+    const deletedRefs = checkpoints
+      .filter((checkpoint) => checkpoint.turnCount > params.turnCount)
+      .map((checkpoint) => checkpoint.ref);
+    for (const checkpointRef of deletedRefs) {
+      assertSafeTurnCheckpointRef(checkpointRef);
+      await runGitCommand({
+        cwd: projectRoot,
+        args: ["update-ref", "-d", checkpointRef],
+      });
+    }
+    if (deletedRefs.length > 0) {
+      logger.info("Deleted stale Git turn checkpoint refs", {
+        projectRoot,
+        sessionId: params.sessionId,
+        turnCount: params.turnCount,
+        deletedRefs,
+      });
+    }
+    return { deletedRefs };
+  }
+
   /**
    * Gets project context including filesystem files, project rules, and active tabs
    *
@@ -481,6 +698,180 @@ async function assertGitRepository(projectRoot: string): Promise<string> {
     args: ["rev-parse", "--is-inside-work-tree"],
   });
   return canonicalRoot;
+}
+
+interface TurnCheckpointCommitMetadata {
+  sessionId: string;
+  turnId?: string;
+  turnCount: number;
+  kind: "baseline" | "turn";
+  createdAt: string;
+}
+
+async function captureCheckpointCommit(params: {
+  projectRoot: string;
+  checkpointRef: string;
+  subject: string;
+}): Promise<string> {
+  assertSafeTurnCheckpointRef(params.checkpointRef, true);
+  const tempRoot = await mkdtemp(join(tmpdir(), "eragear-turn-checkpoint-"));
+  const indexPath = join(tempRoot, "index");
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_INDEX_FILE: indexPath,
+    GIT_AUTHOR_NAME: "Eragear",
+    GIT_AUTHOR_EMAIL: "checkpoint@eragear.local",
+    GIT_COMMITTER_NAME: "Eragear",
+    GIT_COMMITTER_EMAIL: "checkpoint@eragear.local",
+  };
+  try {
+    await runGitCommand({
+      cwd: params.projectRoot,
+      args: ["read-tree", "--empty"],
+      env,
+    });
+    if (await resolveCommit(params.projectRoot, "HEAD")) {
+      await runGitCommand({
+        cwd: params.projectRoot,
+        args: ["read-tree", "HEAD"],
+        env,
+      });
+    }
+    await runGitCommand({
+      cwd: params.projectRoot,
+      args: [
+        "add",
+        "-A",
+        "--",
+        ".",
+        ":(exclude).eragear",
+        ":(exclude).eragear/**",
+      ],
+      env,
+    });
+    const treeSha = (
+      await runGitCommand({
+        cwd: params.projectRoot,
+        args: ["write-tree"],
+        env,
+      })
+    ).stdout.trim();
+    if (!treeSha) {
+      throw new Error("git write-tree returned an empty object id");
+    }
+    const commitSha = (
+      await runGitCommand({
+        cwd: params.projectRoot,
+        args: ["commit-tree", treeSha, "-m", params.subject],
+        env,
+      })
+    ).stdout.trim();
+    if (!commitSha) {
+      throw new Error("git commit-tree returned an empty object id");
+    }
+    await runGitCommand({
+      cwd: params.projectRoot,
+      args: ["update-ref", params.checkpointRef, commitSha],
+    });
+    return commitSha;
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function readTurnCheckpoint(
+  projectRoot: string,
+  checkpointRef: string
+): Promise<GitTurnCheckpoint | null> {
+  assertSafeTurnCheckpointRef(checkpointRef);
+  const { stdout } = await runGitCommand({
+    cwd: projectRoot,
+    args: ["show", "-s", "--format=%H%x00%cI%x00%s", checkpointRef],
+  });
+  const [commitSha, committedAt, subject] = stdout.trim().split("\0");
+  if (!(commitSha && committedAt && subject)) {
+    return null;
+  }
+  const metadata = decodeTurnCheckpointSubject(subject);
+  if (!metadata) {
+    return null;
+  }
+  return {
+    ...metadata,
+    ref: checkpointRef,
+    commitSha,
+    createdAt: committedAt,
+  };
+}
+
+async function resolveCommit(
+  projectRoot: string,
+  revision: string
+): Promise<string | undefined> {
+  const result = await runGitCommand({
+    cwd: projectRoot,
+    args: ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`],
+  }).catch(() => undefined);
+  const commitSha = result?.stdout.trim();
+  return commitSha || undefined;
+}
+
+function encodeTurnCheckpointSubject(
+  metadata: TurnCheckpointCommitMetadata
+): string {
+  return `${TURN_CHECKPOINT_SUBJECT_PREFIX}${Buffer.from(
+    JSON.stringify(metadata),
+    "utf8"
+  ).toString("base64url")}`;
+}
+
+function decodeTurnCheckpointSubject(
+  subject: string
+): TurnCheckpointCommitMetadata | null {
+  if (!subject.startsWith(TURN_CHECKPOINT_SUBJECT_PREFIX)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(
+        subject.slice(TURN_CHECKPOINT_SUBJECT_PREFIX.length),
+        "base64url"
+      ).toString("utf8")
+    ) as Partial<TurnCheckpointCommitMetadata>;
+    if (
+      typeof parsed.sessionId !== "string" ||
+      !(
+        Number.isSafeInteger(parsed.turnCount) && Number(parsed.turnCount) >= 0
+      ) ||
+      (parsed.kind !== "baseline" && parsed.kind !== "turn") ||
+      typeof parsed.createdAt !== "string" ||
+      (parsed.turnId !== undefined && typeof parsed.turnId !== "string")
+    ) {
+      return null;
+    }
+    return {
+      sessionId: parsed.sessionId,
+      turnCount: Number(parsed.turnCount),
+      kind: parsed.kind,
+      createdAt: parsed.createdAt,
+      ...(parsed.turnId ? { turnId: parsed.turnId } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function assertSafeTurnCheckpointRef(
+  checkpointRef: string,
+  allowSafety = false
+): void {
+  if (
+    TURN_CHECKPOINT_REF_REGEX.test(checkpointRef) ||
+    (allowSafety && TURN_CHECKPOINT_SAFETY_REF_REGEX.test(checkpointRef))
+  ) {
+    return;
+  }
+  throw new Error(`Unsafe Git turn checkpoint ref: ${checkpointRef}`);
 }
 
 async function buildGitCheckpoint(

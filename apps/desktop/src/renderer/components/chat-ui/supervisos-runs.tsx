@@ -241,6 +241,23 @@ function RunCard({
           <CheckCircle2 className="size-3.5" /> Aggregate verification complete
         </div>
       ) : null}
+      {run.status === "awaiting_approval" && run.plan ? (
+        <div className="mt-2 rounded-sm border bg-background/70 px-2 py-2">
+          <div className="text-xs">Plan v{run.plan.version}</div>
+          <div className="mt-0.5 truncate text-muted-foreground text-xs">
+            {run.plan.summary}
+          </div>
+          <Button
+            className="mt-2 h-7"
+            disabled={controller.isPending}
+            onClick={() => controller.approvePlan(run)}
+            size="sm"
+            type="button"
+          >
+            Approve exact plan
+          </Button>
+        </div>
+      ) : null}
       {terminal ? null : (
         <div className="mt-2 flex flex-wrap gap-1">
           {run.status === "paused" ? (

@@ -31,6 +31,7 @@ import type {
   SubagentInvocation,
   SupervisorDecisionSummary,
   SupervisorSessionState,
+  TurnDiffFile,
 } from "./types.js";
 import { isDataPart, isToolPart } from "./types.js";
 
@@ -520,6 +521,11 @@ export interface EventProcessingCallbacks {
   onAgentInfoChange?: (info: AgentInfo | null) => void;
   onTerminalOutput?: (terminalId: string, data: string) => void;
   onFileModified?: (path: string) => void;
+  onTurnDiffReady?: (payload: {
+    turnId: string;
+    turnCount: number;
+    files: TurnDiffFile[];
+  }) => void;
   onPendingPermissionChange?: (permission: PermissionRequest | null) => void;
   onError?: (error: string) => void;
   onFinish?: (payload: {
@@ -661,6 +667,14 @@ export function processSessionEvent(
 
     case "file_modified":
       callbacks.onFileModified?.(event.path);
+      return;
+
+    case "prompt_turn_diff_ready":
+      callbacks.onTurnDiffReady?.({
+        turnId: event.turnId,
+        turnCount: event.turnCount,
+        files: event.files,
+      });
       return;
 
     case "error":

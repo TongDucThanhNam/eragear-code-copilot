@@ -29,7 +29,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
-  buildQueuedSupervisosMainPrompt,
   formatSupervisosHandoffStatus,
   isPromptBusyError,
   parseLegacyDelegatedHandoff,
@@ -175,6 +174,10 @@ export function SupervisosSideChat({
 
   const resolveAssistantContent = useCallback(
     async (response: { message: { content: string } }) => {
+      const goalDraftAction = getGoalDraftCreatedAction(response);
+      if (goalDraftAction) {
+        return `Goal draft ${goalDraftAction.runId} created. Review and approve its plan in Mission Control.`;
+      }
       const stageAction = getStageMainPromptAction(response);
       if (stageAction) {
         await stageMainPrompt(stageAction.prompt, stageAction.autoSubmit);
@@ -209,22 +212,20 @@ export function SupervisosSideChat({
     [onEnableAutopilot, stageMainPrompt, supervisorMode]
   );
 
-  const appendBusyFallback = useCallback(
-    async (text: string) => {
-      const autoSubmit = supervisorMode === "full_autopilot";
-      await stageMainPrompt(buildQueuedSupervisosMainPrompt(text), autoSubmit);
-      setMessages((current) => [
-        ...current,
-        {
-          id: createMessageId("assistant-queued"),
-          role: "assistant",
-          content: formatStagedPromptContent(autoSubmit),
-          createdAt: Date.now(),
-        },
-      ]);
-    },
-    [stageMainPrompt, supervisorMode]
-  );
+  const appendBusyFallback = useCallback((text: string) => {
+    setMessages((current) => [
+      ...current,
+      {
+        id: createMessageId("assistant-busy"),
+        role: "assistant",
+        content:
+          "Manager ACP is busy. No duplicate goal was created; retry this request when the current turn completes.",
+        createdAt: Date.now(),
+        status: "error",
+      },
+    ]);
+    setDraft(text);
+  }, []);
 
   const submitMessage = useCallback(
     async (message: string) => {
@@ -518,6 +519,27 @@ function getStageMainPromptAction(response: unknown): {
     prompt: candidate.prompt,
     type: "stage_main_prompt",
   };
+}
+
+function getGoalDraftCreatedAction(response: unknown): {
+  runId: string;
+  type: "goal_draft_created";
+} | null {
+  if (!response || typeof response !== "object") {
+    return null;
+  }
+  const action = (response as { action?: unknown }).action;
+  if (!action || typeof action !== "object") {
+    return null;
+  }
+  const candidate = action as Record<string, unknown>;
+  if (
+    candidate.type !== "goal_draft_created" ||
+    typeof candidate.runId !== "string"
+  ) {
+    return null;
+  }
+  return { runId: candidate.runId, type: "goal_draft_created" };
 }
 
 function toGoalModeAuditSummary(entry: GoalModeAuditEntry) {

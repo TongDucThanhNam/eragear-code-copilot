@@ -19,6 +19,7 @@ export class GitSupervisorBaseSnapshotAdapter
     }
     return {
       ...(state.head ? { head: state.head } : {}),
+      ...(state.branch ? { branch: state.branch } : {}),
       dirtyPaths: state.changedFiles.map((file) => file.path),
       targetFingerprints: {},
       capturedAt: new Date().toISOString(),

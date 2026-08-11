@@ -1,3 +1,4 @@
+import path from "node:path";
 import type {
   SupervisorRunState,
   SupervisorTaskRecord,
@@ -15,12 +16,30 @@ import {
 
 export class WorkerIntegrationService {
   private readonly workspaces: WorkerWorkspacePort;
+  private readonly projectIntegrationTails = new Map<string, Promise<void>>();
 
   constructor(workspaces: WorkerWorkspacePort) {
     this.workspaces = workspaces;
   }
 
   async integrate(input: {
+    run: SupervisorRunState;
+    task: SupervisorTaskRecord;
+    workspace: PreparedWorkerWorkspace;
+    patch?: CollectedWorkerPatch;
+    result: SupervisorWorkerResult;
+    destructiveActions?: string[];
+    approvedGateKinds?: SupervisorRunState["gates"][number]["kind"][];
+  }): Promise<WorkerIntegrationGateDecision> {
+    if (input.task.executionMode === "read_only") {
+      return await this.integrateWithWorkspace(input);
+    }
+    return await this.withProjectIntegrationLock(input.run.projectRoot, () =>
+      this.integrateWithWorkspace(input)
+    );
+  }
+
+  private async integrateWithWorkspace(input: {
     run: SupervisorRunState;
     task: SupervisorTaskRecord;
     workspace: PreparedWorkerWorkspace;
@@ -68,6 +87,27 @@ export class WorkerIntegrationService {
       return gate;
     } finally {
       await this.workspaces.dispose(input.workspace);
+    }
+  }
+
+  private async withProjectIntegrationLock<T>(
+    projectRoot: string,
+    action: () => Promise<T>
+  ): Promise<T> {
+    const key = path.resolve(projectRoot).toLowerCase();
+    const previous = this.projectIntegrationTails.get(key) ?? Promise.resolve();
+    const operation = previous.catch(() => undefined).then(action);
+    const tail = operation.then(
+      () => undefined,
+      () => undefined
+    );
+    this.projectIntegrationTails.set(key, tail);
+    try {
+      return await operation;
+    } finally {
+      if (this.projectIntegrationTails.get(key) === tail) {
+        this.projectIntegrationTails.delete(key);
+      }
     }
   }
 }

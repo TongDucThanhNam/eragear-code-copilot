@@ -51,7 +51,7 @@ function createService(run = createSupervisorRunFixture()) {
 }
 
 describe("SupervisorOrchestratorService limits", () => {
-  test("never dispatches beyond persisted concurrency and blocks expired runs", () => {
+  test("never dispatches beyond persisted concurrency and has no calendar deadline", () => {
     const scheduler = new SupervisorSchedulerService();
     const task = requireTaskFixture();
     const fixture = createSupervisorRunFixture({
@@ -70,21 +70,18 @@ describe("SupervisorOrchestratorService limits", () => {
         },
       ],
     });
-    expect(
-      scheduler.evaluate(fixture, Date.parse(fixture.createdAt)).dispatchTaskIds
-    ).toHaveLength(1);
-    expect(
-      scheduler.evaluate(
-        fixture,
-        Date.parse(fixture.createdAt) + fixture.limits.maxRunDurationMs
-      ).dispatchTaskIds
-    ).toEqual([]);
+    expect(scheduler.evaluate(fixture).dispatchTaskIds).toHaveLength(1);
+    expect(scheduler.evaluate(fixture).dispatchTaskIds).toHaveLength(1);
   });
 
-  test("transitions a deadline-exhausted run to failed", async () => {
-    const run = createSupervisorRunFixture({ status: "running" });
-    const failed = await createService(run).schedule(run.runId, run.userId);
-    expect(failed.status).toBe("failed");
+  test("does not fail a long-lived run solely because time passed", async () => {
+    const base = createSupervisorRunFixture();
+    const run = createSupervisorRunFixture({
+      status: "running",
+      tasks: base.tasks.map((task) => ({ ...task, status: "running" })),
+    });
+    const current = await createService(run).schedule(run.runId, run.userId);
+    expect(current.status).toBe("running");
   });
 
   test("rejects retry and replan counters at their exact budgets", async () => {

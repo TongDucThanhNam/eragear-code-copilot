@@ -54,6 +54,9 @@ export class UsageStatsSqliteRepository implements UsageStatsRepositoryPort {
 
   appendRecord(record: UsageStatsRecord): Promise<UsageStatsRecord> {
     const parsedRecord = UsageStatsRecordSchema.parse(record);
+    const quotaWindowsJson = parsedRecord.quotaWindows
+      ? JSON.stringify(parsedRecord.quotaWindows)
+      : null;
     return enqueueSqliteWrite(SQLITE_USAGE_STATS_OP.APPEND_RECORD, async () => {
       await withSqliteTransaction(({ orm, db }) => {
         orm
@@ -72,6 +75,7 @@ export class UsageStatsSqliteRepository implements UsageStatsRepositoryPort {
             status: parsedRecord.status ?? null,
             inputTokens: parsedRecord.inputTokens ?? null,
             outputTokens: parsedRecord.outputTokens ?? null,
+            quotaWindowsJson,
             createdAt: parsedRecord.createdAt,
           })
           .onConflictDoUpdate({
@@ -89,6 +93,7 @@ export class UsageStatsSqliteRepository implements UsageStatsRepositoryPort {
               status: parsedRecord.status ?? null,
               inputTokens: parsedRecord.inputTokens ?? null,
               outputTokens: parsedRecord.outputTokens ?? null,
+              quotaWindowsJson,
               createdAt: parsedRecord.createdAt,
             },
           })
@@ -270,6 +275,17 @@ function mapRecordRow(row: UsageStatsRecordRow): UsageStatsRecord {
     ...(row.status ? { status: row.status } : {}),
     ...(row.inputTokens !== null ? { inputTokens: row.inputTokens } : {}),
     ...(row.outputTokens !== null ? { outputTokens: row.outputTokens } : {}),
+    ...(row.quotaWindowsJson
+      ? { quotaWindows: parseQuotaWindows(row.quotaWindowsJson) }
+      : {}),
     createdAt: row.createdAt,
   });
+}
+
+function parseQuotaWindows(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return [];
+  }
 }

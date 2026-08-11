@@ -1,4 +1,8 @@
 import { z } from "zod";
+import type {
+  UsageStatsCostTotals,
+  UsageStatsTokenTotals,
+} from "#runtime/modules/usage-stats/application/contracts/usage-stats.contract";
 
 export const QuotaProviderSourceSchema = z.enum([
   "remote_api",
@@ -23,7 +27,9 @@ export const QuotaWindowSchema = z
     total: z.number().nonnegative().optional(),
     remaining: z.number().nonnegative().optional(),
     unlimited: z.boolean().optional(),
+    startedAt: z.string().datetime().optional(),
     resetAt: z.string().datetime().optional(),
+    durationMs: z.number().int().positive().optional(),
     scope: z.string().min(1).optional(),
   })
   .strict();
@@ -69,6 +75,14 @@ export const RefreshProviderQuotaInputSchema = z
   .strict()
   .optional();
 
+export const GetQuotaCycleUsageInputSchema = z
+  .object({
+    providerId: z.string().trim().min(1).optional(),
+    includeUnavailable: z.boolean().optional(),
+  })
+  .strict()
+  .optional();
+
 export type QuotaProviderSource = z.infer<typeof QuotaProviderSourceSchema>;
 export type QuotaProviderStatus = z.infer<typeof QuotaProviderStatusSchema>;
 export type QuotaWindow = z.infer<typeof QuotaWindowSchema>;
@@ -79,8 +93,67 @@ export type ListProviderQuotasInput = z.infer<
 export type RefreshProviderQuotaInput = z.infer<
   typeof RefreshProviderQuotaInputSchema
 >;
+export type GetQuotaCycleUsageInput = z.infer<
+  typeof GetQuotaCycleUsageInputSchema
+>;
 
 export interface ProviderQuotaListResult {
   providers: ProviderQuotaSnapshot[];
+  checkedAt: string;
+}
+
+export type QuotaCycleBoundarySource =
+  | "provider_reported"
+  | "reset_duration"
+  | "first_observation"
+  | "unavailable";
+
+export type QuotaCycleEstimateConfidence =
+  | "unavailable"
+  | "low"
+  | "medium"
+  | "high";
+
+export interface QuotaCycleObservedUsage {
+  from?: string;
+  to: string;
+  partialCycle: boolean;
+  localOnly: true;
+  tokens: UsageStatsTokenTotals;
+  apiEquivalent: UsageStatsCostTotals;
+  activeDays: number;
+  modelCount: number;
+  warnings: string[];
+}
+
+export interface QuotaCycleEfficiencyEstimate {
+  confidence: QuotaCycleEstimateConfidence;
+  sampleCount: number;
+  quotaPointsObserved?: number;
+  tokensPerQuotaPoint?: number;
+  projectedTokenCapacity?: number;
+  apiEquivalentPerQuotaPoint?: number;
+  projectedApiEquivalent?: number;
+  reasons: string[];
+}
+
+export interface QuotaCycleUsageWindow {
+  windowId: string;
+  label: string;
+  windowType?: string;
+  cycleStartedAt?: string;
+  resetAt?: string;
+  boundarySource: QuotaCycleBoundarySource;
+  observed: QuotaCycleObservedUsage;
+  estimate: QuotaCycleEfficiencyEstimate;
+}
+
+export interface ProviderQuotaCycleUsage {
+  quota: ProviderQuotaSnapshot;
+  cycles: QuotaCycleUsageWindow[];
+}
+
+export interface QuotaCycleUsageResult {
+  providers: ProviderQuotaCycleUsage[];
   checkedAt: string;
 }

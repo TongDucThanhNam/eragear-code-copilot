@@ -28,10 +28,22 @@ export interface SupervisorChatOutput {
   };
   supervisor: ReturnType<typeof normalizeSupervisorState>;
   action?: {
-    type: "stage_main_prompt";
-    prompt: string;
-    autoSubmit: boolean;
+    type: "goal_draft_created";
+    runId: string;
+    status: string;
+    requiresApproval: true;
   };
+}
+
+export interface SupervisorGoalDraftPort {
+  createDraft(input: {
+    userId: string;
+    projectId: string;
+    projectRoot: string;
+    intent: string;
+    constraints: string[];
+    priority: "normal";
+  }): Promise<{ runId: string; status: string }>;
 }
 
 /**
@@ -48,6 +60,7 @@ export class SupervisorChatService {
   private readonly chatPort: SupervisorChatPort;
   private readonly projectContext: SupervisorProjectContextPort;
   private readonly projectIntelligence?: SupervisorProjectIntelligencePort;
+  private readonly goalDraft?: SupervisorGoalDraftPort;
   private readonly clock: ClockPort;
 
   constructor(deps: {
@@ -56,6 +69,7 @@ export class SupervisorChatService {
     chatPort: SupervisorChatPort;
     projectContext: SupervisorProjectContextPort;
     projectIntelligence?: SupervisorProjectIntelligencePort;
+    goalDraft?: SupervisorGoalDraftPort;
     clock: ClockPort;
   }) {
     this.sessionRepo = deps.sessionRepo;
@@ -63,6 +77,7 @@ export class SupervisorChatService {
     this.chatPort = deps.chatPort;
     this.projectContext = deps.projectContext;
     this.projectIntelligence = deps.projectIntelligence;
+    this.goalDraft = deps.goalDraft;
     this.clock = deps.clock;
   }
 
@@ -96,24 +111,37 @@ export class SupervisorChatService {
     });
 
     if (shouldDelegateToMainAgent(input.message)) {
-      const delegatedPrompt = buildDelegatedSupervisorPrompt({
-        originalRequest: input.message,
-        projectContext,
-        projectIntelligence,
+      if (!this.goalDraft) {
+        throw new Error("Manager Mode Goal Draft service is unavailable");
+      }
+      if (!stored.projectId) {
+        throw new Error(
+          "A persisted project id is required to create a Goal Draft"
+        );
+      }
+      const draft = await this.goalDraft.createDraft({
+        userId: input.userId,
+        projectId: stored.projectId,
         projectRoot: stored.projectRoot,
+        intent: input.message,
+        constraints: buildGoalDraftConstraints({
+          projectContext,
+          projectIntelligence,
+        }),
+        priority: "normal",
       });
-      const autoSubmit = supervisor.mode === "full_autopilot";
       return {
         message: {
           role: "assistant" as const,
-          content: formatStagePromptResponse(autoSubmit),
+          content: `Goal Draft ${draft.runId} was created. Its ACP manager is preparing a versioned plan; execution will remain locked until you approve that exact plan hash.`,
           createdAt: this.clock.nowMs(),
-          model: "supervisos-prompt-enhancer",
+          model: "supervisos-manager-acp",
         },
         action: {
-          type: "stage_main_prompt" as const,
-          prompt: delegatedPrompt,
-          autoSubmit,
+          type: "goal_draft_created" as const,
+          runId: draft.runId,
+          status: draft.status,
+          requiresApproval: true as const,
         },
         supervisor,
       } satisfies SupervisorChatOutput;
@@ -121,6 +149,7 @@ export class SupervisorChatService {
 
     const response = await withSoftTimeout(
       this.chatPort.respond({
+        userId: input.userId,
         chatId: stored.id,
         goalModeAudit: input.context?.goalModeAudit ?? [],
         plan: stored.plan,
@@ -135,7 +164,7 @@ export class SupervisorChatService {
       SIDE_CHAT_RESPONSE_TIMEOUT_MS,
       () => ({
         content:
-          "Supervisos side-chat provider timed out before returning an advisory answer. I did not submit a task from this message. For implementation requests, phrase it as a direct action such as `Create...` or `Build...`; those are delegated to the main coding agent without waiting for MiniMax side chat.",
+          "The ACP advisory session timed out. No goal or command was submitted from this advisory message.",
         model: "supervisos-timeout",
         provider: "timeout",
       })
@@ -212,6 +241,26 @@ export class SupervisorChatService {
   }
 }
 
+function buildGoalDraftConstraints(input: {
+  projectContext: SupervisorProjectContextSnapshot;
+  projectIntelligence: SupervisorProjectIntelligenceSnapshot;
+}): string[] {
+  const paths = [
+    ...input.projectIntelligence.symbolMatches.map((item) => item.path),
+    ...input.projectIntelligence.routeMap.map((item) => item.path),
+  ].slice(0, 24);
+  return [
+    "Respect the project-root sandbox and existing permission/command gates.",
+    "Do not push, open a PR, deploy, switch branches, or modify out-of-envelope files.",
+    ...(paths.length > 0
+      ? [
+          `Manager context hints (not pre-approved scope): ${[...new Set(paths)].join(", ")}`,
+        ]
+      : []),
+    ...input.projectContext.diagnostics.slice(0, 4),
+  ];
+}
+
 function unavailableProjectIntelligence(
   diagnostic: string
 ): SupervisorProjectIntelligenceSnapshot {
@@ -268,99 +317,6 @@ function shouldDelegateToMainAgent(userMessage: string): boolean {
     "generate",
   ];
   return implementationSignals.some((signal) => normalized.includes(signal));
-}
-
-function buildDelegatedSupervisorPrompt(params: {
-  originalRequest: string;
-  projectRoot: string;
-  projectContext: SupervisorProjectContextSnapshot;
-  projectIntelligence: SupervisorProjectIntelligenceSnapshot;
-}): string {
-  return [
-    "Supervisos delegated enhanced task.",
-    "",
-    "Original user request:",
-    params.originalRequest.trim(),
-    "",
-    "Project context:",
-    `- Project root: ${params.projectRoot}`,
-    params.projectContext.topLevelEntries.length > 0
-      ? `- Top-level entries: ${params.projectContext.topLevelEntries.join(", ")}`
-      : "- Top-level entries: (none)",
-    ...params.projectContext.files.map((file) => {
-      return `- ${file.path} (${file.kind}): ${truncateForDelegation(file.excerpt, 500)}`;
-    }),
-    params.projectContext.diagnostics.length > 0
-      ? `- Context diagnostics: ${params.projectContext.diagnostics.join("; ")}`
-      : "",
-    "",
-    "Precomputed project intelligence:",
-    formatDelegatedProjectIntelligence(params.projectIntelligence),
-    "",
-    "Implementation instructions:",
-    "- Treat the original request as the current user-approved scope.",
-    "- Read the existing project structure first and follow its stack and conventions.",
-    "- Build the actual usable experience, not a placeholder explanation.",
-    "- For website/UI work, use strong visual assets, polished responsive layout, and verify desktop/mobile text does not overlap.",
-    "- Keep changes scoped to the requested experience and avoid unrelated refactors.",
-    "- Do not commit, push, delete unrelated files, or perform destructive actions unless the human explicitly asks.",
-    "- Run the relevant verification command(s). If a dev server is needed, start it and report the local URL.",
-    "",
-    "Completion response expected:",
-    "- Summarize changed files.",
-    "- Report verification commands and results.",
-    "- Report the local preview URL if one is running.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function formatDelegatedProjectIntelligence(
-  intelligence: SupervisorProjectIntelligenceSnapshot
-): string {
-  const scope = intelligence.scope
-    ? [
-        `- resolve_scope: ${intelligence.scope.resolverVersion}, symbolExtraction=${intelligence.symbolExtractionMode}`,
-        `- primaryTarget: ${intelligence.scope.primaryTarget.path} (${intelligence.scope.primaryTarget.reason})`,
-        intelligence.scope.secondaryTargets.length > 0
-          ? `- secondaryTargets: ${intelligence.scope.secondaryTargets
-              .map((target) => target.path)
-              .join(", ")}`
-          : "",
-      ]
-    : [`- resolve_scope: ${intelligence.status}`];
-  const graph = intelligence.graphNodes.slice(0, 4).map((node) => {
-    return `- graphNode: ${node.path}; imports=${node.imports.join(", ") || "(none)"}; importedBy=${node.importedBy.join(", ") || "(none)"}; symbols=${node.symbols.map((symbol) => `${symbol.name}:${symbol.kind}`).join(", ") || "(none)"}`;
-  });
-  const symbols = intelligence.symbolMatches.slice(0, 8).map((symbol) => {
-    return `- symbol: ${symbol.name} (${symbol.kind}) ${symbol.path}:${symbol.line} via ${symbol.source}`;
-  });
-  const diagnostics =
-    intelligence.diagnostics.length > 0
-      ? [`- diagnostics: ${intelligence.diagnostics.join("; ")}`]
-      : [];
-  return [...scope, ...graph, ...symbols, ...diagnostics]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function formatStagePromptResponse(autoSubmit: boolean): string {
-  return [
-    "Enhanced prompt prepared for the main ChatInput.",
-    "",
-    autoSubmit
-      ? "Autopilot is on, so it will be submitted automatically when the main chat is ready."
-      : "Autopilot is off, so review or edit it in the main input and send when ready.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function truncateForDelegation(value: string, maxChars: number): string {
-  if (value.length <= maxChars) {
-    return value;
-  }
-  return `${value.slice(0, maxChars - 14).trimEnd()}\n... [truncated]`;
 }
 
 function normalizeIntentText(value: string): string {

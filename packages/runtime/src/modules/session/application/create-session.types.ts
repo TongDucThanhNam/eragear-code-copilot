@@ -8,6 +8,12 @@ export interface CreateSessionParams {
   projectId?: string;
   /** Optional file system path to the project root directory */
   projectRoot?: string;
+  /** Internal-only validated runtime root (for an Eragear-owned Git worktree). */
+  trustedProjectRoot?: string;
+  /** Persisted Git environment metadata for internal lifecycle flows. */
+  envMode?: "local" | "worktree";
+  worktreePath?: string;
+  worktreeBranch?: string;
   /** Optional agent ID selected by client; resolved server-side */
   agentId?: string;
   /** Trusted command override used by internal flows (e.g. resume), never client input */

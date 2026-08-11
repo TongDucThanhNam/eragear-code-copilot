@@ -1,13 +1,21 @@
-import { GitCheckpointService, GitService } from "#runtime/modules/git";
+import type { TurnConversationRollbackPort } from "#runtime/modules/git";
+import {
+  GitCheckpointService,
+  GitService,
+  GitWorkflowService,
+} from "#runtime/modules/git";
 import { ResolveActiveProjectService } from "#runtime/modules/project";
 import type { GitUseCases } from "#runtime/modules/use-cases";
 import type { ServiceRegistrySlice } from "./dependencies";
 
 type GitServiceDependencies = ServiceRegistrySlice<
-  "gitAdapter" | "projectRepo" | "clock"
+  "gitAdapter" | "gitWorkflowAdapter" | "projectRepo" | "clock"
 >;
 
-export function createGitUseCases(deps: GitServiceDependencies): GitUseCases {
+export function createGitUseCases(
+  deps: GitServiceDependencies,
+  options: { conversationRollback?: TurnConversationRollbackPort } = {}
+): GitUseCases {
   const activeProjectResolver = new ResolveActiveProjectService(
     deps.projectRepo
   );
@@ -23,7 +31,14 @@ export function createGitUseCases(deps: GitServiceDependencies): GitUseCases {
       deps.gitAdapter,
       deps.projectRepo,
       activeProjectResolver,
-      deps.clock
+      deps.clock,
+      options.conversationRollback
+    ),
+    workflow: new GitWorkflowService(
+      deps.gitWorkflowAdapter,
+      deps.projectRepo,
+      activeProjectResolver,
+      options.conversationRollback
     ),
   };
 }

@@ -10,7 +10,7 @@ export function createSupervisorRunFixture(
   overrides: Partial<SupervisorRunState> = {}
 ): SupervisorRunState {
   return SupervisorRunStateSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     runId: "run-1",
     revision: 0,
     userId: "user-1",
@@ -18,6 +18,7 @@ export function createSupervisorRunFixture(
     projectRoot: "C:/repo",
     originalIntent: "Implement a safe multi-worker feature",
     constraints: ["Do not commit"],
+    priority: "normal",
     status: "queued",
     baseSnapshot: {
       head: "abc123",
@@ -56,6 +57,8 @@ export function createSupervisorRunFixture(
     gates: [],
     audit: [],
     processedEventIds: [],
+    capacityWaits: [],
+    decisions: [],
     plannerReplanCount: 0,
     finalVerification: [],
     createdAt: NOW,

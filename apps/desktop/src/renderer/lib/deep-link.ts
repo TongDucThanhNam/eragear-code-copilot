@@ -139,13 +139,11 @@ function settingsPath(section?: string): string {
     return "/settings";
   }
   const allowed = new Set([
-    "acp-auth",
     "activity",
     "agents",
     "archive",
     "bots",
     "automation",
-    "capabilities",
     "commands",
     "connection",
     "credentials",
@@ -153,10 +151,6 @@ function settingsPath(section?: string): string {
     "hooks",
     "mcp",
     "memory",
-    "model-providers",
-    "oauth",
-    "output-style",
-    "plan",
     "plugins",
     "prompt-enhancement",
     "repo-snapshots",

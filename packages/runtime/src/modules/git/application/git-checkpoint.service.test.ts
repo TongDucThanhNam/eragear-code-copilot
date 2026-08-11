@@ -9,14 +9,23 @@ import type {
   ProjectInput,
   ProjectUpdateInput,
 } from "#runtime/shared/types/project.types";
-import type { GitCheckpoint } from "./contracts/git.contract";
+import type {
+  GitCheckpoint,
+  GitTurnCheckpoint,
+  TurnDiffFile,
+} from "./contracts/git.contract";
 import { GitCheckpointService } from "./git-checkpoint.service";
 import type {
   GitCheckpointCreateParams,
   GitCheckpointPort,
   GitCheckpointRestoreParams,
   GitCheckpointRestorePortResult,
+  GitTurnCheckpointCaptureParams,
+  GitTurnCheckpointDiffParams,
+  GitTurnCheckpointRestoreParams,
+  GitTurnCheckpointRestoreResult,
 } from "./ports/git-checkpoint.port";
+import { buildTurnCheckpointRef } from "./turn-diff-parser";
 
 const NOW_MS = Date.parse("2026-06-12T12:00:00.000Z");
 
@@ -85,6 +94,8 @@ class GitCheckpointStub implements GitCheckpointPort {
   readonly createCalls: GitCheckpointCreateParams[] = [];
   readonly restoreCalls: GitCheckpointRestoreParams[] = [];
   private readonly checkpoints: GitCheckpoint[] = [];
+  readonly turnCheckpoints: GitTurnCheckpoint[] = [];
+  readonly turnRestoreCalls: GitTurnCheckpointRestoreParams[] = [];
 
   createCheckpoint(params: GitCheckpointCreateParams): Promise<GitCheckpoint> {
     this.createCalls.push(params);
@@ -140,6 +151,62 @@ class GitCheckpointStub implements GitCheckpointPort {
       },
       restoredAt,
     });
+  }
+
+  captureTurnCheckpoint(
+    params: GitTurnCheckpointCaptureParams
+  ): Promise<GitTurnCheckpoint> {
+    const checkpoint: GitTurnCheckpoint = {
+      sessionId: params.sessionId,
+      ...(params.turnId ? { turnId: params.turnId } : {}),
+      turnCount: params.turnCount,
+      kind: params.kind,
+      ref: buildTurnCheckpointRef(params.sessionId, params.turnCount),
+      commitSha: String(params.turnCount + 1).padStart(40, "0"),
+      createdAt: new Date(NOW_MS + params.turnCount).toISOString(),
+    };
+    this.turnCheckpoints.push(checkpoint);
+    return Promise.resolve(checkpoint);
+  }
+
+  listTurnCheckpoints(params: {
+    sessionId: string;
+  }): Promise<GitTurnCheckpoint[]> {
+    return Promise.resolve(
+      this.turnCheckpoints.filter(
+        (checkpoint) => checkpoint.sessionId === params.sessionId
+      )
+    );
+  }
+
+  diffTurnCheckpoints(
+    _params: GitTurnCheckpointDiffParams
+  ): Promise<TurnDiffFile[]> {
+    return Promise.resolve([]);
+  }
+
+  restoreTurnCheckpoint(
+    params: GitTurnCheckpointRestoreParams
+  ): Promise<GitTurnCheckpointRestoreResult> {
+    this.turnRestoreCalls.push(params);
+    return Promise.resolve({
+      restoredRef: params.targetRef,
+      safetyRef: `${params.targetRef}-safety-test`,
+    });
+  }
+
+  deleteTurnCheckpointsAfter(params: {
+    sessionId: string;
+    turnCount: number;
+  }): Promise<{ deletedRefs: string[] }> {
+    const deletedRefs = this.turnCheckpoints
+      .filter(
+        (checkpoint) =>
+          checkpoint.sessionId === params.sessionId &&
+          checkpoint.turnCount > params.turnCount
+      )
+      .map((checkpoint) => checkpoint.ref);
+    return Promise.resolve({ deletedRefs });
   }
 }
 
@@ -247,5 +314,103 @@ describe("GitCheckpointService", () => {
         projectRoot: "C:/workspace/other",
       })
     ).rejects.toMatchObject({ name: "ValidationError" });
+  });
+
+  test("captures baseline and sequential turn refs without touching legacy checkpoints", async () => {
+    const project = createProject();
+    const git = new GitCheckpointStub();
+    const projectRepo = new ProjectRepoStub({
+      projects: [project],
+      activeId: project.id,
+    });
+    const service = new GitCheckpointService(
+      git,
+      projectRepo,
+      createActiveProjectResolver(projectRepo),
+      createClock()
+    );
+    const lifecycle = {
+      userId: "user-1",
+      projectId: project.id,
+      projectRoot: project.path,
+      chatId: "chat-1",
+      turnId: "turn-1",
+    };
+
+    const baseline = await service.captureTurnBaseline(lifecycle);
+    const diff = await service.captureCompletedTurn(lifecycle);
+
+    expect(baseline).toMatchObject({
+      kind: "baseline",
+      turnCount: 0,
+      ref: "refs/eragear/session-chat-1-turn-0",
+    });
+    expect(diff.from.ref).toBe("refs/eragear/session-chat-1-turn-0");
+    expect(diff.to).toMatchObject({
+      kind: "turn",
+      turnId: "turn-1",
+      turnCount: 1,
+      ref: "refs/eragear/session-chat-1-turn-1",
+    });
+    expect(git.createCalls).toEqual([]);
+  });
+
+  test("restores a turn, rolls back conversation, and deletes stale refs", async () => {
+    const project = createProject();
+    const git = new GitCheckpointStub();
+    const rollbackCalls: unknown[] = [];
+    const projectRepo = new ProjectRepoStub({
+      projects: [project],
+      activeId: project.id,
+    });
+    const service = new GitCheckpointService(
+      git,
+      projectRepo,
+      createActiveProjectResolver(projectRepo),
+      createClock(),
+      {
+        execute: (input) => {
+          rollbackCalls.push(input);
+          return Promise.resolve({ replayedMessages: 2 });
+        },
+      }
+    );
+    const lifecycle = {
+      userId: "user-1",
+      projectId: project.id,
+      projectRoot: project.path,
+      chatId: "chat-1",
+    };
+    await service.captureTurnBaseline({ ...lifecycle, turnId: "turn-1" });
+    await service.captureCompletedTurn({ ...lifecycle, turnId: "turn-1" });
+    await service.captureCompletedTurn({ ...lifecycle, turnId: "turn-2" });
+
+    const result = await service.revertTurnCheckpoint("user-1", {
+      projectId: project.id,
+      sessionId: "chat-1",
+      turnCount: 1,
+    });
+
+    expect(git.turnRestoreCalls).toEqual([
+      {
+        projectRoot: project.path,
+        targetRef: "refs/eragear/session-chat-1-turn-1",
+        fallbackToHead: false,
+      },
+    ]);
+    expect(rollbackCalls).toEqual([
+      {
+        userId: "user-1",
+        sessionId: "chat-1",
+        projectRoot: project.path,
+        turnCount: 1,
+      },
+    ]);
+    expect(result).toMatchObject({
+      checkpoint: { turnCount: 1 },
+      rolledBackTurns: 1,
+      replayedMessages: 2,
+      deletedRefs: ["refs/eragear/session-chat-1-turn-2"],
+    });
   });
 });

@@ -1,22 +1,64 @@
-import type { SupervisorLoopService } from "#runtime/modules/supervisor";
-import type { UseCasePort } from "#runtime/modules/use-cases";
 import type { EventBusPort } from "#runtime/shared/ports/event-bus.port";
 import type { LoggerPort } from "#runtime/shared/ports/logger.port";
 import { subscribeDomainEvents } from "#runtime/shared/utils/domain-event-subscription.util";
+import type { AcpCapacityCoordinator } from "../application/acp-capacity-coordinator.service";
+import type {
+  AcpManagerResultReaderPort,
+  AcpManagerSessionCoordinator,
+} from "../application/acp-manager-session-coordinator.service";
 import type { WorkerSessionManagerPort } from "../application/ports/worker-session-manager.port";
 import type { SupervisorOrchestratorService } from "../application/supervisor-orchestrator.service";
 
 export function initializeSupervisorOrchestrationEvents(params: {
   eventBus: EventBusPort;
   workerSessions: WorkerSessionManagerPort;
-  supervisorLoop: UseCasePort<SupervisorLoopService>;
-  orchestrator: Pick<SupervisorOrchestratorService, "recordWorkerTerminal">;
+  manager?: Pick<
+    AcpManagerSessionCoordinator,
+    "claimCompletedTurn" | "resumePending"
+  >;
+  workerResults: AcpManagerResultReaderPort;
+  capacity?: Pick<AcpCapacityCoordinator, "resumeDue">;
+  globalScheduler?: { tick(maxDispatches?: number): Promise<string[]> };
+  orchestrator: Pick<SupervisorOrchestratorService, "recordWorkerTerminal"> &
+    Partial<Pick<SupervisorOrchestratorService, "recordManagerTurn">>;
   logger: LoggerPort;
 }): () => void {
   return subscribeDomainEvents({
     eventBus: params.eventBus,
-    types: ["prompt_turn_completed", "supervisor_turn_terminal"],
+    types: [
+      "prompt_turn_completed",
+      "supervisor_turn_terminal",
+      "supervisor_capacity_resumed",
+      "provider_quota_refreshed",
+    ],
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This is the single typed event router for mutually exclusive orchestration lifecycle events.
     async handler(event) {
+      if (event.type === "provider_quota_refreshed") {
+        if (event.status === "ready" && event.changed) {
+          await params.capacity?.resumeDue({
+            userId: event.userId,
+            now: "9999-12-31T23:59:59.999Z",
+          });
+        }
+        return;
+      }
+      if (event.type === "supervisor_capacity_resumed") {
+        if (event.owner === "manager") {
+          await params.manager?.resumePending({
+            runId: event.runId,
+            userId: event.userId,
+          });
+        } else if (event.taskId && event.attemptId) {
+          await params.workerSessions.resumePendingCapacity({
+            runId: event.runId,
+            userId: event.userId,
+            taskId: event.taskId,
+            attemptId: event.attemptId,
+          });
+        }
+        await params.globalScheduler?.tick();
+        return;
+      }
       if (event.type === "supervisor_turn_terminal") {
         if (event.source !== "orchestrator") {
           return;
@@ -43,6 +85,24 @@ export function initializeSupervisorOrchestrationEvents(params: {
       if (event.source !== "orchestrator") {
         return;
       }
+      const managerTurn = params.manager
+        ? await params.manager.claimCompletedTurn({
+            userId: event.userId,
+            chatId: event.chatId,
+            turnId: event.turnId,
+          })
+        : null;
+      if (managerTurn) {
+        if (!params.orchestrator.recordManagerTurn) {
+          throw new Error("Manager turn handler is not configured");
+        }
+        await params.orchestrator.recordManagerTurn({
+          runId: managerTurn.runId,
+          userId: managerTurn.userId,
+          turn: managerTurn.turn,
+        });
+        return;
+      }
       const binding = await params.workerSessions.claimCompletedTurn({
         userId: event.userId,
         chatId: event.chatId,
@@ -51,18 +111,26 @@ export function initializeSupervisorOrchestrationEvents(params: {
       if (!binding) {
         return;
       }
-      params.supervisorLoop.scheduleReview({
-        chatId: event.chatId,
+      const resultText = await params.workerResults.latestAssistantText({
         userId: event.userId,
-        turnId: event.turnId,
-        stopReason: event.stopReason,
-        source: "orchestrator",
+        chatId: event.chatId,
+      });
+      await params.orchestrator.recordWorkerTerminal({
+        runId: binding.runId,
+        userId: binding.userId,
+        taskId: binding.taskId,
+        attemptId: binding.attemptId,
+        action: resultText ? "done" : "needs_user",
+        reason: resultText
+          ? "ACP worker submitted its structured result"
+          : "ACP worker completed without a persisted assistant result",
+        resultText: resultText ?? "",
       });
     },
     onError(error, event) {
       params.logger.warn("Supervisor orchestration event handling failed", {
         eventType: event.type,
-        chatId: event.chatId,
+        chatId: "chatId" in event ? event.chatId : undefined,
         error: error instanceof Error ? error.message : String(error),
       });
     },

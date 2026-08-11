@@ -84,7 +84,7 @@ function createHarness(
   const created: Array<{
     chatId?: string;
     agentId?: string;
-    projectRoot?: string;
+    trustedProjectRoot?: string;
   }> = [];
   const sent: Array<{ chatId: string; text: string; source: string }> = [];
   const stopped: string[] = [];
@@ -164,7 +164,7 @@ describe("WorkerSessionManagerService", () => {
     expect(first.attempt.agentSessionId).toBe("agent-session-1");
     expect(second.attempt.agentSessionId).toBe("agent-session-2");
     expect(harness.created).toHaveLength(2);
-    expect(harness.created[1]?.projectRoot).toBe("C:/isolated/task-b");
+    expect(harness.created[1]?.trustedProjectRoot).toBe("C:/isolated/task-b");
     expect(harness.sent.map((item) => item.source)).toEqual([
       "orchestrator",
       "orchestrator",
@@ -195,6 +195,28 @@ describe("WorkerSessionManagerService", () => {
     expect(duplicate.attempt.attemptId).toBe(first.attempt.attemptId);
     expect(harness.created).toHaveLength(1);
     expect(harness.sent).toHaveLength(1);
+  });
+
+  test("releases a terminal worker process without mutating run state", async () => {
+    const harness = createHarness();
+    const dispatched = await harness.service.dispatch({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: "task-a",
+      idempotencyKey: "run-1:task-a:1",
+    });
+    const before = await harness.runs.get("run-1", "user-1");
+
+    await harness.service.release({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: "task-a",
+      attemptId: dispatched.attempt.attemptId,
+    });
+
+    const after = await harness.runs.get("run-1", "user-1");
+    expect(harness.stopped).toEqual([dispatched.attempt.chatId]);
+    expect(after).toEqual(before);
   });
 
   test("marks a reserved attempt interrupted and fails the task when creation fails", async () => {
@@ -232,9 +254,11 @@ describe("WorkerSessionManagerService", () => {
   test("selects only the scheduled provider model and fails closed on mismatch", async () => {
     const compatible = createHarness({
       run: createWorkerRun({
-        scheduleId: "schedule-1",
-        providerId: "zai-coding-plan",
-        workerModelId: "glm-zai",
+        legacyAutomation: {
+          scheduleId: "schedule-1",
+          providerId: "zai-coding-plan",
+          workerModelId: "glm-zai",
+        },
       }),
       models: {
         currentModelId: "glm-default",
@@ -255,9 +279,11 @@ describe("WorkerSessionManagerService", () => {
 
     const mismatch = createHarness({
       run: createWorkerRun({
-        scheduleId: "schedule-1",
-        providerId: "zai-coding-plan",
-        workerModelId: "claude",
+        legacyAutomation: {
+          scheduleId: "schedule-1",
+          providerId: "zai-coding-plan",
+          workerModelId: "claude",
+        },
       }),
       models: {
         currentModelId: "claude",
@@ -276,5 +302,49 @@ describe("WorkerSessionManagerService", () => {
     );
     expect(mismatch.sent).toEqual([]);
     expect(mismatch.stopped).toHaveLength(1);
+  });
+
+  test("resubmits the same attempt after an exact capacity resume", async () => {
+    const base = createWorkerRun();
+    const task = base.tasks[0];
+    if (!task) {
+      throw new Error("Expected worker fixture task");
+    }
+    const harness = createHarness({
+      run: {
+        ...base,
+        status: "running",
+        tasks: [
+          {
+            ...task,
+            status: "running",
+            attempts: [
+              {
+                attemptId: "attempt-quota",
+                chatId: "chat-quota",
+                agentId: task.preferredAgentId ?? "agent-code",
+                agentSessionId: "acp-session-quota",
+                status: "running",
+                idempotencyKey: "run-1:task-a:1",
+                startedAt: "2026-07-11T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    await harness.service.resumePendingCapacity({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: task.taskId,
+      attemptId: "attempt-quota",
+    });
+
+    expect(harness.created).toHaveLength(0);
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.chatId).toBe("chat-quota");
+    const run = await harness.runs.get("run-1", "user-1");
+    expect(run?.tasks[0]?.attempts[0]?.turnId).toBe("turn-1");
   });
 });

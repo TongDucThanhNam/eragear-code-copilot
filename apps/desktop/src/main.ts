@@ -46,6 +46,12 @@ import {
   DesktopRemoteConnectHost,
   resolveRemoteConnectConfigFromSettings,
 } from "./remote-connect.js";
+import {
+  type RuntimeDaemonConnection,
+  shouldEnableUserRuntimeDaemon,
+  UserRuntimeDaemonController,
+} from "./runtime-daemon-controller.js";
+import { RuntimeDaemonRecoveryMonitor } from "./runtime-daemon-recovery.js";
 import { DesktopRuntimeHost } from "./runtime-host.js";
 import {
   createRendererContentSecurityPolicy,
@@ -86,6 +92,29 @@ const remoteConnectCloudflareAccess = resolveRemoteConnectCloudflareAccess(
   desktopSettings.remoteConnect
 );
 const repoRoot = resolveRepoRoot();
+const runtimeStoragePath = process.env.ERAGEAR_STORAGE_DIR?.trim()
+  ? path.resolve(process.env.ERAGEAR_STORAGE_DIR)
+  : path.join(app.getPath("appData"), "Eragear");
+const daemonUserDataPath =
+  app.isPackaged || process.env.ERAGEAR_DESKTOP_USER_DATA_DIR?.trim()
+    ? desktopSettingsUserDataPath
+    : runtimeStoragePath;
+const userDaemonEnabled = shouldEnableUserRuntimeDaemon({
+  desktopMode,
+  configuredValue: process.env.ERAGEAR_USER_DAEMON_ENABLED,
+  isPackaged: app.isPackaged,
+  platform: os.platform(),
+});
+const userDaemon = new UserRuntimeDaemonController({
+  repoRoot,
+  userDataPath: daemonUserDataPath,
+  runtimeStoragePath,
+  port: parsePort(process.env.ERAGEAR_USER_DAEMON_PORT, 43_119),
+  nodeEnv: app.isPackaged ? "production" : "development",
+  ...(process.env.ERAGEAR_BUN_EXECUTABLE
+    ? { bunExecutable: process.env.ERAGEAR_BUN_EXECUTABLE }
+    : {}),
+});
 const webPreferences: NonNullable<
   BrowserWindowConstructorOptions["webPreferences"]
 > = {
@@ -98,20 +127,6 @@ const securityPosture = createSecurityPosture({
   rendererUrl,
   webPreferences,
 });
-const runtimeHost = new DesktopRuntimeHost({
-  mode: desktopMode,
-  repoRoot,
-  rendererUrl,
-  runtimePort,
-  localAuthToken,
-  remoteRuntimeUrl,
-  securityPosture,
-  ...(process.env.ERAGEAR_REMOTE_API_KEY
-    ? { remoteApiKey: process.env.ERAGEAR_REMOTE_API_KEY }
-    : {}),
-  ...(remoteConnectToken ? { remoteConnectToken } : {}),
-  ...(remoteConnectCloudflareAccess ? { remoteConnectCloudflareAccess } : {}),
-});
 const remoteConnectConfig =
   desktopMode === "main-thread"
     ? resolveRemoteConnectConfigFromSettings(desktopSettings.remoteConnect)
@@ -121,11 +136,33 @@ const remoteConnectConfig =
         ),
         enabled: false,
       };
-const remoteConnectHost = new DesktopRemoteConnectHost({
-  config: remoteConnectConfig,
-  runtime: runtimeHost,
-  trustedRuntimeAuth: { localAuthToken },
-});
+let runtimeHost: DesktopRuntimeHost;
+let remoteConnectHost: DesktopRemoteConnectHost;
+let daemonRecoveryMonitor: RuntimeDaemonRecoveryMonitor | null = null;
+
+function initializeRuntimeHosts(
+  daemonConnection?: RuntimeDaemonConnection
+): void {
+  const effectiveRemoteApiKey =
+    daemonConnection?.apiKey ?? process.env.ERAGEAR_REMOTE_API_KEY;
+  runtimeHost = new DesktopRuntimeHost({
+    mode: daemonConnection ? "client-only" : desktopMode,
+    repoRoot,
+    rendererUrl,
+    runtimePort,
+    localAuthToken,
+    remoteRuntimeUrl: daemonConnection?.runtimeUrl ?? remoteRuntimeUrl,
+    securityPosture,
+    ...(effectiveRemoteApiKey ? { remoteApiKey: effectiveRemoteApiKey } : {}),
+    ...(remoteConnectToken ? { remoteConnectToken } : {}),
+    ...(remoteConnectCloudflareAccess ? { remoteConnectCloudflareAccess } : {}),
+  });
+  remoteConnectHost = new DesktopRemoteConnectHost({
+    config: remoteConnectConfig,
+    runtime: runtimeHost,
+    trustedRuntimeAuth: { localAuthToken },
+  });
+}
 const integratedBrowser = new IntegratedBrowserController({
   repoRoot,
   notifyStateChange: (state) => {
@@ -359,6 +396,17 @@ ipcMain.handle("eragear:getRuntimeDiagnostics", () =>
 ipcMain.handle("eragear:getRemoteConnectStatus", () =>
   remoteConnectHost.status()
 );
+ipcMain.handle("eragear:runtimeDaemon:status", () => userDaemon.status());
+ipcMain.handle("eragear:runtimeDaemon:install", () => userDaemon.install());
+ipcMain.handle("eragear:runtimeDaemon:start", async () => {
+  const status = await userDaemon.start();
+  daemonRecoveryMonitor?.start();
+  return status;
+});
+ipcMain.handle("eragear:runtimeDaemon:stop", async () => {
+  daemonRecoveryMonitor?.stop();
+  return await userDaemon.stop();
+});
 ipcMain.handle("eragear:desktopSettings:get", () => desktopSettings);
 ipcMain.handle(
   "eragear:desktopSettings:updateRemoteConnect",
@@ -547,7 +595,8 @@ app.on("before-quit", (event) => {
   }
   event.preventDefault();
   quitAfterRuntimeStop = true;
-  Promise.allSettled([remoteConnectHost.stop(), runtimeHost.stop()])
+  daemonRecoveryMonitor?.stop();
+  Promise.allSettled([remoteConnectHost?.stop(), runtimeHost?.stop()])
     .catch((error) => {
       console.warn(
         `[desktop] Local runtime cleanup failed: ${
@@ -564,7 +613,34 @@ app
     console.log(`[desktop] Starting Eragear desktop on ${os.platform()}.`);
     Menu.setApplicationMenu(null);
     configureRendererSecurityHeaders();
+    let daemonConnection: RuntimeDaemonConnection | undefined;
+    if (userDaemonEnabled) {
+      try {
+        daemonConnection = await userDaemon.ensureStarted();
+      } catch (error) {
+        console.warn(
+          `[desktop] User runtime daemon startup failed; using the local child runtime for this launch: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+    initializeRuntimeHosts(daemonConnection);
     const diagnostics = await runtimeHost.start();
+    if (daemonConnection) {
+      daemonRecoveryMonitor = new RuntimeDaemonRecoveryMonitor({
+        controller: userDaemon,
+        onRecovered: () => {
+          console.log("[desktop] User runtime daemon recovered on loopback.");
+        },
+        onFailure: (result) => {
+          console.warn(
+            `[desktop] User runtime daemon recovery failed: ${result.error ?? "unknown failure"}`
+          );
+        },
+      });
+      daemonRecoveryMonitor.start();
+    }
     let remoteConnectStatus: DesktopRemoteConnectStatus | null = null;
     try {
       remoteConnectStatus = await remoteConnectHost.start();
@@ -602,5 +678,8 @@ app
         error instanceof Error ? error.message : String(error)
       }`
     );
+    if (!runtimeHost) {
+      initializeRuntimeHosts();
+    }
     createMainWindow();
   });

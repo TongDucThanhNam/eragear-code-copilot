@@ -488,84 +488,101 @@ export async function startServer() {
     noServer: true,
     maxPayload: runtimePolicy.wsMaxPayloadBytes,
   });
-  server.on("upgrade", async (req, socket, head) => {
-    if (runtimePolicy.runtimeNodeRole === "reader") {
-      const writerHint = runtimePolicy.runtimeWriterUrl;
-      const headers = [
-        "HTTP/1.1 503 Service Unavailable",
-        "Connection: close",
-        "Content-Type: text/plain; charset=utf-8",
-      ];
-      if (writerHint) {
-        headers.push(`${RUNTIME_WRITER_URL_HEADER}: ${writerHint}`);
-      }
-      socket.write(`${headers.join("\r\n")}\r\n\r\nRuntime writer required`);
-      socket.destroy();
-      return;
-    }
-    try {
-      const host =
-        req.headers.host ?? `${runtimePolicy.wsHost}:${runtimePolicy.wsPort}`;
-      const url = new URL(req.url ?? "/", `http://${host}`);
-      if (url.pathname !== TRPC_WS_PATH) {
-        socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+  server.on("upgrade", (req, socket, head) => {
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Upgrade authorization keeps redirect, Cloudflare, credential, and ws handoff gates in strict order.
+    const upgradeTask = (async () => {
+      if (runtimePolicy.runtimeNodeRole === "reader") {
+        const writerHint = runtimePolicy.runtimeWriterUrl;
+        const headers = [
+          "HTTP/1.1 503 Service Unavailable",
+          "Connection: close",
+          "Content-Type: text/plain; charset=utf-8",
+        ];
+        if (writerHint) {
+          headers.push(`${RUNTIME_WRITER_URL_HEADER}: ${writerHint}`);
+        }
+        socket.write(`${headers.join("\r\n")}\r\n\r\nRuntime writer required`);
         socket.destroy();
         return;
       }
-    } catch {
-      socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    if (runtimePolicy.authRequireCloudflareAccess) {
-      const authCheck = validateCloudflareAccessHandshakeAuth(
-        req.headers,
-        toCloudflareAccessHandshakePolicy(runtimePolicy)
-      );
-      if (!authCheck.ok) {
-        logger.warn(
-          "Rejected WebSocket handshake without Cloudflare Access auth",
-          {
-            path: req.url ?? TRPC_WS_PATH,
-            remoteAddress: req.socket.remoteAddress,
-            reason: authCheck.reason ?? "unknown",
-          }
-        );
-        socket.write(
-          "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nCloudflare Access authentication required"
-        );
+      try {
+        const host =
+          req.headers.host ?? `${runtimePolicy.wsHost}:${runtimePolicy.wsPort}`;
+        const url = new URL(req.url ?? "/", `http://${host}`);
+        if (url.pathname !== TRPC_WS_PATH) {
+          socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+      } catch {
+        socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
         socket.destroy();
         return;
       }
-    }
+      if (runtimePolicy.authRequireCloudflareAccess) {
+        const authCheck = validateCloudflareAccessHandshakeAuth(
+          req.headers,
+          toCloudflareAccessHandshakePolicy(runtimePolicy)
+        );
+        if (!authCheck.ok) {
+          logger.warn(
+            "Rejected WebSocket handshake without Cloudflare Access auth",
+            {
+              path: req.url ?? TRPC_WS_PATH,
+              remoteAddress: req.socket.remoteAddress,
+              reason: authCheck.reason ?? "unknown",
+            }
+          );
+          socket.write(
+            "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nCloudflare Access authentication required"
+          );
+          socket.destroy();
+          return;
+        }
+      }
 
-    // ── Layer 1: Reject invalid / expired credentials at upgrade time ──
-    // NOTE: We allow connections WITHOUT credentials (anonymous upgrade)
-    // because tRPC-client sends credentials in connectionParams AFTER the
-    // upgrade. Invalid/expired credentials with the upgrade are rejected at
-    // this layer.
-    const hasUpgradeCreds = hasAuthCredentialsInHeaders(req.headers);
-    if (hasUpgradeCreds) {
-      const preFlightAuthContext = await resolveAuthContext({
-        headers: req.headers as Record<string, string | string[] | undefined>,
-        url: req.url,
-        remoteAddress: req.socket.remoteAddress,
-      });
-      if (!preFlightAuthContext) {
-        logger.warn("Rejected WebSocket upgrade: invalid credentials", {
-          path: req.url ?? TRPC_WS_PATH,
+      // ── Layer 1: Reject invalid / expired credentials at upgrade time ──
+      // NOTE: We allow connections WITHOUT credentials (anonymous upgrade)
+      // because tRPC-client sends credentials in connectionParams AFTER the
+      // upgrade. Invalid/expired credentials with the upgrade are rejected at
+      // this layer.
+      const hasUpgradeCreds = hasAuthCredentialsInHeaders(req.headers);
+      if (hasUpgradeCreds) {
+        const preFlightAuthContext = await resolveAuthContext({
+          headers: req.headers as Record<string, string | string[] | undefined>,
+          url: req.url,
           remoteAddress: req.socket.remoteAddress,
         });
-        socket.write(
-          "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\nInvalid credentials"
-        );
-        socket.destroy();
-        return;
+        if (!preFlightAuthContext) {
+          logger.warn("Rejected WebSocket upgrade: invalid credentials", {
+            path: req.url ?? TRPC_WS_PATH,
+            remoteAddress: req.socket.remoteAddress,
+          });
+          socket.write(
+            "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\nInvalid credentials"
+          );
+          socket.destroy();
+          return;
+        }
       }
-    }
 
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, req);
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit("connection", ws, req);
+      });
+    })();
+    upgradeTask.catch((error) => {
+      const candidate =
+        error && typeof error === "object"
+          ? (error as { name?: unknown; statusCode?: unknown })
+          : null;
+      logger.warn("Rejected WebSocket upgrade after runtime failure", {
+        errorName: candidate?.name ? String(candidate.name) : typeof error,
+        statusCode:
+          typeof candidate?.statusCode === "number"
+            ? candidate.statusCode
+            : undefined,
+      });
+      socket.destroy();
     });
   });
 

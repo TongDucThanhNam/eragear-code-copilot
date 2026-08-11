@@ -16,6 +16,10 @@ import {
   toSqliteJson,
 } from "#runtime/platform/storage/sqlite-store";
 import { enqueueSqliteWrite } from "#runtime/platform/storage/sqlite-write-queue";
+import {
+  type SupervisorAgentProfile,
+  SupervisorAgentProfileSchema,
+} from "#runtime/shared/contracts/supervisor-agent-profile.contract";
 import type {
   AgentConfig,
   AgentInput,
@@ -155,6 +159,51 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       .where(eq(sqliteSchema.agents.userId, userId))
       .all();
     return rows.map((row) => this.mapRow(row));
+  }
+
+  async listSupervisorProfiles(
+    userId: string,
+    projectId?: string
+  ): Promise<SupervisorAgentProfile[]> {
+    const db = await getSqliteOrm();
+    const rows = this.selectRowsByProject(db, projectId, userId);
+    return rows.map((row) => mapSupervisorProfile(row));
+  }
+
+  saveSupervisorProfile(
+    userId: string,
+    profile: SupervisorAgentProfile
+  ): Promise<SupervisorAgentProfile> {
+    const parsed = SupervisorAgentProfileSchema.parse(profile);
+    return enqueueSqliteWrite("agent.save_supervisor_profile", async () => {
+      const db = await getSqliteOrm();
+      const existing = db
+        .select({ id: sqliteSchema.agents.id })
+        .from(sqliteSchema.agents)
+        .where(
+          and(
+            eq(sqliteSchema.agents.id, parsed.agentId),
+            eq(sqliteSchema.agents.userId, userId)
+          )
+        )
+        .get();
+      if (!existing) {
+        throw new Error(`Agent ${parsed.agentId} was not found for this user`);
+      }
+      db.update(sqliteSchema.agents)
+        .set({
+          supervisorProfileJson: toSqliteJson(parsed),
+          updatedAt: Date.parse(parsed.updatedAt),
+        })
+        .where(
+          and(
+            eq(sqliteSchema.agents.id, parsed.agentId),
+            eq(sqliteSchema.agents.userId, userId)
+          )
+        )
+        .run();
+      return parsed;
+    });
   }
 
   async getActiveId(userId: string): Promise<string | null> {
@@ -300,6 +349,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
                 resumeCommandTemplate: defaultAgentInput.resumeCommandTemplate,
                 fallbackToDefault: true,
               }) ?? null,
+            supervisorProfileJson: null,
             envJson: toSqliteJson(defaultAgentInput.env),
             projectId: defaultAgentInput.projectId ?? null,
             createdAt: now,
@@ -651,4 +701,34 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       );
     });
   }
+}
+
+function mapSupervisorProfile(row: AgentRow): SupervisorAgentProfile {
+  const fallback: SupervisorAgentProfile = {
+    agentId: row.id,
+    enabled: true,
+    roles: [
+      "manager",
+      "research",
+      "implementation",
+      "test",
+      "review",
+      "integration",
+    ],
+    maxConcurrentSessions: 1,
+    readiness: {
+      handshake: "untested",
+      exactResume: "untested",
+    },
+    updatedAt: new Date(row.updatedAt).toISOString(),
+  };
+  return fromSqliteJsonWithSchema(
+    row.supervisorProfileJson,
+    fallback,
+    SupervisorAgentProfileSchema,
+    {
+      table: "agents",
+      column: "supervisor_profile_json",
+    }
+  );
 }

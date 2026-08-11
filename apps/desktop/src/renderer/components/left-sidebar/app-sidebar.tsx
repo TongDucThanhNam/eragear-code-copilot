@@ -2,6 +2,7 @@
 "use client";
 
 import { IconInnerShadowTop } from "@tabler/icons-react";
+import { Gauge } from "lucide-react";
 import type * as React from "react";
 import { useEffect, useMemo } from "react";
 import { getAgentIconComponent } from "@/components/left-sidebar/agent-icons";
@@ -111,6 +112,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <a href="/">
                 <IconInnerShadowTop className="size-5!" />
                 <span className="font-semibold text-base">Eragear Copilot</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild>
+              <a href="/mission-control">
+                <Gauge className="size-5" />
+                <span>Mission Control</span>
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>

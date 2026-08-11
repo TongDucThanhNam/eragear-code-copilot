@@ -8,7 +8,10 @@ import { SupervisorRunRevisionConflictError } from "../domain/supervisor-run.tra
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
 import type { WorkerSessionManagerPort } from "./ports/worker-session-manager.port";
 import type { WorkerWorkspacePort } from "./ports/worker-workspace.port";
-import { SupervisorOrchestratorService } from "./supervisor-orchestrator.service";
+import {
+  type SupervisorOrchestratorDeps,
+  SupervisorOrchestratorService,
+} from "./supervisor-orchestrator.service";
 import { SupervisorSchedulerService } from "./supervisor-scheduler.service";
 import { WorkerResultService } from "./worker-result.service";
 
@@ -88,7 +91,12 @@ function createTask(
 
 function createHarness(
   run?: SupervisorRunState,
-  options: { replanTasks?: SupervisorTaskRecord[] } = {}
+  options: {
+    replanTasks?: SupervisorTaskRecord[];
+    manager?: SupervisorOrchestratorDeps["manager"];
+    finalVerifier?: SupervisorOrchestratorDeps["finalVerifier"];
+    finalCommit?: SupervisorOrchestratorDeps["finalCommit"];
+  } = {}
 ) {
   const runs = new MemoryRuns(run);
   const dispatched: string[] = [];
@@ -112,10 +120,14 @@ function createHarness(
       stopped.push(input.attemptId);
       return Promise.resolve();
     },
+    release() {
+      return Promise.resolve();
+    },
   } as unknown as WorkerSessionManagerPort;
   let id = 0;
   const service = new SupervisorOrchestratorService({
     runs,
+    ...(options.manager ? { manager: options.manager } : {}),
     planner: {
       plan() {
         return Promise.resolve({
@@ -189,11 +201,12 @@ function createHarness(
       },
     },
     results: new WorkerResultService(),
-    finalVerifier: {
+    finalVerifier: options.finalVerifier ?? {
       verify() {
         return Promise.resolve([]);
       },
     },
+    ...(options.finalCommit ? { finalCommit: options.finalCommit } : {}),
     now: () => "2026-07-11T00:01:00.000Z",
     createId(prefix) {
       id += 1;
@@ -203,21 +216,40 @@ function createHarness(
   return { service, runs, dispatched, stopped };
 }
 
+async function approveDraft(
+  harness: ReturnType<typeof createHarness>,
+  draft: SupervisorRunState
+) {
+  if (!draft.plan) {
+    throw new Error("Expected a persisted plan proposal");
+  }
+  return await harness.service.approvePlan({
+    runId: draft.runId,
+    userId: draft.userId,
+    planVersion: draft.plan.version,
+    planHash: draft.plan.hash,
+    expectedRevision: draft.revision,
+  });
+}
+
 describe("SupervisorOrchestratorService controls", () => {
   test("starts a run and dispatches two independent tasks within concurrency", async () => {
     const harness = createHarness();
-    const run = await harness.service.start({
+    const draft = await harness.service.start({
       userId: "user-1",
       projectId: "project-1",
       projectRoot: "C:/repo",
       originalIntent: "Implement the feature",
     });
-    expect(run.status).toBe("queued");
+    expect(draft.status).toBe("awaiting_approval");
+    expect(harness.dispatched).toEqual([]);
+    const run = await approveDraft(harness, draft);
     expect(run.tasks.map((task) => task.status)).toEqual(["queued", "queued"]);
     expect(harness.dispatched).toEqual(["task-a", "task-b"]);
     expect(run.audit.map((entry) => entry.kind)).toEqual([
       "run_created",
-      "plan_accepted",
+      "plan_awaiting_approval",
+      "plan_approved",
     ]);
   });
 
@@ -231,7 +263,7 @@ describe("SupervisorOrchestratorService controls", () => {
       },
     });
 
-    const run = await harness.service.start({
+    const draft = await harness.service.start({
       userId: "user-1",
       projectId: "project-1",
       projectRoot: "C:/repo",
@@ -241,14 +273,17 @@ describe("SupervisorOrchestratorService controls", () => {
       eligibleAgentIds: ["agent-1"],
       workerModelId: "glm-zai",
     });
+    const run = await approveDraft(harness, draft);
 
     expect(admitted).toEqual(["task-a", "task-b"]);
     expect(harness.dispatched).toEqual(["task-a", "task-b"]);
     expect(run).toMatchObject({
-      scheduleId: "schedule-1",
-      providerId: "zai-coding-plan",
-      eligibleAgentIds: ["agent-1"],
-      workerModelId: "glm-zai",
+      legacyAutomation: {
+        scheduleId: "schedule-1",
+        providerId: "zai-coding-plan",
+        workerModelId: "glm-zai",
+      },
+      agentAllowlist: ["agent-1"],
     });
   });
 
@@ -264,7 +299,7 @@ describe("SupervisorOrchestratorService controls", () => {
       },
     });
 
-    const run = await harness.service.start({
+    const draft = await harness.service.start({
       userId: "user-1",
       projectId: "project-1",
       projectRoot: "C:/repo",
@@ -272,6 +307,7 @@ describe("SupervisorOrchestratorService controls", () => {
       scheduleId: "schedule-1",
       providerId: "zai-coding-plan",
     });
+    const run = await approveDraft(harness, draft);
 
     expect(harness.dispatched).toEqual([]);
     expect(run.status).toBe("queued");
@@ -321,6 +357,39 @@ describe("SupervisorOrchestratorService controls", () => {
     expect(harness.stopped).toEqual(["attempt-1"]);
   });
 
+  test("stops the sticky ACP manager when cancelling a planning run", async () => {
+    const base = createSupervisorRunFixture({
+      status: "planning",
+      tasks: [],
+      managerSession: {
+        agentId: "agent-1",
+        chatId: "manager-chat-1",
+        agentSessionId: "acp-1",
+        status: "running",
+        exactResumeRequired: true,
+        activeTurn: {
+          turnId: "turn-1",
+          kind: "plan",
+          startedAt: "2026-07-11T00:00:00.000Z",
+        },
+      },
+    });
+    const stoppedManagers: string[] = [];
+    const harness = createHarness(base, {
+      manager: {
+        dispatch: () => Promise.reject(new Error("not used")),
+        stop: (input) => {
+          stoppedManagers.push(input.runId);
+          return Promise.resolve(base);
+        },
+      },
+    });
+
+    const cancelled = await harness.service.cancel(base.runId, base.userId);
+    expect(cancelled.status).toBe("cancelled");
+    expect(stoppedManagers).toEqual([base.runId]);
+  });
+
   test("retries failed work within budget and rejects exhausted attempts", async () => {
     const failed = createTask("task-a", {
       status: "failed",
@@ -361,6 +430,97 @@ describe("SupervisorOrchestratorService controls", () => {
         taskId: failed.taskId,
       })
     ).rejects.toThrow("exhausted its attempt budget");
+  });
+
+  test("answers a final delivery decision by revalidating and committing without a manager replan", async () => {
+    const managerDispatches: string[] = [];
+    const commitRevisions: number[] = [];
+    const task = createTask("task-a", {
+      status: "completed",
+      verificationCommands: ["bun test"],
+    });
+    const base = createSupervisorRunFixture({
+      status: "needs_user",
+      tasks: [task],
+      plan: {
+        version: 1,
+        hash: "a".repeat(64),
+        summary: "Create the approved result",
+        envelope: {
+          goal: "Implement a safe multi-worker feature",
+          fileScopes: ["packages/runtime/src/index.ts"],
+          verificationCommands: ["bun test"],
+          successCriteria: ["Tests pass"],
+          permissionScopes: ["write"],
+          destructiveActions: [],
+          delivery: {
+            createCommit: true,
+            targetBranch: "main",
+            targetHead: "abc123",
+            allowDefaultBranch: true,
+          },
+        },
+        approvedAt: "2026-07-11T00:00:00.000Z",
+        approvedByUserId: "user-1",
+      },
+      decisions: [
+        {
+          decisionId: "decision-final-commit",
+          kind: "baseline_drift",
+          status: "open",
+          prompt: "Approved branch or HEAD changed before final commit",
+          createdAt: "2026-07-11T00:00:30.000Z",
+        },
+      ],
+    });
+    const harness = createHarness(base, {
+      manager: {
+        dispatch(input) {
+          managerDispatches.push(input.turnKind);
+          return Promise.resolve(base);
+        },
+        stop: () => Promise.resolve(base),
+      },
+      finalVerifier: {
+        verify({ commands }) {
+          return Promise.resolve(
+            commands.map((command) => ({
+              command,
+              exitCode: 0,
+              outputSummary: "passed",
+              startedAt: "2026-07-11T00:00:40.000Z",
+              finishedAt: "2026-07-11T00:00:50.000Z",
+            }))
+          );
+        },
+      },
+      finalCommit: {
+        commit(run) {
+          commitRevisions.push(run.revision);
+          return Promise.resolve({
+            commitSha: "b".repeat(40),
+            safetyRef: "refs/eragear/safety/run-1",
+          });
+        },
+      },
+    });
+
+    const completed = await harness.service.answerDecision({
+      runId: base.runId,
+      userId: base.userId,
+      decisionId: "decision-final-commit",
+      answer: "Retry against the unchanged approved branch and HEAD",
+      expectedRevision: base.revision,
+    });
+
+    expect(completed.status).toBe("completed");
+    expect(completed.finalCommitSha).toBe("b".repeat(40));
+    expect(completed.decisions[0]).toMatchObject({
+      status: "answered",
+      answeredByUserId: "user-1",
+    });
+    expect(managerDispatches).toEqual([]);
+    expect(commitRevisions).toHaveLength(1);
   });
 
   test("rejects invalid transitions and cross-user access", async () => {
@@ -479,7 +639,9 @@ describe("SupervisorOrchestratorService controls", () => {
       tasks: [failedTask],
     });
     const harness = createHarness(base, { replanTasks: [replacement] });
-    const replanned = await harness.service.replan(base.runId, base.userId);
+    const proposed = await harness.service.replan(base.runId, base.userId);
+    expect(proposed.status).toBe("awaiting_approval");
+    const replanned = await approveDraft(harness, proposed);
     expect(replanned.plannerReplanCount).toBe(1);
     expect(replanned.tasks[0]?.taskId).toBe("task-b");
     expect(harness.dispatched).toEqual(["task-b"]);

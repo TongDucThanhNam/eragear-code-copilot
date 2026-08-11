@@ -5,17 +5,12 @@ import {
   existsSync,
   readdirSync,
 } from "node:fs";
-import {
-  copyFile,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  stat,
-} from "node:fs/promises";
+import { copyFile, mkdtemp, readdir, rename, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { file as bunFile, write as bunWrite } from "bun";
+import { getStorageFileSync } from "#runtime/platform/storage/storage-path";
 import type {
   UsageStatsCliDailyUsage,
   UsageStatsCliProviderId,
@@ -89,6 +84,13 @@ const ISO_DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SQLITE_LOCKED_RE = /database is locked|SQLITE_BUSY/i;
 const MODEL_DATE_SUFFIX_RE = /-\d{8}$/;
 const BEARER_TOKEN_RE = /Bearer\s+[A-Za-z0-9._-]+/g;
+const BUILTIN_PROVIDER_PREFIX_RE = /^builtin:/;
+const CODEX_RELEVANT_JSONL_MARKERS = ["token_count", "turn_context"] as const;
+const CODEX_SESSION_META_PREFIX_BYTES = 64 * 1024;
+const CODEX_SUBAGENT_THREAD_SOURCE_RE = /"thread_source"\s*:\s*"subagent"/;
+const CODEX_SUBAGENT_SOURCE_RE = /"source"\s*:\s*\{\s*"subagent"\s*:/;
+const CODEX_USAGE_INDEX_VERSION = 3;
+const CODEX_USAGE_INDEX_FILENAME = "usage-codex-index-v1.json";
 
 interface MutableDailyUsage {
   date: string;
@@ -123,6 +125,52 @@ interface NormalizedCodexUsage {
   outputTokens: number;
   reasoningOutputTokens: number;
   totalTokens: number;
+}
+
+interface CodexIndexedUsageEvent {
+  atMs: number;
+  modelName?: string;
+  tokens: UsageStatsTokenTotals;
+}
+
+interface CodexJsonlEntry {
+  type?: string;
+  timestamp?: string;
+  payload?: {
+    type?: string;
+    model?: string;
+    model_name?: string;
+    metadata?: { model?: string };
+    info?: {
+      model?: string;
+      model_name?: string;
+      metadata?: { model?: string };
+      last_token_usage?: CodexUsagePayload;
+      total_token_usage?: CodexUsagePayload;
+    };
+  };
+}
+
+interface CodexFileModelContext {
+  currentModel?: string;
+  isSubagentSession: boolean;
+  explicitModels: Set<string>;
+}
+
+interface CodexFileIndexEntry {
+  size: number;
+  lastModified: number;
+  events: CodexIndexedUsageEvent[];
+}
+
+interface PersistedCodexUsageIndex {
+  version: number;
+  files: Record<string, CodexFileIndexEntry>;
+}
+
+interface LocalCliUsageScannerOptions {
+  codexIndexFilePath?: () => string;
+  persistCodexIndex?: boolean;
 }
 
 interface AmpThread {
@@ -185,6 +233,17 @@ interface ZcodeModelUsageRow {
 }
 
 export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
+  private readonly codexUsageIndex: CodexUsageIndex;
+
+  constructor(options: LocalCliUsageScannerOptions = {}) {
+    this.codexUsageIndex = new CodexUsageIndex(
+      options.persistCodexIndex === false
+        ? undefined
+        : (options.codexIndexFilePath ??
+            (() => getStorageFileSync(CODEX_USAGE_INDEX_FILENAME)))
+    );
+  }
+
   async scan(input: UsageStatsScannerInput): Promise<UsageStatsCliSummary> {
     const start =
       input.startMs === undefined ? new Date(0) : new Date(input.startMs);
@@ -300,7 +359,8 @@ export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
           end,
           recentStart,
           warnings,
-          pricingSnapshot
+          pricingSnapshot,
+          this.codexUsageIndex
         );
       case "cursor":
         return await loadCursorUsage(start, end, recentStart, pricingSnapshot);
@@ -334,6 +394,135 @@ export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
         const exhaustive: never = providerId;
         throw new Error(`Unhandled usage provider: ${String(exhaustive)}`);
       }
+    }
+  }
+}
+
+class CodexUsageIndex {
+  private readonly filePath?: () => string;
+  private readonly entries = new Map<string, CodexFileIndexEntry>();
+  private readonly inFlight = new Map<
+    string,
+    Promise<CodexIndexedUsageEvent[]>
+  >();
+  private loadPromise?: Promise<void>;
+  private flushPromise: Promise<void> = Promise.resolve();
+  private revision = 0;
+  private flushedRevision = 0;
+
+  constructor(filePath?: () => string) {
+    this.filePath = filePath;
+  }
+
+  async getEvents(
+    file: string,
+    warnings: string[]
+  ): Promise<CodexIndexedUsageEvent[]> {
+    await this.ensureLoaded();
+    const cacheKey = path.resolve(file);
+    const source = bunFile(cacheKey);
+    const sourceSize = source.size;
+    const sourceLastModified = source.lastModified;
+    const cached = this.entries.get(cacheKey);
+    if (
+      cached &&
+      cached.size === sourceSize &&
+      cached.lastModified === sourceLastModified
+    ) {
+      return cached.events;
+    }
+
+    const active = this.inFlight.get(cacheKey);
+    if (active) {
+      return active;
+    }
+    const operation = readCodexIndexedEvents(cacheKey, warnings)
+      .then((events) => {
+        this.entries.set(cacheKey, {
+          size: sourceSize,
+          lastModified: sourceLastModified,
+          events,
+        });
+        this.revision += 1;
+        return events;
+      })
+      .finally(() => {
+        this.inFlight.delete(cacheKey);
+      });
+    this.inFlight.set(cacheKey, operation);
+    return operation;
+  }
+
+  flush(): Promise<void> {
+    if (!(this.filePath && this.revision > this.flushedRevision)) {
+      return this.flushPromise;
+    }
+    this.flushPromise = this.flushPromise.then(async () => {
+      if (!(this.filePath && this.revision > this.flushedRevision)) {
+        return;
+      }
+      const revision = this.revision;
+      const filePath = this.filePath();
+      const temporaryPath = `${filePath}.${process.pid}.tmp`;
+      const payload: PersistedCodexUsageIndex = {
+        version: CODEX_USAGE_INDEX_VERSION,
+        files: Object.fromEntries(this.entries),
+      };
+      const serialized = JSON.stringify(payload);
+      let persisted = false;
+      try {
+        await bunWrite(temporaryPath, serialized);
+        await rename(temporaryPath, filePath);
+        persisted = true;
+      } catch {
+        try {
+          await bunWrite(filePath, serialized);
+          persisted = true;
+        } catch {
+          // Persistence is an optimization; source logs remain authoritative.
+        }
+        try {
+          await rm(temporaryPath, { force: true });
+        } catch {
+          // Best-effort cleanup of an interrupted cache write.
+        }
+      }
+      if (persisted) {
+        this.flushedRevision = revision;
+      }
+    });
+    return this.flushPromise;
+  }
+
+  private ensureLoaded(): Promise<void> {
+    this.loadPromise ??= this.load();
+    return this.loadPromise;
+  }
+
+  private async load(): Promise<void> {
+    if (!this.filePath) {
+      return;
+    }
+    try {
+      const source = bunFile(this.filePath());
+      if (!(await source.exists())) {
+        return;
+      }
+      const parsed = (await source.json()) as PersistedCodexUsageIndex;
+      if (
+        parsed.version !== CODEX_USAGE_INDEX_VERSION ||
+        !parsed.files ||
+        typeof parsed.files !== "object"
+      ) {
+        return;
+      }
+      for (const [file, entry] of Object.entries(parsed.files)) {
+        if (isCodexFileIndexEntry(entry)) {
+          this.entries.set(file, entry);
+        }
+      }
+    } catch {
+      // A missing or partial cache only costs a rebuild; source logs remain authoritative.
     }
   }
 }
@@ -389,6 +578,7 @@ function recordUsage(params: {
   date: Date;
   tokens: UsageStatsTokenTotals;
   modelName?: string;
+  upstreamProviderId?: string;
   recentStart: Date;
 }): void {
   if (params.tokens.totalTokens <= 0 || Number.isNaN(params.date.getTime())) {
@@ -422,19 +612,19 @@ function recordUsage(params: {
   if (!modelUsageName) {
     return;
   }
+  const upstreamProviderId = normalizeUpstreamProviderId(
+    params.upstreamProviderId
+  );
+  const usageKey = usageModelKey(modelUsageName, upstreamProviderId);
 
-  addModelTokens(daily.models, modelUsageName, params.tokens);
-  addModelCost(daily.modelCosts, modelUsageName, cost);
-  addModelTokens(params.usage.modelTotals, modelUsageName, params.tokens);
-  addModelCost(params.usage.modelCosts, modelUsageName, cost);
+  addModelTokens(daily.models, usageKey, params.tokens);
+  addModelCost(daily.modelCosts, usageKey, cost);
+  addModelTokens(params.usage.modelTotals, usageKey, params.tokens);
+  addModelCost(params.usage.modelCosts, usageKey, cost);
 
   if (params.date >= params.recentStart) {
-    addModelTokens(
-      params.usage.recentModelTotals,
-      modelUsageName,
-      params.tokens
-    );
-    addModelCost(params.usage.recentModelCosts, modelUsageName, cost);
+    addModelTokens(params.usage.recentModelTotals, usageKey, params.tokens);
+    addModelCost(params.usage.recentModelCosts, usageKey, cost);
   }
 }
 
@@ -557,14 +747,18 @@ function buildCliSummary(params: {
       providerDailyByDate.set(row.date, providerEntries);
 
       for (const model of row.breakdown) {
-        const key = modelKey(model.providerId, model.name);
+        const key = modelKey(
+          model.providerId,
+          model.name,
+          model.upstreamProviderId
+        );
         addModelTokens(daily.models, key, model.tokens);
         addModelCost(daily.modelCosts, key, model.cost);
       }
     }
 
     for (const model of provider.modelUsage) {
-      addModelUsageSummary(modelTotals, model.name, model);
+      addModelUsageSummary(modelTotals, model);
     }
 
     for (const model of provider.modelUsage) {
@@ -576,7 +770,7 @@ function buildCliSummary(params: {
       }
       const recentModel = provider.recentFavoriteModel;
       if (recentModel && recentModel.name === model.name) {
-        addModelUsageSummary(recentModelTotals, recentModel.name, recentModel);
+        addModelUsageSummary(recentModelTotals, recentModel);
       }
     }
   }
@@ -596,11 +790,13 @@ function buildCliSummary(params: {
         breakdown: [...row.models.entries()]
           .sort(([, a], [, b]) => b.totalTokens - a.totalTokens)
           .map(([key, tokens]): UsageStatsDailyModelUsage => {
-            const { providerId, modelName } = parseModelKey(key);
+            const { providerId, modelName, upstreamProviderId } =
+              parseModelKey(key);
             return {
               name: modelName,
               providerId,
               providerDisplayName: PROVIDER_DISPLAY_NAMES[providerId],
+              ...(upstreamProviderId ? { upstreamProviderId } : {}),
               tokens: cloneTokens(tokens),
               cost: cloneCost(row.modelCosts.get(key) ?? createEmptyCost()),
             };
@@ -669,13 +865,17 @@ function buildDailyRows(
         : [],
       breakdown: [...row.models.entries()]
         .sort(([, a], [, b]) => b.totalTokens - a.totalTokens)
-        .map(([name, tokens]) => ({
-          name,
-          providerId: provider?.providerId ?? "codex",
-          providerDisplayName: provider?.providerDisplayName ?? "Codex",
-          tokens: cloneTokens(tokens),
-          cost: cloneCost(row.modelCosts.get(name) ?? createEmptyCost()),
-        })),
+        .map(([key, tokens]) => {
+          const { modelName, upstreamProviderId } = parseUsageModelKey(key);
+          return {
+            name: modelName,
+            providerId: provider?.providerId ?? "codex",
+            providerDisplayName: provider?.providerDisplayName ?? "Codex",
+            ...(upstreamProviderId ? { upstreamProviderId } : {}),
+            tokens: cloneTokens(tokens),
+            cost: cloneCost(row.modelCosts.get(key) ?? createEmptyCost()),
+          };
+        }),
     }));
 }
 
@@ -687,27 +887,34 @@ function buildModelUsageRows(
 ): UsageStatsModelUsage[] {
   return [...map.entries()]
     .sort(([, a], [, b]) => b.totalTokens - a.totalTokens)
-    .map(([name, tokens]) => ({
-      name,
-      providerId,
-      providerDisplayName: PROVIDER_DISPLAY_NAMES[providerId],
-      tokens: cloneTokens(tokens),
-      cost: cloneCost(costMap.get(name) ?? createEmptyCost()),
-      share: totalTokens > 0 ? tokens.totalTokens / totalTokens : 0,
-    }));
+    .map(([key, tokens]) => {
+      const { modelName, upstreamProviderId } = parseUsageModelKey(key);
+      return {
+        name: modelName,
+        providerId,
+        providerDisplayName: PROVIDER_DISPLAY_NAMES[providerId],
+        ...(upstreamProviderId ? { upstreamProviderId } : {}),
+        tokens: cloneTokens(tokens),
+        cost: cloneCost(costMap.get(key) ?? createEmptyCost()),
+        share: totalTokens > 0 ? tokens.totalTokens / totalTokens : 0,
+      };
+    });
 }
 
 function addModelUsageSummary(
   map: Map<string, UsageStatsModelUsage>,
-  name: string,
   model: UsageStatsModelUsage
 ): void {
-  const existing = map.get(name);
+  const key = usageModelKey(model.name, model.upstreamProviderId);
+  const existing = map.get(key);
   if (!existing) {
-    map.set(name, {
-      name,
+    map.set(key, {
+      name: model.name,
       providerId: model.providerId,
       providerDisplayName: model.providerDisplayName,
+      ...(model.upstreamProviderId
+        ? { upstreamProviderId: model.upstreamProviderId }
+        : {}),
       tokens: cloneTokens(model.tokens),
       cost: cloneCost(model.cost),
       share: 0,
@@ -745,7 +952,7 @@ async function loadAmpUsage(
   }
 
   const usage = createProviderUsage("amp", pricingSnapshot);
-  const files = await listFilesRecursive(threadsDir, ".json");
+  const files = await listFilesRecursive(threadsDir, ".json", start.getTime());
   await runWithConcurrency(files, getFileConcurrency(), async (file) => {
     await processAmpFile(file, usage, start, end, recentStart, warnings);
   });
@@ -838,7 +1045,9 @@ async function loadClaudeUsage(
   const processedHashes = new Set<string>();
   const files = (
     await Promise.all(
-      projectDirs.map((dir) => listFilesRecursive(dir, ".jsonl"))
+      projectDirs.map((dir) =>
+        listFilesRecursive(dir, ".jsonl", start.getTime())
+      )
     )
   ).flat();
 
@@ -929,6 +1138,7 @@ function processClaudeLogEntry(params: {
       entry.message.model && entry.message.model !== "<synthetic>"
         ? normalizeModelName(entry.message.model)
         : undefined,
+    upstreamProviderId: "anthropic",
     recentStart: params.recentStart,
   });
 }
@@ -984,6 +1194,7 @@ async function loadClaudeStatsCacheUsage(
             totalTokens: total,
           },
           modelName: normalizeModelName(modelName),
+          upstreamProviderId: "anthropic",
           recentStart,
         });
       }
@@ -996,7 +1207,8 @@ async function loadCodexUsage(
   end: Date,
   recentStart: Date,
   warnings: string[],
-  pricingSnapshot: PricingSnapshot
+  pricingSnapshot: PricingSnapshot,
+  usageIndex: CodexUsageIndex
 ): Promise<MutableProviderUsage | null> {
   const sessionsDir = path.join(getCodexHome(), "sessions");
   if (!existsSync(sessionsDir)) {
@@ -1004,10 +1216,23 @@ async function loadCodexUsage(
   }
 
   const usage = createProviderUsage("codex", pricingSnapshot);
-  const files = await listFilesRecursive(sessionsDir, ".jsonl");
+  const files = await listFilesRecursive(
+    sessionsDir,
+    ".jsonl",
+    start.getTime()
+  );
   await runWithConcurrency(files, getFileConcurrency(), async (file) => {
-    await processCodexFile(file, start, end, recentStart, usage, warnings);
+    await processCodexFile(
+      file,
+      start,
+      end,
+      recentStart,
+      usage,
+      warnings,
+      usageIndex
+    );
   });
+  await usageIndex.flush();
   return usage;
 }
 
@@ -1017,36 +1242,46 @@ async function processCodexFile(
   end: Date,
   recentStart: Date,
   usage: MutableProviderUsage,
-  warnings: string[]
+  warnings: string[],
+  usageIndex: CodexUsageIndex
 ): Promise<void> {
-  let previousTotals: NormalizedCodexUsage | null = null;
-  let currentModel: string | undefined;
-
-  for await (const entry of readJsonLines<{
-    type?: string;
-    timestamp?: string;
-    payload?: {
-      type?: string;
-      model?: string;
-      model_name?: string;
-      metadata?: { model?: string };
-      info?: {
-        model?: string;
-        model_name?: string;
-        metadata?: { model?: string };
-        last_token_usage?: CodexUsagePayload;
-        total_token_usage?: CodexUsagePayload;
-      };
-    };
-  }>(file, warnings)) {
-    const extractedModel = extractCodexModel(entry.payload);
-
-    if (entry.type === "turn_context") {
-      currentModel = extractedModel ?? currentModel;
+  const events = await usageIndex.getEvents(file, warnings);
+  for (const event of events) {
+    const date = new Date(event.atMs);
+    if (!isInRange(date, start, end)) {
       continue;
     }
+    recordUsage({
+      usage,
+      date,
+      tokens: event.tokens,
+      modelName: event.modelName,
+      upstreamProviderId: "openai",
+      recentStart,
+    });
+  }
+}
+
+async function readCodexIndexedEvents(
+  file: string,
+  warnings: string[]
+): Promise<CodexIndexedUsageEvent[]> {
+  let previousTotals: NormalizedCodexUsage | null = null;
+  const modelContext: CodexFileModelContext = {
+    isSubagentSession: await isCodexSubagentLog(file),
+    explicitModels: new Set(),
+  };
+  const events: CodexIndexedUsageEvent[] = [];
+
+  for await (const entry of readJsonLines<CodexJsonlEntry>(
+    file,
+    warnings,
+    CODEX_RELEVANT_JSONL_MARKERS
+  )) {
+    const extractedModel = extractCodexModel(entry.payload);
 
     if (entry.type !== "event_msg" || entry.payload?.type !== "token_count") {
+      updateCodexModelContext(modelContext, entry, extractedModel);
       continue;
     }
 
@@ -1071,13 +1306,13 @@ async function processCodexFile(
     }
 
     const date = new Date(entry.timestamp);
-    if (!isInRange(date, start, end)) {
+    if (Number.isNaN(date.getTime())) {
       continue;
     }
-    const modelName = extractedModel ?? currentModel;
-    recordUsage({
-      usage,
-      date,
+    const normalizedModelName =
+      normalizeModelName(extractedModel) ?? modelContext.currentModel;
+    events.push({
+      atMs: date.getTime(),
       tokens: {
         inputTokens: rawUsage.inputTokens,
         outputTokens: rawUsage.outputTokens,
@@ -1085,10 +1320,92 @@ async function processCodexFile(
         cacheOutputTokens: 0,
         totalTokens: rawUsage.totalTokens,
       },
-      modelName: normalizeModelName(modelName),
-      recentStart,
+      ...(normalizedModelName ? { modelName: normalizedModelName } : {}),
     });
   }
+  return backfillCodexSubagentModel(events, modelContext);
+}
+
+function updateCodexModelContext(
+  context: CodexFileModelContext,
+  entry: CodexJsonlEntry,
+  extractedModel: string | undefined
+): void {
+  if (entry.type !== "turn_context") {
+    return;
+  }
+  const normalizedModel = normalizeModelName(extractedModel);
+  if (normalizedModel) {
+    context.currentModel = normalizedModel;
+    context.explicitModels.add(normalizedModel);
+  }
+}
+
+async function isCodexSubagentLog(file: string): Promise<boolean> {
+  const source = bunFile(file);
+  const prefix = await source
+    .slice(0, Math.min(source.size, CODEX_SESSION_META_PREFIX_BYTES))
+    .text();
+  const firstLineEnd = prefix.indexOf("\n");
+  const sessionMeta =
+    firstLineEnd >= 0 ? prefix.slice(0, firstLineEnd) : prefix;
+  return (
+    CODEX_SUBAGENT_THREAD_SOURCE_RE.test(sessionMeta) ||
+    CODEX_SUBAGENT_SOURCE_RE.test(sessionMeta)
+  );
+}
+
+function backfillCodexSubagentModel(
+  events: CodexIndexedUsageEvent[],
+  context: CodexFileModelContext
+): CodexIndexedUsageEvent[] {
+  const soleExplicitModel =
+    context.explicitModels.size === 1
+      ? context.explicitModels.values().next().value
+      : undefined;
+  if (!(context.isSubagentSession && soleExplicitModel)) {
+    return events;
+  }
+  return events.map((event) =>
+    event.modelName ? event : { ...event, modelName: soleExplicitModel }
+  );
+}
+
+function isCodexFileIndexEntry(value: unknown): value is CodexFileIndexEntry {
+  if (!(value && typeof value === "object")) {
+    return false;
+  }
+  const entry = value as Partial<CodexFileIndexEntry>;
+  return (
+    isNonNegativeFiniteNumber(entry.size) &&
+    isNonNegativeFiniteNumber(entry.lastModified) &&
+    Array.isArray(entry.events) &&
+    entry.events.every(isCodexIndexedUsageEvent)
+  );
+}
+
+function isCodexIndexedUsageEvent(
+  value: unknown
+): value is CodexIndexedUsageEvent {
+  if (!(value && typeof value === "object")) {
+    return false;
+  }
+  const event = value as Partial<CodexIndexedUsageEvent>;
+  const tokens = event.tokens;
+  return (
+    isNonNegativeFiniteNumber(event.atMs) &&
+    (event.modelName === undefined || typeof event.modelName === "string") &&
+    Boolean(tokens) &&
+    isNonNegativeFiniteNumber(tokens?.inputTokens) &&
+    isNonNegativeFiniteNumber(tokens?.outputTokens) &&
+    isNonNegativeFiniteNumber(tokens?.cacheInputTokens) &&
+    isNonNegativeFiniteNumber(tokens?.cacheOutputTokens) &&
+    isNonNegativeFiniteNumber(tokens?.totalTokens)
+  );
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 async function loadCursorUsage(
@@ -1134,9 +1451,9 @@ async function loadGeminiUsage(
   }
 
   const usage = createProviderUsage("gemini", pricingSnapshot);
-  const files = (await listFilesRecursive(tmpDir, ".json")).filter((file) =>
-    GEMINI_SESSION_FILE_RE.test(file)
-  );
+  const files = (
+    await listFilesRecursive(tmpDir, ".json", start.getTime())
+  ).filter((file) => GEMINI_SESSION_FILE_RE.test(file));
   const dedupe = new Set<string>();
 
   for (const file of files) {
@@ -1198,6 +1515,7 @@ async function loadGeminiUsage(
         date,
         tokens,
         modelName: normalizeModelName(message.model),
+        upstreamProviderId: "google",
         recentStart,
       });
     }
@@ -1226,6 +1544,7 @@ async function loadOpenCodeUsage(
     id?: string;
     role?: string;
     modelID?: string;
+    providerID?: string;
     time?: { created?: number };
     tokens?: {
       input?: number;
@@ -1261,16 +1580,24 @@ async function loadOpenCodeUsage(
       date,
       tokens,
       modelName: normalizeModelName(message.modelID),
+      upstreamProviderId: message.providerID,
       recentStart,
     });
   };
 
   if (existsSync(databasePath)) {
     await withReadonlySqlite(databasePath, (db) => {
-      const statement = db.query(
-        "SELECT id, data FROM message ORDER BY time_created ASC"
-      );
-      for (const row of statement.iterate() as Iterable<{
+      const statement = db.query(`
+        SELECT id, data
+        FROM message
+        WHERE time_created >= $startMs
+          AND time_created <= $endMs
+        ORDER BY time_created ASC
+      `);
+      for (const row of statement.iterate({
+        $startMs: start.getTime(),
+        $endMs: end.getTime(),
+      }) as Iterable<{
         id?: string;
         data?: string;
       }>) {
@@ -1287,7 +1614,11 @@ async function loadOpenCodeUsage(
     return usage;
   }
 
-  const files = await listFilesRecursive(legacyMessagesDir, ".json");
+  const files = await listFilesRecursive(
+    legacyMessagesDir,
+    ".json",
+    start.getTime()
+  );
   for (const file of files) {
     try {
       addMessage(await readJsonDocument(file));
@@ -1314,7 +1645,11 @@ async function loadPiUsage(
   }
 
   const usage = createProviderUsage("pi", pricingSnapshot);
-  const files = await listFilesRecursive(sessionsDir, ".jsonl");
+  const files = await listFilesRecursive(
+    sessionsDir,
+    ".jsonl",
+    start.getTime()
+  );
   for (const file of files) {
     for await (const entry of readJsonLines<{
       type?: string;
@@ -1413,6 +1748,7 @@ async function loadZcodeUsage(
         date,
         tokens,
         modelName: normalizeZcodeModelName(row.provider_id, row.model_id),
+        upstreamProviderId: row.provider_id,
         recentStart,
       });
     }
@@ -2006,7 +2342,8 @@ function nonNegativeInteger(value?: number): number {
 
 async function listFilesRecursive(
   rootDir: string,
-  extension: string
+  extension: string,
+  modifiedSinceMs?: number
 ): Promise<string[]> {
   const files: string[] = [];
   const stack = [rootDir];
@@ -2027,7 +2364,14 @@ async function listFilesRecursive(
       if (entry.isDirectory()) {
         stack.push(fullPath);
       } else if (entry.isFile() && fullPath.endsWith(extension)) {
-        files.push(fullPath);
+        const source = bunFile(fullPath);
+        if (
+          modifiedSinceMs === undefined ||
+          source.lastModified <= 0 ||
+          source.lastModified >= modifiedSinceMs
+        ) {
+          files.push(fullPath);
+        }
       }
     }
   }
@@ -2037,7 +2381,8 @@ async function listFilesRecursive(
 
 async function* readJsonLines<T>(
   file: string,
-  warnings: string[]
+  warnings: string[],
+  requiredMarkers?: readonly string[]
 ): AsyncGenerator<T> {
   const maxBytes = getMaxJsonRecordBytes();
   const input = createReadStream(file, { encoding: "utf8" });
@@ -2048,6 +2393,12 @@ async function* readJsonLines<T>(
     lineNumber += 1;
     const line = rawLine.trim();
     if (!line) {
+      continue;
+    }
+    if (
+      requiredMarkers &&
+      !requiredMarkers.some((marker) => line.includes(marker))
+    ) {
       continue;
     }
     if (Buffer.byteLength(line, "utf8") > maxBytes) {
@@ -2066,13 +2417,13 @@ async function* readJsonLines<T>(
 
 async function readJsonDocument<T>(file: string): Promise<T> {
   const maxBytes = getMaxJsonRecordBytes();
-  const stats = await stat(file);
-  if (stats.size > maxBytes) {
+  const source = bunFile(file);
+  if (source.size > maxBytes) {
     throw new Error(
       `JSON document exceeds ${maxBytes} bytes. Increase ${MAX_JSON_RECORD_BYTES_ENV} to process it.`
     );
   }
-  return parseJsonTextWithLimit<T>(await readFile(file, "utf8"), file);
+  return parseJsonTextWithLimit<T>(await source.text(), file);
 }
 
 function parseJsonTextWithLimit<T>(content: string, label: string): T {
@@ -2233,20 +2584,69 @@ function asNonEmptyString(value?: string): string | undefined {
 
 function modelKey(
   providerId: UsageStatsCliProviderId,
-  modelName: string
+  modelName: string,
+  upstreamProviderId?: string
 ): string {
-  return `${providerId}\u0000${modelName}`;
+  return `${providerId}\u0000${upstreamProviderId ?? ""}\u0000${modelName}`;
 }
 
 function parseModelKey(key: string): {
   providerId: UsageStatsCliProviderId;
   modelName: string;
+  upstreamProviderId?: string;
 } {
-  const [providerId, ...modelParts] = key.split("\u0000");
+  const [providerId, upstreamProviderId, ...modelParts] = key.split("\u0000");
   return {
     providerId: providerId as UsageStatsCliProviderId,
     modelName: modelParts.join("\u0000"),
+    ...(upstreamProviderId ? { upstreamProviderId } : {}),
   };
+}
+
+function usageModelKey(modelName: string, upstreamProviderId?: string): string {
+  return `${upstreamProviderId ?? ""}\u0000${modelName}`;
+}
+
+function parseUsageModelKey(key: string): {
+  modelName: string;
+  upstreamProviderId?: string;
+} {
+  const [upstreamProviderId, ...modelParts] = key.split("\u0000");
+  return {
+    modelName: modelParts.join("\u0000"),
+    ...(upstreamProviderId ? { upstreamProviderId } : {}),
+  };
+}
+
+function normalizeUpstreamProviderId(value?: string): string | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.includes("minimax")) {
+    return "minimax-coding-plan";
+  }
+  if (
+    normalized.includes("zai") ||
+    normalized.includes("z.ai") ||
+    normalized.includes("z-code")
+  ) {
+    return "zai";
+  }
+  if (
+    normalized.includes("openai") ||
+    normalized.includes("chatgpt") ||
+    normalized === "codex"
+  ) {
+    return "openai";
+  }
+  if (normalized.includes("anthropic") || normalized === "claude") {
+    return "anthropic";
+  }
+  if (normalized.includes("google") || normalized === "gemini") {
+    return "google";
+  }
+  return normalized.replace(BUILTIN_PROVIDER_PREFIX_RE, "");
 }
 
 function computeLongestStreak(daily: UsageStatsCliDailyUsage[]): number {

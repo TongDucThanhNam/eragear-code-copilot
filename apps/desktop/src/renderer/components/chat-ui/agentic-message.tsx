@@ -2,6 +2,7 @@
 "use client";
 
 import type { TextUIPart, UIMessagePart } from "@eragear-code-copilot/shared";
+import { FileDiff } from "lucide-react";
 import { memo, useMemo, useRef } from "react";
 import {
   Message,
@@ -20,6 +21,7 @@ import {
 import { AttachmentList } from "@/components/chat-ui/agentic-parts/attachment-list";
 import { UserTextParts } from "@/components/chat-ui/agentic-parts/user-text-parts";
 import { useChatMessageById } from "@/store/chat-stream-store";
+import { useChatTurnDiffStore } from "@/store/chat-turn-diff-store";
 
 export interface AgenticMessageProps {
   chatId: string | null;
@@ -60,6 +62,13 @@ function useMessageContentRef(message: {
 export const AgenticMessage = memo(
   function AgenticMessage({ chatId, messageId }: AgenticMessageProps) {
     const message = useChatMessageById(chatId, messageId);
+    const turnDiff = useChatTurnDiffStore((state) => {
+      if (!chatId) {
+        return undefined;
+      }
+      const turnId = state.turnIdByMessageId[chatId]?.[messageId];
+      return turnId ? state.byChatId[chatId]?.[turnId] : undefined;
+    });
     if (!message) {
       return null;
     }
@@ -71,6 +80,13 @@ export const AgenticMessage = memo(
     );
     const showUserContent = (userParts?.textParts.length ?? 0) > 0;
     const userAttachments = userParts?.attachmentParts ?? [];
+    const diffTotals = turnDiff?.files.reduce(
+      (totals, file) => ({
+        additions: totals.additions + file.additions,
+        deletions: totals.deletions + file.deletions,
+      }),
+      { additions: 0, deletions: 0 }
+    );
 
     // Use content ref for memo comparison - changes only when parts actually change
     const _contentRef = useMessageContentRef(message);
@@ -93,6 +109,20 @@ export const AgenticMessage = memo(
               items={userAttachments}
               variant="grid"
             />
+          ) : null}
+          {message.role === "user" && turnDiff ? (
+            <div className="mt-2 flex justify-end">
+              <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-2 py-1 font-medium text-muted-foreground text-xs">
+                <FileDiff className="size-3.5" />
+                {turnDiff.files.length} files
+                <span className="text-emerald-600">
+                  +{diffTotals?.additions ?? 0}
+                </span>
+                <span className="text-red-600">
+                  −{diffTotals?.deletions ?? 0}
+                </span>
+              </span>
+            </div>
           ) : null}
           <div className="mt-2 flex justify-end opacity-0 transition group-hover:opacity-100">
             <MessageActions>

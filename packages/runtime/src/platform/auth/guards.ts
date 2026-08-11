@@ -347,13 +347,21 @@ async function getSessionFromRequestWithAuth(
     return null;
   }
   const headers = normalizeHeaders(req.headers);
-  const session = (await authService.api.getSession({ headers })) as
+  let session:
     | {
         user?: SessionUser;
         session?: unknown;
       }
     | undefined
     | null;
+  try {
+    session = (await authService.api.getSession({ headers })) as typeof session;
+  } catch (error) {
+    if (isUnauthorizedAuthApiError(error)) {
+      return null;
+    }
+    throw error;
+  }
   if (!session) {
     return null;
   }
@@ -366,6 +374,14 @@ async function getSessionFromRequestWithAuth(
     username: sessionData.user.username,
   });
   return { user: sessionData.user, session: sessionData.session };
+}
+
+function isUnauthorizedAuthApiError(error: unknown): boolean {
+  if (!(error && typeof error === "object")) {
+    return false;
+  }
+  const candidate = error as { status?: unknown; statusCode?: unknown };
+  return candidate.status === "UNAUTHORIZED" || candidate.statusCode === 401;
 }
 
 async function getAuthContextFromApiKeyWithAuth(

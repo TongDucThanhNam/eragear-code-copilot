@@ -38,7 +38,7 @@ describe("SessionProjectContextResolverService", () => {
       })
     ).resolves.toEqual({
       projectId: "project-1",
-      projectRoot: "/repo/project-1",
+      projectRoot: path.resolve("/repo/project-1"),
     });
   });
 

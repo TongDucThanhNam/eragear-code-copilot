@@ -7,6 +7,7 @@ import {
 
 function createAuthServiceStub(input?: {
   getSession?: () => unknown;
+  getSessionError?: unknown;
   verifyApiKey?: () => unknown;
 }) {
   let getSessionCalls = 0;
@@ -15,6 +16,9 @@ function createAuthServiceStub(input?: {
     api: {
       getSession() {
         getSessionCalls += 1;
+        if (input && "getSessionError" in input) {
+          return Promise.reject(input.getSessionError);
+        }
         return Promise.resolve(input?.getSession?.() ?? null);
       },
       verifyApiKey() {
@@ -95,6 +99,27 @@ describe("auth guards", () => {
       ENV.authApiKeyRateLimitMaxRequests = originalMaxRequests;
       resetAuthResolutionRateLimitForTests();
     }
+  });
+
+  test("treats a cross-realm unauthorized session error as invalid credentials", async () => {
+    resetAuthResolutionRateLimitForTests();
+    const authStub = createAuthServiceStub({
+      getSessionError: {
+        name: "APIError",
+        status: "UNAUTHORIZED",
+        statusCode: 401,
+      },
+      verifyApiKey: () => ({ valid: false }),
+    });
+    const resolver = createAuthContextResolver(authStub.service);
+
+    const result = await resolver({
+      headers: new Headers({ "x-api-key": "eg_stale_key" }),
+    });
+
+    expect(result).toBeNull();
+    expect(authStub.getSessionCalls()).toBe(1);
+    expect(authStub.verifyApiKeyCalls()).toBe(1);
   });
 
   test("rate-limits repeated auth resolution attempts for same session token", async () => {

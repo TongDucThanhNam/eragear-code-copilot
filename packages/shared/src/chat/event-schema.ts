@@ -182,8 +182,10 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
     status: z.enum([
       "draft",
       "planning",
+      "awaiting_approval",
       "queued",
       "running",
+      "waiting_capacity",
       "paused",
       "needs_user",
       "completing",
@@ -210,6 +212,7 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
             "ready",
             "queued",
             "running",
+            "waiting_capacity",
             "reviewing",
             "integrating",
             "completed",
@@ -226,6 +229,7 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
                 status: z.enum([
                   "starting",
                   "running",
+                  "waiting_capacity",
                   "terminal",
                   "interrupted",
                 ]),
@@ -257,7 +261,84 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
         })
         .strict()
     ),
+    priority: z.enum(["urgent", "high", "normal", "low"]),
+    manager: z
+      .object({
+        agentId: z.string(),
+        chatId: z.string(),
+        status: z.enum([
+          "creating",
+          "running",
+          "stopped",
+          "waiting_capacity",
+          "failed",
+        ]),
+        exactResumeRequired: z.literal(true),
+      })
+      .strict()
+      .optional(),
+    plan: z
+      .object({
+        version: z.number().int().min(1),
+        hash: z.string().regex(/^[a-f0-9]{64}$/),
+        summary: z.string(),
+        approvedAt: z.string().optional(),
+        envelope: z
+          .object({
+            goal: z.string(),
+            fileScopes: z.array(z.string()),
+            verificationCommands: z.array(z.string()),
+            successCriteria: z.array(z.string()),
+            permissionScopes: z.array(z.string()),
+            destructiveActions: z.array(z.string()),
+            delivery: z
+              .object({
+                createCommit: z.literal(true),
+                targetBranch: z.string(),
+                targetHead: z.string(),
+                allowDefaultBranch: z.boolean(),
+              })
+              .strict(),
+          })
+          .strict(),
+      })
+      .strict()
+      .optional(),
+    capacityWaits: z.array(
+      z
+        .object({
+          waitId: z.string(),
+          owner: z.enum(["manager", "task"]),
+          taskId: z.string().optional(),
+          attemptId: z.string().optional(),
+          agentId: z.string(),
+          kind: z.enum([
+            "quota_exhausted",
+            "transient_rate_limit",
+            "auth_required",
+            "transport",
+            "session_fatal",
+            "unknown",
+          ]),
+          retryAt: z.string(),
+          resetAt: z.string().optional(),
+        })
+        .strict()
+    ),
+    decisions: z.array(
+      z
+        .object({
+          decisionId: z.string(),
+          kind: z.string(),
+          status: z.enum(["open", "answered", "cancelled"]),
+          prompt: z.string(),
+          createdAt: z.string(),
+          answeredAt: z.string().optional(),
+        })
+        .strict()
+    ),
     finalVerification: z.array(SUPERVISOR_RUN_VERIFICATION_SCHEMA),
+    finalCommitSha: z.string().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -437,6 +518,16 @@ const SUBAGENT_INVOCATION_SCHEMA = z
   })
   .passthrough();
 
+const TURN_DIFF_FILE_SCHEMA = z
+  .object({
+    path: z.string().min(1),
+    oldPath: z.string().min(1).optional(),
+    kind: z.enum(["added", "modified", "deleted", "renamed", "copied"]),
+    additions: z.number().int().nonnegative(),
+    deletions: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
   z.object({ type: z.literal("connected") }).passthrough(),
   z
@@ -492,6 +583,21 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .object({
       type: z.literal("file_modified"),
       path: z.string(),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.literal("session_reverted"),
+      turnCount: z.number().int().nonnegative(),
+      replayedMessages: z.number().int().nonnegative(),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.literal("prompt_turn_diff_ready"),
+      turnId: z.string().min(1),
+      turnCount: z.number().int().nonnegative(),
+      files: z.array(TURN_DIFF_FILE_SCHEMA),
     })
     .passthrough(),
   z
@@ -592,6 +698,8 @@ const BROADCAST_EVENT_TYPES = [
   "ui_message_part",
   "ui_message_part_removed",
   "file_modified",
+  "session_reverted",
+  "prompt_turn_diff_ready",
   "available_commands_update",
   "config_options_update",
   "session_info_update",

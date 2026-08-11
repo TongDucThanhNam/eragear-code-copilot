@@ -120,18 +120,27 @@ interface BotScheduledDecision {
 }
 
 interface BotSupervisorOrchestrator {
-  start(input: {
+  createDraft?(input: {
+    userId: string;
+    projectId: string;
+    projectRoot: string;
+    intent: string;
+    constraints?: string[];
+    priority?: "urgent" | "high" | "normal" | "low";
+    agentAllowlist?: string[];
+    scheduleId?: string;
+  }): Promise<{ runId: string; status: string }>;
+  /** One-version compatibility for older injected test/automation adapters. */
+  start?(input: {
     userId: string;
     projectId?: string;
     projectRoot: string;
-    originatingChatId?: string;
     originalIntent: string;
     constraints?: string[];
-    limits?: { maxConcurrency?: number };
     eligibleAgentIds?: string[];
-    workerModelId?: string;
     providerId?: string;
     scheduleId?: string;
+    workerModelId?: string;
   }): Promise<{ runId: string; status: string }>;
   get(
     runId: string,
@@ -964,6 +973,7 @@ export class BotsService {
     }
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Scheduled Goal dispatch keeps provider telemetry, dedupe, and fail-closed bot state in one transition.
   private async executeScheduledSupervisorRun(
     userId: string,
     bot: BotDefinition,
@@ -1003,25 +1013,36 @@ export class BotsService {
         if (!project) {
           throw new Error("Bound project is unavailable.");
         }
-        supervisorRun = await this.supervisorOrchestrator.start({
-          userId,
-          projectId: bot.projectId,
-          projectRoot: project.path,
-          ...(bot.execution.chatId
-            ? { originatingChatId: bot.execution.chatId }
-            : {}),
-          originalIntent: prompt,
-          constraints: [
-            `Stable scheduled objective: ${bot.objective}`,
-            `All workers must use provider ${bot.providerId}.`,
-            "Preserve ACP permissions, sandbox checks, isolated worktrees, and integration gates.",
-          ],
-          limits: { maxConcurrency: 1 },
-          eligibleAgentIds: [bot.agentId],
-          ...(bot.modelId ? { workerModelId: bot.modelId } : {}),
-          providerId: bot.providerId,
-          scheduleId: bot.id,
-        });
+        const constraints = [
+          `Stable scheduled objective: ${bot.objective}`,
+          "Preserve ACP permissions, sandbox checks, isolated worktrees, and integration gates.",
+        ];
+        if (this.supervisorOrchestrator.createDraft) {
+          supervisorRun = await this.supervisorOrchestrator.createDraft({
+            userId,
+            projectId: bot.projectId,
+            projectRoot: project.path,
+            intent: prompt,
+            constraints,
+            priority: "normal",
+            agentAllowlist: [bot.agentId],
+            scheduleId: bot.id,
+          });
+        } else if (this.supervisorOrchestrator.start) {
+          supervisorRun = await this.supervisorOrchestrator.start({
+            userId,
+            projectId: bot.projectId,
+            projectRoot: project.path,
+            originalIntent: prompt,
+            constraints,
+            eligibleAgentIds: [bot.agentId],
+            providerId: bot.providerId,
+            scheduleId: bot.id,
+            ...(bot.modelId ? { workerModelId: bot.modelId } : {}),
+          });
+        } else {
+          throw new Error("Supervisor Goal API is unavailable.");
+        }
       }
       if (isTerminalSupervisorStatus(supervisorRun.status)) {
         await this.admission?.release({

@@ -36,6 +36,12 @@ import {
   parseMcpCommand,
   resolveMcpCommandServer,
 } from "@/components/chat-ui/mcp-command";
+import { NewChatDraft } from "@/components/chat-ui/new-chat-draft";
+import {
+  readLastDraftAgentId,
+  rememberLastDraftAgentId,
+  resolveDraftAgentId,
+} from "@/components/chat-ui/new-chat-draft-preference";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import {
   PROJECT_INDEX_COMMAND_NAME,
@@ -78,6 +84,7 @@ import {
 
 interface ChatInterfaceProps {
   initialChatId?: string | null;
+  initialDraftProjectId?: string | null;
   onChatIdChange?: (chatId: string | null) => void;
 }
 
@@ -204,6 +211,7 @@ function SubagentStatusStrip({
 
 export function ChatInterface({
   initialChatId,
+  initialDraftProjectId,
   onChatIdChange,
 }: ChatInterfaceProps) {
   const rightSidebar = useRightSidebarControls();
@@ -239,11 +247,20 @@ export function ChatInterface({
     () => agentsData?.agents ?? [],
     [agentsData?.agents]
   );
+  const [draftAgentId, setDraftAgentId] = useState<string | null>(null);
   const projects = useProjectStore((state) => state.projects);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
   const activeProject = useMemo(
     () => projects.find((p) => p.id === activeProjectId),
     [activeProjectId, projects]
+  );
+  const draftProject = useMemo(
+    () =>
+      initialDraftProjectId
+        ? (projects.find((project) => project.id === initialDraftProjectId) ??
+          null)
+        : null,
+    [initialDraftProjectId, projects]
   );
   const projectLookup = useMemo(() => {
     return projects.reduce<Record<string, string>>((acc, project) => {
@@ -271,6 +288,7 @@ export function ChatInterface({
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const [pendingLocalAdeCommand, setPendingLocalAdeCommand] = useState<{
     chatId: string;
+    source: "local-ade" | "new-chat";
     text: string;
   } | null>(null);
   const [stagedSupervisosPrompt, setStagedSupervisosPrompt] = useState<
@@ -371,6 +389,26 @@ export function ChatInterface({
   const createSessionMutation = trpc.createSession.useMutation();
   const forkSessionMutation = trpc.forkSession.useMutation();
   const messageCount = useChatMessageCount(chatId);
+  useEffect(() => {
+    if (agentModels.length === 0) {
+      setDraftAgentId(null);
+      return;
+    }
+    setDraftAgentId((current) =>
+      resolveDraftAgentId({
+        activeAgentId,
+        agentIds: agentModels.map((agent) => agent.id),
+        cachedAgentId: initialDraftProjectId
+          ? readLastDraftAgentId()
+          : (current ?? readLastDraftAgentId()),
+      })
+    );
+  }, [activeAgentId, agentModels, initialDraftProjectId]);
+
+  const handleDraftAgentChange = useCallback((agentId: string) => {
+    setDraftAgentId(agentId);
+    rememberLastDraftAgentId(agentId);
+  }, []);
   const selectedSession = useMemo(() => {
     if (!chatId) {
       return undefined;
@@ -452,8 +490,8 @@ export function ChatInterface({
   ]);
 
   const agentDisplay = useMemo(() => {
-    const selectedAgent = agentModels.find(
-      (agent) => agent.id === activeAgentId
+    const selectedAgent = agentModels.find((agent) =>
+      chatId ? agent.id === activeAgentId : agent.id === draftAgentId
     );
     const sessionLabel = sessionAgentInfo?.title ?? sessionAgentInfo?.name;
 
@@ -484,7 +522,14 @@ export function ChatInterface({
       name: "No Agent",
       source: "fallback" as const,
     };
-  }, [activeAgentId, agentModels, sessionAgentInfo, selectedSession, chatId]);
+  }, [
+    activeAgentId,
+    agentModels,
+    sessionAgentInfo,
+    selectedSession,
+    chatId,
+    draftAgentId,
+  ]);
   const headerChatTitle = useMemo(() => {
     if ((selectedSession as any)?.name) {
       return (selectedSession as any).name as string;
@@ -504,8 +549,8 @@ export function ChatInterface({
         return sessionProject;
       }
     }
-    return activeProject ?? null;
-  }, [activeProject, projects, selectedSession]);
+    return draftProject ?? activeProject ?? null;
+  }, [activeProject, draftProject, projects, selectedSession]);
   const headerProjectName = headerProject?.name ?? null;
   const headerProjectPath = headerProject?.path ?? null;
 
@@ -782,6 +827,7 @@ export function ChatInterface({
     if (
       didRestoreWorkspaceSessionRef.current ||
       chatId ||
+      initialDraftProjectId ||
       !hasResolvedSessionList
     ) {
       return;
@@ -800,6 +846,7 @@ export function ChatInterface({
     activeProjectId,
     chatId,
     hasResolvedSessionList,
+    initialDraftProjectId,
     lastActiveByProjectId,
     lastActiveChatId,
     selectSession,
@@ -1036,10 +1083,12 @@ export function ChatInterface({
 
   // Session initialization
   const initChat = useCallback(
-    async (agentId?: string): Promise<string | null> => {
+    async (agentId?: string, projectId?: string): Promise<string | null> => {
       const targetId = agentId || activeAgentId;
       const agent = agentModels.find((a: { id: string }) => a.id === targetId);
-      const currentProject = useProjectStore.getState().getActiveProject();
+      const currentProject = projectId
+        ? projects.find((project) => project.id === projectId)
+        : useProjectStore.getState().getActiveProject();
 
       if (!agent) {
         console.warn("No active agent selected");
@@ -1084,9 +1133,36 @@ export function ChatInterface({
       onChatIdChange,
       agentModels,
       activeAgentId,
+      projects,
       setConnStatus,
       setStatus,
     ]
+  );
+
+  const handleDraftSubmit = useCallback(
+    async (message: PromptInputMessage) => {
+      const text = message.text.trim();
+      if (!text) {
+        return;
+      }
+      if (!(draftProject && draftAgentId)) {
+        toast.error("Select a project and ACP agent before starting the chat.");
+        throw new Error("NEW_CHAT_CONTEXT_REQUIRED");
+      }
+      const createdChatId = await initChat(draftAgentId, draftProject.id);
+      if (!createdChatId) {
+        throw new Error("NEW_CHAT_SESSION_CREATE_FAILED");
+      }
+      setPendingLocalAdeCommand({
+        chatId: createdChatId,
+        source: "new-chat",
+        text,
+      });
+      toast.info(
+        "Session created. Sending your first prompt when ACP is ready."
+      );
+    },
+    [draftAgentId, draftProject, initChat]
   );
 
   const handleStopChat = useCallback(async () => {
@@ -1234,7 +1310,11 @@ export function ChatInterface({
       const activeChatId =
         targetChatId ?? localAdeSnapshot?.sessions.active[0]?.id ?? null;
       if (activeChatId) {
-        setPendingLocalAdeCommand({ chatId: activeChatId, text });
+        setPendingLocalAdeCommand({
+          chatId: activeChatId,
+          source: "local-ade",
+          text,
+        });
         selectSession(activeChatId);
         toast.info("Command queued for active chat.");
         return;
@@ -1244,7 +1324,11 @@ export function ChatInterface({
       if (!createdChatId) {
         return;
       }
-      setPendingLocalAdeCommand({ chatId: createdChatId, text });
+      setPendingLocalAdeCommand({
+        chatId: createdChatId,
+        source: "local-ade",
+        text,
+      });
       toast.info("Command queued for new session.");
     },
     [initChat, localAdeSnapshot?.sessions.active, selectSession]
@@ -1561,14 +1645,24 @@ export function ChatInterface({
       mentions: [],
     })
       .then(() => {
-        toast.success("Local ADE command submitted.");
+        toast.success(
+          pending.source === "new-chat"
+            ? "First prompt submitted."
+            : "Local ADE command submitted."
+        );
       })
       .catch((error) => {
-        console.error("Local ADE command submit failed", error);
+        console.error("Queued prompt submit failed", error);
+        if (pending.source === "new-chat") {
+          setStagedSupervisosPrompt({
+            autoSubmit: false,
+            chatId: pending.chatId,
+            id: `new-chat-recovery-${Date.now()}`,
+            text: pending.text,
+          });
+        }
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "Local ADE command submit failed"
+          error instanceof Error ? error.message : "Queued prompt submit failed"
         );
       });
   }, [
@@ -1669,6 +1763,48 @@ export function ChatInterface({
     );
   }
 
+  if (!chatId && initialDraftProjectId) {
+    if (!draftProject) {
+      return (
+        <div className="flex size-full flex-col items-center justify-center gap-2 p-8 text-center">
+          <p className="font-medium text-sm">Project is not available</p>
+          <p className="max-w-sm text-muted-foreground text-sm">
+            Select the project again from the sidebar to start a new chat.
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="relative flex size-full flex-col overflow-hidden">
+        <ChatHeader
+          agentDisplay={agentDisplay}
+          chatId={null}
+          chatTitle="New Task"
+          connStatus="idle"
+          isSupervisosOpen={false}
+          onStopChat={handleStopChat}
+          projectId={draftProject.id}
+          projectName={draftProject.name}
+          projectPath={draftProject.path}
+        />
+        <NewChatDraft
+          agents={agentModels}
+          isCreatingSession={createSessionMutation.isPending}
+          onAgentChange={handleDraftAgentChange}
+          onSubmit={handleDraftSubmit}
+          project={draftProject}
+          selectedAgentId={draftAgentId}
+        />
+        <QuickSwitchDialog
+          onOpenChange={setIsQuickSwitchOpen}
+          onSelect={selectSession}
+          open={isQuickSwitchOpen}
+          sessions={quickSwitchSessions}
+        />
+      </div>
+    );
+  }
+
   // Empty state
   if (!chatId) {
     return (
@@ -1702,6 +1838,7 @@ export function ChatInterface({
     <div className="relative flex size-full flex-col overflow-hidden">
       <ChatHeader
         agentDisplay={agentDisplay}
+        chatId={chatId}
         chatTitle={headerChatTitle}
         connStatus={displayConnStatus}
         isForking={forkSessionMutation.isPending}
@@ -1713,6 +1850,7 @@ export function ChatInterface({
         onStopChat={handleStopChat}
         onToggleSidePanel={handleToggleSidePanel}
         onToggleSupervisos={handleToggleSupervisos}
+        projectId={headerProject?.id ?? null}
         projectName={headerProjectName}
         projectPath={headerProjectPath}
       />

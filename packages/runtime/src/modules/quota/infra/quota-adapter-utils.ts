@@ -1,10 +1,4 @@
-import type { AgentConfig } from "#runtime/shared/types/agent.types";
-
 export type FetchLike = typeof fetch;
-
-export function hasEnvValue(keys: readonly string[]): boolean {
-  return keys.some((key) => getEnvValue(key) !== null);
-}
 
 export function getEnvValue(key: string): string | null {
   const value = process.env[key];
@@ -13,34 +7,6 @@ export function getEnvValue(key: string): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-export function agentsMatchProvider(
-  agents: readonly AgentConfig[],
-  needles: readonly string[]
-): boolean {
-  const normalizedNeedles = needles
-    .map((needle) => normalizeForMatch(needle))
-    .filter((needle) => needle.length > 0);
-  if (normalizedNeedles.length === 0) {
-    return false;
-  }
-
-  return agents.some((agent) => {
-    const values = [
-      agent.name,
-      agent.type,
-      agent.command,
-      ...(agent.args ?? []),
-      ...Object.keys(agent.env ?? {}),
-    ];
-    return values.some((value) => {
-      const normalizedValue = normalizeForMatch(value);
-      return normalizedNeedles.some((needle) =>
-        normalizedValue.includes(needle)
-      );
-    });
-  });
 }
 
 export async function fetchJsonWithTimeout(
@@ -179,6 +145,20 @@ export function parseResetAfterSeconds(
   return new Date(nowMs + seconds * 1000).toISOString();
 }
 
+export function deriveWindowStartedAt(
+  resetAt: string | undefined,
+  durationMs: number | undefined
+): string | undefined {
+  if (!(resetAt && durationMs && durationMs > 0)) {
+    return undefined;
+  }
+  const resetAtMs = Date.parse(resetAt);
+  if (!Number.isFinite(resetAtMs)) {
+    return undefined;
+  }
+  return new Date(resetAtMs - durationMs).toISOString();
+}
+
 export function decodeJwtPayload(
   token: string
 ): Record<string, unknown> | null {
@@ -199,8 +179,4 @@ export function decodeJwtPayload(
   } catch {
     return null;
   }
-}
-
-function normalizeForMatch(value: string): string {
-  return value.trim().toLowerCase();
 }

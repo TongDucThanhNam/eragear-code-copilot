@@ -89,6 +89,8 @@ describe("initializeUsageStatsEvents", () => {
           providerId: "zai",
           providerDisplayName: "Z.ai Coding Plan",
           status: "ready",
+          fetchedAt: "2026-06-12T12:00:00.000Z",
+          windows: [],
         },
       ],
     ]);

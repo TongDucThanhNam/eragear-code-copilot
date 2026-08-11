@@ -26,6 +26,9 @@ export interface CreateRuntimeSessionInput {
   proc: ChatSession["proc"];
   projectId?: string;
   projectRoot: string;
+  envMode?: "local" | "worktree";
+  worktreePath?: string;
+  worktreeBranch?: string;
   sessionIdToLoad?: string;
   importExternalHistoryOnLoad?: boolean;
   plan?: ChatSession["plan"];
@@ -86,6 +89,9 @@ export class SessionRuntimeBootstrapService {
       conn: null as unknown as ChatSession["conn"],
       projectId: input.projectId,
       projectRoot: input.projectRoot,
+      envMode: input.envMode,
+      worktreePath: input.worktreePath,
+      worktreeBranch: input.worktreeBranch,
       sessionId: input.sessionIdToLoad,
       plan: input.plan,
       supervisor: input.supervisor,

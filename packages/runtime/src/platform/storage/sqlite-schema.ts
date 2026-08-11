@@ -54,6 +54,7 @@ export const agents = sqliteTable(
     command: text("command").notNull(),
     argsJson: text("args_json"),
     resumeCommandTemplate: text("resume_command_template"),
+    supervisorProfileJson: text("supervisor_profile_json"),
     envJson: text("env_json"),
     projectId: text("project_id").references(() => projects.id, {
       onDelete: "set null",
@@ -89,6 +90,9 @@ export const sessions = sqliteTable(
     argsJson: text("args_json"),
     envJson: text("env_json"),
     cwd: text("cwd"),
+    envMode: text("env_mode"),
+    worktreePath: text("worktree_path"),
+    worktreeBranch: text("worktree_branch"),
     loadSessionSupported: integer("load_session_supported"),
     useUnstableResume: integer("use_unstable_resume"),
     supportsModelSwitching: integer("supports_model_switching"),
@@ -214,6 +218,7 @@ export const usageStatsRecords = sqliteTable(
     status: text("status"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
+    quotaWindowsJson: text("quota_windows_json"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => ({

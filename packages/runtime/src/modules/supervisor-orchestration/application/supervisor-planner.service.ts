@@ -134,13 +134,14 @@ export class SupervisorPlannerService {
 
     try {
       SupervisorRunStateSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         runId: parsedContext.runId,
         revision: 0,
         userId: "planner-validation",
         projectRoot: parsedContext.projectRoot,
         originalIntent: parsedContext.originalIntent,
         constraints: parsedContext.constraints,
+        priority: "normal",
         status: "planning",
         baseSnapshot: {
           dirtyPaths: [],
@@ -152,6 +153,8 @@ export class SupervisorPlannerService {
         gates: [],
         audit: [],
         processedEventIds: [],
+        capacityWaits: [],
+        decisions: [],
         plannerReplanCount: 0,
         finalVerification: [],
         createdAt: "1970-01-01T00:00:00.000Z",

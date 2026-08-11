@@ -169,6 +169,7 @@ export function createPermissionHandler(
         toolName,
         title,
         turnId: eventTurnId,
+        meta: request._meta ?? toolCall._meta,
       });
       permissionTimeoutHandle = setTimeout(() => {
         expirePendingPermissionRequest({
@@ -283,6 +284,7 @@ function registerPendingPermission(params: {
   toolName: string;
   title: string;
   turnId?: string;
+  meta?: unknown;
 }): PendingPermissionRequest {
   const {
     session,
@@ -293,6 +295,7 @@ function registerPendingPermission(params: {
     toolName,
     title,
     turnId,
+    meta,
   } = params;
   const pending: PendingPermissionRequest = {
     resolve: (decision: unknown) => {
@@ -303,7 +306,7 @@ function registerPendingPermission(params: {
     toolName,
     title,
     input: toolCall.rawInput,
-    meta: toolCall._meta,
+    meta,
     turnId,
   };
   session.pendingPermissions.set(requestId, pending);

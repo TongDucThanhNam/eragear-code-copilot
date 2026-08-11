@@ -603,7 +603,7 @@ test("brokers project-local streamable HTTP MCP calls through header env policy 
       });
     } finally {
       if (previous === undefined) {
-        process.env.ERAGEAR_TEST_MCP_AUTH = undefined;
+        Reflect.deleteProperty(process.env, "ERAGEAR_TEST_MCP_AUTH");
       } else {
         process.env.ERAGEAR_TEST_MCP_AUTH = previous;
       }
@@ -627,7 +627,7 @@ test("brokers project-local SSE MCP calls through header env policy and redacted
       });
     } finally {
       if (previous === undefined) {
-        process.env.ERAGEAR_TEST_MCP_AUTH = undefined;
+        Reflect.deleteProperty(process.env, "ERAGEAR_TEST_MCP_AUTH");
       } else {
         process.env.ERAGEAR_TEST_MCP_AUTH = previous;
       }
@@ -712,7 +712,7 @@ test("brokers project-local remote MCP header env without exposing secret values
       expect(JSON.stringify(resolved)).not.toContain("Bearer resolved-token");
     } finally {
       if (previous === undefined) {
-        process.env.ERAGEAR_TEST_MCP_AUTH = undefined;
+        Reflect.deleteProperty(process.env, "ERAGEAR_TEST_MCP_AUTH");
       } else {
         process.env.ERAGEAR_TEST_MCP_AUTH = previous;
       }
@@ -723,7 +723,7 @@ test("brokers project-local remote MCP header env without exposing secret values
 test("keeps project-local remote MCP transports out of ACP sessions when broker header env is missing", async () => {
   await withProjectRoot(async (rootPath) => {
     const previous = process.env.ERAGEAR_TEST_MCP_AUTH;
-    process.env.ERAGEAR_TEST_MCP_AUTH = undefined;
+    Reflect.deleteProperty(process.env, "ERAGEAR_TEST_MCP_AUTH");
     const server = {
       id: "remote-http",
       name: "Remote HTTP MCP",

@@ -26,6 +26,15 @@ describe("PromptLifecycleNotifier", () => {
       logger: { warn: () => undefined } as never,
     });
 
+    await promptLifecycle.beforeTurnStart?.({
+      userId: "user-1",
+      projectRoot: "/repo",
+      projectId: "project-1",
+      chatId: "chat-1",
+      agentSessionId: "agent-session-1",
+      turnId: "turn-1",
+      source: "client",
+    });
     await promptLifecycle.afterMessageSend({
       userId: "user-1",
       projectRoot: "/repo",
@@ -57,6 +66,16 @@ describe("PromptLifecycleNotifier", () => {
     });
 
     expect(events).toEqual([
+      {
+        type: "prompt_turn_started",
+        userId: "user-1",
+        projectRoot: "/repo",
+        projectId: "project-1",
+        chatId: "chat-1",
+        agentSessionId: "agent-session-1",
+        turnId: "turn-1",
+        source: "client",
+      },
       {
         type: "prompt_message_sent",
         userId: "user-1",

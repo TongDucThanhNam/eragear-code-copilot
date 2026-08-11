@@ -49,7 +49,19 @@ export interface WorkerSessionManagerPort {
     taskId: string;
     attemptId: string;
   }): Promise<void>;
+  release(input: {
+    runId: string;
+    userId: string;
+    taskId: string;
+    attemptId: string;
+  }): Promise<void>;
   resume(input: {
+    runId: string;
+    userId: string;
+    taskId: string;
+    attemptId: string;
+  }): Promise<void>;
+  resumePendingCapacity(input: {
     runId: string;
     userId: string;
     taskId: string;

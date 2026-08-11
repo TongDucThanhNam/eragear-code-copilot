@@ -214,6 +214,9 @@ export class SessionQueries {
         plan: session.plan ?? null,
         supervisor: normalizeSupervisorForState(session.supervisor),
         supervisorCapable: this.supervisorCapable(),
+        envMode: session.envMode ?? "local",
+        worktreePath: session.worktreePath ?? null,
+        worktreeBranch: session.worktreeBranch ?? null,
       };
     }
 
@@ -234,6 +237,9 @@ export class SessionQueries {
         plan: stored.plan ?? null,
         supervisor: normalizeSupervisorForState(stored.supervisor),
         supervisorCapable: this.supervisorCapable(),
+        envMode: stored.envMode ?? "local",
+        worktreePath: stored.worktreePath ?? null,
+        worktreeBranch: stored.worktreeBranch ?? null,
       };
     }
 
@@ -511,6 +517,11 @@ export class SessionQueries {
           sessionId: activeSession?.sessionId ?? session.sessionId,
           projectId: derivedProjectId ?? session.projectId ?? null,
           projectRoot: session.projectRoot,
+          envMode: activeSession?.envMode ?? session.envMode ?? "local",
+          worktreePath:
+            activeSession?.worktreePath ?? session.worktreePath ?? null,
+          worktreeBranch:
+            activeSession?.worktreeBranch ?? session.worktreeBranch ?? null,
           modeId: session.modeId,
           status: session.status,
           isActive,

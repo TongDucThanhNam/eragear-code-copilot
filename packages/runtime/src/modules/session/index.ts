@@ -9,10 +9,13 @@ export type {
   ListSubagentInvocationsInput,
   LoadAgentSessionInput,
   SessionChatIdInput,
+  SessionEnvironmentMode,
   SessionEventsInput,
   SessionListPageInput,
   SessionMessageByIdInput,
   SessionMessagesPageInput,
+  SwitchSessionEnvironmentInput,
+  SyncSessionWorktreeBranchInput,
   UpdateSessionMetaInput,
 } from "./application/contracts/session.contract";
 export {
@@ -24,10 +27,13 @@ export {
   ListSubagentInvocationsInputSchema,
   LoadAgentSessionInputSchema,
   SessionChatIdInputSchema,
+  SessionEnvironmentModeSchema,
   SessionEventsInputSchema,
   SessionListPageInputSchema,
   SessionMessageByIdInputSchema,
   SessionMessagesPageInputSchema,
+  SwitchSessionEnvironmentInputSchema,
+  SyncSessionWorktreeBranchInputSchema,
   UpdateSessionMetaInputSchema,
 } from "./application/contracts/session.contract";
 export { CreateSessionService } from "./application/create-session.service";
@@ -65,7 +71,15 @@ export {
   SessionQueries,
 } from "./application/queries/session-queries";
 export { ReconcileSessionStatusService } from "./application/reconcile-session-status.service";
-export { ResumeSessionService } from "./application/resume-session.service";
+export {
+  ExactSessionResumeError,
+  type ResumeSessionMode,
+  ResumeSessionService,
+} from "./application/resume-session.service";
+export {
+  RollbackConversationService,
+  truncateMessagesToTurn,
+} from "./application/rollback-conversation.service";
 export { SessionAcpBootstrapService } from "./application/session-acp-bootstrap.service";
 export { SessionAgentResolverService } from "./application/session-agent-resolver.service";
 export {
@@ -97,6 +111,10 @@ export { SpawnSessionProcessService } from "./application/spawn-session-process.
 export { StopSessionService } from "./application/stop-session.service";
 export { SubagentService } from "./application/subagent.service";
 export { SubscribeSessionEventsService } from "./application/subscribe-session-events.service";
+export {
+  type SwitchSessionEnvironmentResult,
+  SwitchSessionEnvironmentService,
+} from "./application/switch-session-environment.service";
 export { UpdateSessionMetaService } from "./application/update-session-meta.service";
 export {
   SESSION_RUNTIME_CHAT_STATUS,

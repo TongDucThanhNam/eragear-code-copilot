@@ -20,6 +20,9 @@ type SessionMetadataUpdateKey =
   | "projectId"
   | "userId"
   | "projectRoot"
+  | "envMode"
+  | "worktreePath"
+  | "worktreeBranch"
   | "command"
   | "args"
   | "env"
@@ -56,6 +59,9 @@ const SESSION_METADATA_WRITERS: MetadataWriter = {
   projectId: (value) => ({ projectId: value ?? null }),
   userId: (value) => (typeof value === "string" ? { userId: value } : {}),
   projectRoot: (value) => (value ? { projectRoot: value } : {}),
+  envMode: (value) => ({ envMode: value ?? "local" }),
+  worktreePath: (value) => ({ worktreePath: value ?? null }),
+  worktreeBranch: (value) => ({ worktreeBranch: value ?? null }),
   command: (value) => ({ command: value ?? null }),
   args: (value) => ({ argsJson: toSqliteJson(value) }),
   env: (value) => ({ envJson: toSqliteJson(value) }),
@@ -127,6 +133,9 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
       sessionId: session.sessionId ?? null,
       projectId: session.projectId ?? null,
       projectRoot: session.projectRoot,
+      envMode: session.envMode ?? "local",
+      worktreePath: session.worktreePath ?? null,
+      worktreeBranch: session.worktreeBranch ?? null,
       command: session.command ?? null,
       argsJson: toSqliteJson(session.args),
       envJson: toSqliteJson(session.env),

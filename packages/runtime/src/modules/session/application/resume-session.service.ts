@@ -15,6 +15,19 @@ import type { SessionRuntimePort } from "./ports/session-runtime.port";
 const OP = "session.lifecycle.resume";
 const RESUME_FALLBACK_ERROR_CODE = "AGENT_SESSION_LOAD_FAILED";
 
+export type ResumeSessionMode = "allow_fallback" | "exact_only";
+
+export class ExactSessionResumeError extends Error {
+  readonly code = "EXACT_SESSION_RESUME_FAILED";
+  readonly chatId: string;
+
+  constructor(chatId: string, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ExactSessionResumeError";
+    this.chatId = chatId;
+  }
+}
+
 /**
  * ResumeSessionService
  *
@@ -60,7 +73,13 @@ export class ResumeSessionService {
    * }
    * ```
    */
-  async execute(userId: string, chatId: string) {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Exact-only and compatibility fallback resume branches intentionally share one session-state transition.
+  async execute(
+    userId: string,
+    chatId: string,
+    options: { mode?: ResumeSessionMode } = {}
+  ) {
+    const mode = options.mode ?? "allow_fallback";
     const stored = await this.sessionRepo.findById(chatId, userId);
     if (!stored) {
       throw new NotFoundError("Session not found in store", {
@@ -71,6 +90,15 @@ export class ResumeSessionService {
     }
     const existing = this.sessionRuntime.get(chatId);
     if (existing) {
+      if (
+        mode === "exact_only" &&
+        (!stored.sessionId || existing.sessionId !== stored.sessionId)
+      ) {
+        throw new ExactSessionResumeError(
+          chatId,
+          "Running ACP session does not match the persisted session id"
+        );
+      }
       return {
         ok: true,
         alreadyRunning: true,
@@ -88,10 +116,22 @@ export class ResumeSessionService {
 
     let res: Awaited<ReturnType<CreateSessionService["execute"]>>;
     if (!stored.sessionId) {
+      if (mode === "exact_only") {
+        throw new ExactSessionResumeError(
+          chatId,
+          "Exact resume requires a persisted ACP session id"
+        );
+      }
       res = await this.createSession.execute({
         userId,
         projectId: stored.projectId,
         projectRoot: stored.projectRoot,
+        ...(stored.envMode === "worktree"
+          ? { trustedProjectRoot: stored.projectRoot }
+          : {}),
+        envMode: stored.envMode ?? "local",
+        worktreePath: stored.worktreePath,
+        worktreeBranch: stored.worktreeBranch,
         command: stored.command,
         args: stored.args,
         env: stored.env,
@@ -106,6 +146,12 @@ export class ResumeSessionService {
         userId,
         projectId: stored.projectId,
         projectRoot: stored.projectRoot,
+        ...(stored.envMode === "worktree"
+          ? { trustedProjectRoot: stored.projectRoot }
+          : {}),
+        envMode: stored.envMode ?? "local",
+        worktreePath: stored.worktreePath,
+        worktreeBranch: stored.worktreeBranch,
         command: stored.command,
         args: stored.args,
         env: stored.env,
@@ -117,6 +163,13 @@ export class ResumeSessionService {
       if (!(isAppError(error) && error.code === RESUME_FALLBACK_ERROR_CODE)) {
         throw error;
       }
+      if (mode === "exact_only") {
+        throw new ExactSessionResumeError(
+          chatId,
+          "The persisted ACP session could not be resumed exactly",
+          { cause: error }
+        );
+      }
 
       // Agent session id may be stale/expired. Recover by starting a fresh ACP
       // session while preserving local chatId and persisted history.
@@ -124,6 +177,12 @@ export class ResumeSessionService {
         userId,
         projectId: stored.projectId,
         projectRoot: stored.projectRoot,
+        ...(stored.envMode === "worktree"
+          ? { trustedProjectRoot: stored.projectRoot }
+          : {}),
+        envMode: stored.envMode ?? "local",
+        worktreePath: stored.worktreePath,
+        worktreeBranch: stored.worktreeBranch,
         command: stored.command,
         args: stored.args,
         env: stored.env,

@@ -440,12 +440,21 @@ describe("SendMessageService", () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
     const messageSentEvents: unknown[] = [];
+    const ordering: string[] = [];
     const session = createChatSession({
-      prompt: async () => ({ stopReason: "end_turn" }),
+      prompt: () => {
+        ordering.push("prompt");
+        return Promise.resolve({ stopReason: "end_turn" });
+      },
     });
     session.projectId = "project-1";
     const runtime = createSessionRuntime("chat-1", session, events);
     const service = createService(repo, runtime, undefined, undefined, {
+      beforeTurnStart: (input) => {
+        ordering.push("turn-start");
+        messageSentEvents.push(input);
+        return Promise.resolve();
+      },
       afterMessageSend: (input) => {
         messageSentEvents.push(input);
         return Promise.resolve();
@@ -469,6 +478,7 @@ describe("SendMessageService", () => {
       turnId: result.turnId,
       source: "client",
     });
+    expect(ordering.slice(0, 2)).toEqual(["turn-start", "prompt"]);
   });
 
   test("sends enhanced prompt to ACP while storing original user message", async () => {

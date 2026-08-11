@@ -16,6 +16,10 @@
       "types": "./src/runtime/desktop-service.ts",
       "default": "./src/runtime/desktop-service.ts"
     },
+    "./runtime/daemon-service": {
+      "types": "./src/runtime/daemon-service.ts",
+      "default": "./src/runtime/daemon-service.ts"
+    },
     "./transport/trpc/router": {
       "types": "./src/transport/trpc/router.ts",
       "default": "./src/transport/trpc/router.ts"
@@ -42,6 +46,7 @@
     "smoke:dashboard-log-auth": "bun run ./scripts/smoke-dashboard-log-auth.ts",
     "smoke:standalone": "bun run compile && bun run ./scripts/smoke-standalone.ts",
     "smoke:supervisor-orchestration": "bun run ./scripts/smoke-supervisor-orchestration.ts",
+    "smoke:user-daemon": "bun run ./scripts/smoke-user-daemon.ts",
     "start": "bun run build && bun run dist/index.mjs",
     "start:dist": "bun run dist/index.mjs",
     "test:auth-dashboard": "bun test ./src/platform/auth/auth-dashboard.integration.test.ts ./src/transport/http/utils/response-headers.test.ts",

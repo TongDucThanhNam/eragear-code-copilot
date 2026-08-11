@@ -11,6 +11,7 @@ import {
   PersistSessionBootstrapService,
   ReconcileSessionStatusService,
   ResumeSessionService,
+  RollbackConversationService,
   SessionAcpBootstrapService,
   SessionAgentResolverService,
   SessionHistoryReplayService,
@@ -26,6 +27,7 @@ import {
   StopSessionService,
   SubagentService,
   SubscribeSessionEventsService,
+  SwitchSessionEnvironmentService,
   UpdateSessionMetaService,
 } from "#runtime/modules/session";
 import { SessionBindingFileRepository } from "#runtime/modules/session/di";
@@ -47,6 +49,7 @@ type SessionServiceDependencies = ServiceRegistrySlice<
   | "appConfigService"
   | "supervisorPolicy"
   | "clock"
+  | "gitWorkflowAdapter"
 >;
 
 interface SessionServiceRegistryOptions {
@@ -149,6 +152,20 @@ export function createSessionUseCases(
     deps.sessionRuntime,
     createSessionService
   );
+  const rollbackConversationService = new RollbackConversationService(
+    deps.sessionRepo,
+    stopSessionService,
+    createSessionService,
+    deps.sessionRuntime
+  );
+  const switchEnvironmentService = new SwitchSessionEnvironmentService(
+    deps.sessionRepo,
+    deps.projectRepo,
+    deps.gitWorkflowAdapter,
+    stopSessionService,
+    createSessionService,
+    deps.sessionRuntime
+  );
   const deleteSessionService = new DeleteSessionService(
     deps.sessionRepo,
     deps.sessionRuntime,
@@ -195,6 +212,8 @@ export function createSessionUseCases(
     loadAgentSession: loadAgentSessionService,
     stop: stopSessionService,
     resume: resumeSessionService,
+    switchEnvironment: switchEnvironmentService,
+    rollbackConversation: rollbackConversationService,
     delete: deleteSessionService,
     queries: sessionQueries,
     updateMeta: updateSessionMetaService,

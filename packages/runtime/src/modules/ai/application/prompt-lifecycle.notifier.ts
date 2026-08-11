@@ -8,6 +8,20 @@ export function createEventBusPromptLifecycleNotifier(params: {
 }): PromptLifecycleEvents {
   const { eventBus, logger } = params;
   return {
+    async beforeTurnStart(input) {
+      await eventBus.publish({
+        type: "prompt_turn_started",
+        userId: input.userId,
+        projectRoot: input.projectRoot,
+        source: input.source,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        chatId: input.chatId,
+        ...(input.agentSessionId
+          ? { agentSessionId: input.agentSessionId }
+          : {}),
+        turnId: input.turnId,
+      });
+    },
     async afterMessageSend(input) {
       await eventBus.publish({
         type: "prompt_message_sent",
@@ -69,6 +83,7 @@ export function createEventBusPromptLifecycleNotifier(params: {
 }
 
 export const noopPromptLifecycleNotifier: PromptLifecycleEvents = {
+  beforeTurnStart: () => Promise.resolve(),
   afterMessageSend: () => Promise.resolve(),
   requestSubagentInvocation: () => Promise.resolve(),
   afterTurnComplete: () => Promise.resolve(),

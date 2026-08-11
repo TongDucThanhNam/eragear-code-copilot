@@ -50,7 +50,15 @@ export function useSupervisorRuns(chatId: string) {
     onData: updateCachedRun,
   });
   const mutationOptions = { onSuccess: updateCachedRun };
-  const start = trpc.supervisorRuns.start.useMutation(mutationOptions);
+  const start = trpc.supervisorRuns.createDraft.useMutation(mutationOptions);
+  const approvePlan =
+    trpc.supervisorRuns.approvePlan.useMutation(mutationOptions);
+  const requestPlanChanges =
+    trpc.supervisorRuns.requestPlanChanges.useMutation(mutationOptions);
+  const answerDecision =
+    trpc.supervisorRuns.answerDecision.useMutation(mutationOptions);
+  const setPriority =
+    trpc.supervisorRuns.setPriority.useMutation(mutationOptions);
   const pause = trpc.supervisorRuns.pause.useMutation(mutationOptions);
   const resume = trpc.supervisorRuns.resume.useMutation(mutationOptions);
   const cancel = trpc.supervisorRuns.cancel.useMutation(mutationOptions);
@@ -67,6 +75,10 @@ export function useSupervisorRuns(chatId: string) {
     error: query.error?.message ?? null,
     isPending:
       start.isPending ||
+      approvePlan.isPending ||
+      requestPlanChanges.isPending ||
+      answerDecision.isPending ||
+      setPriority.isPending ||
       pause.isPending ||
       resume.isPending ||
       cancel.isPending ||
@@ -81,11 +93,48 @@ export function useSupervisorRuns(chatId: string) {
       }
       return await start.mutateAsync({
         projectId: activeProject.id,
-        projectRoot: activeProject.path,
-        originatingChatId: chatId,
-        originalIntent: intent,
+        intent,
+        constraints: [],
+        priority: "normal",
       });
     },
+    approvePlan: (run: SupervisorRunClientUpdate) => {
+      if (!run.plan) {
+        throw new Error("Run has no plan awaiting approval");
+      }
+      return approvePlan.mutateAsync({
+        runId: run.runId,
+        planVersion: run.plan.version,
+        planHash: run.plan.hash,
+        expectedRevision: run.revision,
+      });
+    },
+    requestPlanChanges: (
+      run: SupervisorRunClientUpdate,
+      requestedChanges: string
+    ) =>
+      requestPlanChanges.mutateAsync({
+        runId: run.runId,
+        requestedChanges,
+        expectedRevision: run.revision,
+      }),
+    answerDecision: (
+      runId: string,
+      decisionId: string,
+      answer: string,
+      expectedRevision: number
+    ) =>
+      answerDecision.mutateAsync({
+        runId,
+        decisionId,
+        answer,
+        expectedRevision,
+      }),
+    setPriority: (
+      runId: string,
+      priority: SupervisorRunClientUpdate["priority"],
+      expectedRevision: number
+    ) => setPriority.mutateAsync({ runId, priority, expectedRevision }),
     pause: (runId: string) => pause.mutateAsync({ runId }),
     resume: (runId: string) => resume.mutateAsync({ runId }),
     cancel: (runId: string) => cancel.mutateAsync({ runId }),

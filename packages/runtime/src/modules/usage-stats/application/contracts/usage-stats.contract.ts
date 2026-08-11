@@ -21,6 +21,26 @@ export type UsageStatsLifecycleRecordKind = Extract<
   "prompt_sent" | "turn_completed"
 >;
 
+export const UsageStatsQuotaWindowSnapshotSchema = z
+  .object({
+    id: z.string().min(1),
+    windowType: z.string().min(1).optional(),
+    label: z.string().min(1),
+    percentRemaining: z.number().min(0).max(100).optional(),
+    used: z.number().nonnegative().optional(),
+    total: z.number().nonnegative().optional(),
+    remaining: z.number().nonnegative().optional(),
+    unlimited: z.boolean().optional(),
+    startedAt: z.string().datetime().optional(),
+    resetAt: z.string().datetime().optional(),
+    durationMs: z.number().int().positive().optional(),
+    scope: z.string().min(1).optional(),
+  })
+  .strict();
+export type UsageStatsQuotaWindowSnapshot = z.infer<
+  typeof UsageStatsQuotaWindowSnapshotSchema
+>;
+
 export const UsageStatsRecordSchema = z
   .object({
     id: z.string().min(1),
@@ -36,6 +56,7 @@ export const UsageStatsRecordSchema = z
     status: z.string().min(1).optional(),
     inputTokens: z.number().int().nonnegative().optional(),
     outputTokens: z.number().int().nonnegative().optional(),
+    quotaWindows: z.array(UsageStatsQuotaWindowSnapshotSchema).optional(),
     createdAt: z.number().int().nonnegative(),
   })
   .strict();
@@ -94,6 +115,8 @@ export interface RecordQuotaRefreshInput {
   providerId: string;
   providerDisplayName: string;
   status: string;
+  fetchedAt: string;
+  windows: UsageStatsQuotaWindowSnapshot[];
 }
 
 export interface UsageStatsTotals {
@@ -143,6 +166,7 @@ export interface UsageStatsModelUsage {
   name: string;
   providerId: UsageStatsCliProviderId;
   providerDisplayName: string;
+  upstreamProviderId?: string;
   tokens: UsageStatsTokenTotals;
   cost: UsageStatsCostTotals;
   share: number;
@@ -152,6 +176,7 @@ export interface UsageStatsDailyModelUsage {
   name: string;
   providerId: UsageStatsCliProviderId;
   providerDisplayName: string;
+  upstreamProviderId?: string;
   tokens: UsageStatsTokenTotals;
   cost: UsageStatsCostTotals;
 }

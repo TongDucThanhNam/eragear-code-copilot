@@ -1,7 +1,6 @@
 "use client";
 
 import { ChevronRight, Folder, Loader2, Plus } from "lucide-react";
-import { Fragment } from "react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -48,15 +47,10 @@ interface ProjectRowProps {
   projectSessions: SessionItem[];
   agents: AgentOption[];
   isSessionBootstrapPending: boolean;
-  isCreatingSession: boolean;
-  pendingCreateSessionKey: string | null;
   discoverIsLoading: boolean;
   discoverContext: DiscoverContext | null;
   onSelectProject: (projectId: string) => void;
-  onCreateSession: (params: {
-    projectId: string;
-    agent: AgentOption;
-  }) => Promise<void>;
+  onCreateSession: (params: { projectId: string }) => Promise<void>;
   onOpenDiscoverDialog: (params: {
     projectId: string;
     projectName: string;
@@ -80,8 +74,6 @@ export function ProjectRow({
   projectSessions,
   agents,
   isSessionBootstrapPending,
-  isCreatingSession,
-  pendingCreateSessionKey,
   discoverIsLoading,
   discoverContext,
   onSelectProject,
@@ -116,7 +108,7 @@ export function ProjectRow({
                 <SidebarMenuAction
                   disabled={isSessionBootstrapPending}
                   showOnHover
-                  title="New Session"
+                  title="New Chat"
                 >
                   {isSessionBootstrapPending ? (
                     <Loader2 className="animate-spin" />
@@ -126,37 +118,15 @@ export function ProjectRow({
                 </SidebarMenuAction>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                {agents.map((agent) => {
-                  const requestKey = `${project.id}:${agent.id}`;
-                  const isPending =
-                    isCreatingSession && pendingCreateSessionKey === requestKey;
-                  const isLastAgent = agent.id === agents.at(-1)?.id;
-
-                  return (
-                    <Fragment key={agent.id}>
-                      <DropdownMenuItem
-                        disabled={isSessionBootstrapPending}
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          await onCreateSession({
-                            projectId: project.id,
-                            agent,
-                          });
-                        }}
-                      >
-                        {isPending ? (
-                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                        ) : null}
-                        <span>
-                          {isPending
-                            ? `Creating ${agent.name} session...`
-                            : `New: ${agent.name}`}
-                        </span>
-                      </DropdownMenuItem>
-                      {isLastAgent ? null : <DropdownMenuSeparator />}
-                    </Fragment>
-                  );
-                })}
+                <DropdownMenuItem
+                  disabled={isSessionBootstrapPending}
+                  onClick={async (event) => {
+                    event.stopPropagation();
+                    await onCreateSession({ projectId: project.id });
+                  }}
+                >
+                  New chat
+                </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
 

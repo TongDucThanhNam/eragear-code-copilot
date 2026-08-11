@@ -377,6 +377,23 @@ export type BroadcastEvent =
     }
   | { type: "file_modified"; path: string }
   | {
+      type: "session_reverted";
+      turnCount: number;
+      replayedMessages: number;
+    }
+  | {
+      type: "prompt_turn_diff_ready";
+      turnId: string;
+      turnCount: number;
+      files: Array<{
+        path: string;
+        oldPath?: string;
+        kind: "added" | "modified" | "deleted" | "renamed" | "copied";
+        additions: number;
+        deletions: number;
+      }>;
+    }
+  | {
       type: "current_mode_update";
       modeId: string;
       reason?: string;
@@ -443,6 +460,12 @@ export interface StoredSession {
   env?: Record<string, string>;
   /** Working directory for the agent */
   cwd?: string;
+  /** Git environment used by this chat session. */
+  envMode?: "local" | "worktree";
+  /** Persistent Git worktree path when one has been created for this session. */
+  worktreePath?: string;
+  /** Branch checked out in the session worktree. */
+  worktreeBranch?: string;
   /** Whether load session is supported */
   loadSessionSupported?: boolean;
   /** Whether to use unstable_resumeSession instead of loadSession */
@@ -509,6 +532,12 @@ export interface ChatSession {
   projectId?: string;
   /** Project root directory */
   projectRoot: string;
+  /** Git environment used by this live runtime. */
+  envMode?: "local" | "worktree";
+  /** Persistent Git worktree path for the chat. */
+  worktreePath?: string;
+  /** Branch checked out in the session worktree. */
+  worktreeBranch?: string;
   /** Active session ID from the agent */
   sessionId?: string;
   /** Whether load session is supported */

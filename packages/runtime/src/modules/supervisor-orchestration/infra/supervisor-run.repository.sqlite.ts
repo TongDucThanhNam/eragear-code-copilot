@@ -166,16 +166,17 @@ export class SupervisorRunSqliteRepository
 export function migrateSupervisorRunDocument(
   value: unknown
 ): SupervisorRunState {
+  let candidate = value;
   if (
-    typeof value === "object" &&
-    value !== null &&
-    "schemaVersion" in value &&
-    value.schemaVersion === 0
+    typeof candidate === "object" &&
+    candidate !== null &&
+    "schemaVersion" in candidate &&
+    candidate.schemaVersion === 0
   ) {
-    const legacy = value as Record<string, unknown>;
-    return SupervisorRunStateSchema.parse({
+    const legacy = candidate as Record<string, unknown>;
+    candidate = {
       ...legacy,
-      schemaVersion: SUPERVISOR_RUN_SCHEMA_VERSION,
+      schemaVersion: 1,
       gates: legacy.gates ?? [],
       processedEventIds: legacy.processedEventIds ?? [],
       plannerReplanCount: legacy.plannerReplanCount ?? 0,
@@ -186,9 +187,106 @@ export function migrateSupervisorRunDocument(
           (legacy.baseSnapshot as Record<string, unknown>)
             ?.targetFingerprints ?? {},
       },
+    };
+  }
+  if (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    "schemaVersion" in candidate &&
+    candidate.schemaVersion === 1
+  ) {
+    return migrateV1SupervisorRun(candidate as Record<string, unknown>);
+  }
+  return SupervisorRunStateSchema.parse(candidate);
+}
+
+function migrateV1SupervisorRun(
+  legacy: Record<string, unknown>
+): SupervisorRunState {
+  const updatedAt =
+    typeof legacy.updatedAt === "string"
+      ? legacy.updatedAt
+      : new Date(0).toISOString();
+  const legacyTasks = Array.isArray(legacy.tasks) ? legacy.tasks : [];
+  const tasks = legacyTasks.map((rawTask) => {
+    const task = rawTask as Record<string, unknown>;
+    const attempts = Array.isArray(task.attempts) ? task.attempts : [];
+    return {
+      ...task,
+      status:
+        task.status === "completed" ||
+        task.status === "failed" ||
+        task.status === "cancelled"
+          ? task.status
+          : "needs_user",
+      attempts: attempts.map((rawAttempt) => {
+        const attempt = rawAttempt as Record<string, unknown>;
+        return attempt.status === "starting" || attempt.status === "running"
+          ? { ...attempt, status: "interrupted", finishedAt: updatedAt }
+          : attempt;
+      }),
+    };
+  });
+  const terminal =
+    legacy.status === "completed" ||
+    legacy.status === "failed" ||
+    legacy.status === "cancelled";
+  const limits = (legacy.limits ?? {}) as Record<string, unknown>;
+  const automation = {
+    ...(typeof legacy.scheduleId === "string"
+      ? { scheduleId: legacy.scheduleId }
+      : {}),
+    ...(typeof legacy.providerId === "string"
+      ? { providerId: legacy.providerId }
+      : {}),
+    ...(typeof legacy.workerModelId === "string"
+      ? { workerModelId: legacy.workerModelId }
+      : {}),
+  };
+  const audit = Array.isArray(legacy.audit) ? [...legacy.audit] : [];
+  if (!terminal) {
+    audit.push({
+      auditId: `migration-v2-${String(legacy.runId ?? "unknown")}`,
+      kind: "migration_needs_user",
+      createdAt: updatedAt,
+      actor: "system",
+      summary: "Non-terminal v1 run requires ACP manager replan before resume",
     });
   }
-  return SupervisorRunStateSchema.parse(value);
+  const migrated = {
+    ...legacy,
+    schemaVersion: SUPERVISOR_RUN_SCHEMA_VERSION,
+    status: terminal ? legacy.status : "needs_user",
+    priority: "normal",
+    agentAllowlist: Array.isArray(legacy.eligibleAgentIds)
+      ? legacy.eligibleAgentIds
+      : undefined,
+    legacyAutomation:
+      Object.keys(automation).length > 0 ? automation : undefined,
+    limits: {
+      maxConcurrency: limits.maxConcurrency,
+      maxTasks: limits.maxTasks,
+      maxAttemptsPerTask: limits.maxAttemptsPerTask,
+      maxPlannerReplans: limits.maxPlannerReplans,
+    },
+    tasks,
+    capacityWaits: [],
+    decisions: [],
+    deliveryFingerprints: {},
+    audit,
+    migratedFromVersion: 1,
+  } as Record<string, unknown>;
+  return SupervisorRunStateSchema.parse(
+    Object.fromEntries(
+      Object.entries(migrated).filter(
+        ([key]) =>
+          key !== "scheduleId" &&
+          key !== "providerId" &&
+          key !== "workerModelId" &&
+          key !== "eligibleAgentIds"
+      )
+    )
+  );
 }
 
 function fromRow(row: SupervisorRunRow): SupervisorRunState {
@@ -201,12 +299,17 @@ function fromRow(row: SupervisorRunRow): SupervisorRunState {
     });
   }
   const run = migrateSupervisorRunDocument(value);
+  const migratedLegacyRow =
+    (row.schemaVersion === 0 || row.schemaVersion === 1) &&
+    run.migratedFromVersion === 1;
   if (
     run.runId !== row.runId ||
     run.userId !== row.userId ||
     run.revision !== row.revision ||
-    run.status !== row.status ||
-    (row.schemaVersion !== 0 && run.schemaVersion !== row.schemaVersion)
+    (!migratedLegacyRow && run.status !== row.status) ||
+    (row.schemaVersion !== 0 &&
+      run.schemaVersion !== row.schemaVersion &&
+      !migratedLegacyRow)
   ) {
     throw new Error(`Supervisor run row integrity mismatch for ${row.runId}`);
   }

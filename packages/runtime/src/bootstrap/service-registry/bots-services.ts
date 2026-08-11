@@ -53,7 +53,18 @@ export function createBotsUseCases(params: {
     sessionRuntime: params.sessionRuntime,
     projectStore: params.projectStore,
     scheduledDecision: params.supervisor.scheduledWork,
-    supervisorOrchestrator: params.supervisorOrchestration.orchestrator,
+    supervisorOrchestrator: {
+      createDraft: (input) =>
+        params.supervisorOrchestration.orchestrator.createDraft(input),
+      get: (runId, userId) =>
+        params.supervisorOrchestration.orchestrator.get(runId, userId),
+      resume: (runId, userId) =>
+        params.supervisorOrchestration.orchestrator.resume(runId, userId),
+      schedule: (runId, userId) =>
+        params.supervisorOrchestration.orchestrator.schedule(runId, userId),
+      cancel: (runId, userId) =>
+        params.supervisorOrchestration.orchestrator.cancel(runId, userId),
+    },
     entitlement: params.codingPlanSubscription.codingPlanSubscription,
     eventBus: params.eventBus,
     quotaProvider: params.quota.provider,

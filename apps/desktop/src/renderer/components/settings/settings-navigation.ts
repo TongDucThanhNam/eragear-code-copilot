@@ -9,16 +9,13 @@ import {
   Bug,
   CloudCog,
   Command,
-  CreditCard,
   Database,
   Eye,
-  Fingerprint,
+  Gauge,
   GitBranch,
   KeyRound,
   Link2,
   Network,
-  Paintbrush,
-  PlugZap,
   SearchCode,
   ServerCog,
   ShieldCheck,
@@ -35,17 +32,12 @@ export type SettingsRouteTo =
   | "/settings/bots"
   | "/settings/connection"
   | "/settings/runtime"
-  | "/settings/capabilities"
   | "/settings/credentials"
   | "/settings/crash-reporting"
   | "/settings/appearance"
-  | "/settings/acp-auth"
-  | "/settings/oauth"
-  | "/settings/plan"
   | "/settings/sync"
-  | "/settings/model-providers"
+  | "/settings/quota"
   | "/settings/prompt-enhancement"
-  | "/settings/output-style"
   | "/settings/plugins"
   | "/settings/repo-snapshots"
   | "/settings/remote-control"
@@ -79,11 +71,33 @@ export interface SettingsNavGroup {
 
 export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
   {
-    id: "setup",
-    label: "Setup",
+    id: "general",
+    label: "General",
+    description: "Tune the everyday chat experience and response behavior.",
+    icon: SlidersHorizontal,
+    items: [
+      {
+        to: "/settings/appearance",
+        label: "Appearance",
+        detail: "Display preferences",
+        icon: Eye,
+        keywords: ["ui", "theme", "reasoning", "thinking"],
+      },
+      {
+        to: "/settings/prompt-enhancement",
+        label: "Prompt Enhancement",
+        detail: "Prompt assistance",
+        icon: Sparkles,
+        keywords: ["prompt", "rewrite"],
+      },
+    ],
+  },
+  {
+    id: "ai-providers",
+    label: "Agents and Runtime",
     description:
-      "Connect the desktop app to agents, providers, and local runtime.",
-    icon: ServerCog,
+      "Configure ACP agents, shared secrets, limits, and runtime health.",
+    icon: BrainCircuit,
     items: [
       {
         to: "/settings/agents",
@@ -93,76 +107,90 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         keywords: ["claude", "codex", "gemini", "opencode"],
       },
       {
-        to: "/settings/connection",
-        label: "Connection",
-        detail: "Server and allowlist",
-        icon: ShieldCheck,
-        keywords: ["server", "desktop", "allowlist"],
-      },
-      {
-        to: "/settings/runtime",
-        label: "Runtime",
-        detail: "Health and providers",
-        icon: ServerCog,
-        keywords: ["diagnostics", "quota", "local"],
-      },
-      {
-        to: "/settings/model-providers",
-        label: "Model Providers",
-        detail: "Models and mappings",
-        icon: BrainCircuit,
-        keywords: ["models", "provider", "mapping"],
-      },
-      {
         to: "/settings/credentials",
         label: "Credentials",
         detail: "Encrypted secrets",
         icon: KeyRound,
         keywords: ["secret", "key", "token"],
       },
+      {
+        to: "/settings/runtime",
+        label: "Runtime Diagnostics",
+        detail: "Health and updates",
+        icon: ServerCog,
+        keywords: ["diagnostics", "provider", "update", "local"],
+      },
+      {
+        to: "/settings/quota",
+        label: "Quota",
+        detail: "Remaining limits and resets",
+        icon: Gauge,
+        keywords: [
+          "subscription",
+          "remaining",
+          "limit",
+          "refresh",
+          "reset",
+          "capacity",
+        ],
+      },
     ],
   },
   {
-    id: "account-access",
-    label: "Account and Access",
-    description: "Manage identity, entitlement, OAuth, and sync boundaries.",
-    icon: Fingerprint,
+    id: "workspace",
+    label: "Workspace",
+    description: "Manage project memory and codebase index snapshots.",
+    icon: Database,
     items: [
       {
-        to: "/settings/plan",
-        label: "Plan",
-        detail: "Entitlements",
-        icon: CreditCard,
-        keywords: ["billing", "subscription", "license"],
+        to: "/settings/memory",
+        label: "Project Memory",
+        detail: "Memory, trust, and index",
+        icon: Database,
+        keywords: ["knowledge", "trust", "project index"],
       },
       {
-        to: "/settings/oauth",
-        label: "OAuth",
-        detail: "Provider login",
-        icon: Link2,
-        keywords: ["login", "auth", "provider"],
+        to: "/settings/repo-snapshots",
+        label: "Code Index Snapshots",
+        detail: "Snapshot search history",
+        icon: SearchCode,
+        keywords: ["repository", "codebase", "search", "index", "manifest"],
+      },
+    ],
+  },
+  {
+    id: "tools",
+    label: "Tools and Extensions",
+    description: "Install and govern plugins, skills, and MCP servers.",
+    icon: Blocks,
+    items: [
+      {
+        to: "/settings/plugins",
+        label: "Plugins",
+        detail: "SDK and marketplace",
+        icon: Blocks,
+        keywords: ["marketplace", "extension"],
       },
       {
-        to: "/settings/acp-auth",
-        label: "ACP Auth",
-        detail: "Provider files",
-        icon: Fingerprint,
-        keywords: ["auth", "files", "identity"],
+        to: "/settings/skills",
+        label: "Skills",
+        detail: "SKILL.md library",
+        icon: BookOpen,
+        keywords: ["skill", "instructions"],
       },
       {
-        to: "/settings/sync",
-        label: "Sync",
-        detail: "Settings state",
-        icon: CloudCog,
-        keywords: ["state", "backup"],
+        to: "/settings/mcp",
+        label: "MCP Servers",
+        detail: "Servers and tools",
+        icon: Activity,
+        keywords: ["server", "tools", "connector"],
       },
     ],
   },
   {
     id: "automation",
     label: "Automation",
-    description:
-      "Configure repeatable actions, commands, hooks, and shell behavior.",
+    description: "Configure bots, commands, hooks, and shell behavior.",
     icon: Workflow,
     items: [
       {
@@ -187,13 +215,6 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         keywords: ["lifecycle", "event"],
       },
       {
-        to: "/settings/automation",
-        label: "Automation",
-        detail: "Hooks and plugins",
-        icon: PlugZap,
-        keywords: ["workflow", "background"],
-      },
-      {
         to: "/settings/terminal",
         label: "Terminal",
         detail: "Interactive shell",
@@ -203,120 +224,24 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
     ],
   },
   {
-    id: "extensions",
-    label: "Extensions",
-    description:
-      "Install and govern external capabilities, skills, plugins, and MCP.",
-    icon: Blocks,
+    id: "connections",
+    label: "Connections",
+    description: "Control server, sync, remote access, and network routing.",
+    icon: Link2,
     items: [
       {
-        to: "/settings/plugins",
-        label: "Plugins",
-        detail: "SDK and marketplace",
-        icon: Blocks,
-        keywords: ["marketplace", "extension"],
+        to: "/settings/connection",
+        label: "Server Connection",
+        detail: "Server and allowlist",
+        icon: ShieldCheck,
+        keywords: ["server", "desktop", "allowlist"],
       },
       {
-        to: "/settings/skills",
-        label: "Skills",
-        detail: "SKILL.md library",
-        icon: BookOpen,
-        keywords: ["skill", "instructions"],
-      },
-      {
-        to: "/settings/mcp",
-        label: "MCP",
-        detail: "Servers and tools",
-        icon: Activity,
-        keywords: ["server", "tools", "connector"],
-      },
-      {
-        to: "/settings/capabilities",
-        label: "Capabilities",
-        detail: "Registry toggles",
-        icon: SlidersHorizontal,
-        keywords: ["registry", "toggle"],
-      },
-    ],
-  },
-  {
-    id: "workspace-intelligence",
-    label: "Workspace Intelligence",
-    description:
-      "Tune memory, repo context, prompt assistance, and response style.",
-    icon: BrainCircuit,
-    items: [
-      {
-        to: "/settings/memory",
-        label: "Memory",
-        detail: "Trust and index",
-        icon: Database,
-        keywords: ["knowledge", "index"],
-      },
-      {
-        to: "/settings/repo-snapshots",
-        label: "Repo Snapshots",
-        detail: "Index and search",
-        icon: SearchCode,
-        keywords: ["repository", "search", "index"],
-      },
-      {
-        to: "/settings/prompt-enhancement",
-        label: "Prompt",
-        detail: "Enhancement rules",
-        icon: Sparkles,
-        keywords: ["prompt", "rewrite"],
-      },
-      {
-        to: "/settings/appearance",
-        label: "Appearance",
-        detail: "Reasoning visibility",
-        icon: Eye,
-        keywords: ["ui", "theme", "reasoning", "thinking"],
-      },
-      {
-        to: "/settings/output-style",
-        label: "Output Style",
-        detail: "Response tone",
-        icon: Paintbrush,
-        keywords: ["tone", "style"],
-      },
-    ],
-  },
-  {
-    id: "operations",
-    label: "Operations",
-    description:
-      "Inspect usage, logs, archives, crash data, and remote connectivity.",
-    icon: BarChart3,
-    items: [
-      {
-        to: "/settings/usage",
-        label: "Usage",
-        detail: "Stats and telemetry",
-        icon: BarChart3,
-        keywords: ["stats", "telemetry"],
-      },
-      {
-        to: "/settings/activity",
-        label: "Activity",
-        detail: "Logs and parity",
-        icon: GitBranch,
-        keywords: ["logs", "history"],
-      },
-      {
-        to: "/settings/crash-reporting",
-        label: "Crash Reporting",
-        detail: "Archive and Sentry",
-        icon: Bug,
-        keywords: ["error", "sentry"],
-      },
-      {
-        to: "/settings/archive",
-        label: "Archive",
-        detail: "Old task cleanup",
-        icon: ArchiveRestore,
-        keywords: ["cleanup", "old tasks"],
+        to: "/settings/sync",
+        label: "Settings Sync",
+        detail: "Settings state",
+        icon: CloudCog,
+        keywords: ["state", "backup"],
       },
       {
         to: "/settings/remote-control",
@@ -334,6 +259,55 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       },
     ],
   },
+  {
+    id: "diagnostics",
+    label: "Diagnostics and History",
+    description: "Inspect usage, logs, crash data, and archived tasks.",
+    icon: BarChart3,
+    items: [
+      {
+        to: "/settings/usage",
+        label: "Usage",
+        detail: "Historical tokens and cost",
+        icon: BarChart3,
+        keywords: [
+          "stats",
+          "telemetry",
+          "history",
+          "monthly",
+          "spend",
+          "monthly spend",
+        ],
+      },
+      {
+        to: "/settings/activity",
+        label: "Activity",
+        detail: "Logs and parity",
+        icon: GitBranch,
+        keywords: ["logs", "history"],
+      },
+      {
+        to: "/settings/crash-reporting",
+        label: "Crash Reporting",
+        detail: "Archive and Sentry",
+        icon: Bug,
+        keywords: ["error", "sentry"],
+      },
+      {
+        to: "/settings/archive",
+        label: "Task Archive",
+        detail: "Old task cleanup",
+        icon: ArchiveRestore,
+        keywords: ["cleanup", "old tasks"],
+      },
+    ],
+  },
+];
+
+// This route remains reachable for existing deep links, but its Local ADE
+// surface duplicates the dedicated Hooks and Plugins settings pages.
+export const SETTINGS_HIDDEN_DUPLICATE_ROUTES: SettingsRouteTo[] = [
+  "/settings/automation",
 ];
 
 export const SETTINGS_NAV_ITEMS = SETTINGS_NAV_GROUPS.flatMap(

@@ -20,9 +20,9 @@ test("parses project and settings deep links", () => {
     kind: "project",
     projectId: "project-1",
   });
-  expect(parseEragearDeepLink("eragear://settings/acp-auth")).toEqual({
+  expect(parseEragearDeepLink("eragear://settings/agents")).toEqual({
     kind: "settings",
-    section: "acp-auth",
+    section: "agents",
   });
 });
 

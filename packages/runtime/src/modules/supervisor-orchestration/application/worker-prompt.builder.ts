@@ -32,7 +32,9 @@ export function buildWorkerPrompt(input: {
           .join("\n");
   const prompt = [
     "You are an isolated worker in a supervised multi-session run.",
-    "Complete only the assigned task. Do not commit, push, deploy, access credentials, expand scope, or bypass permissions.",
+    "Complete only the assigned task. Do not stage files, commit, push, deploy, access credentials, expand scope, or bypass permissions.",
+    "Worker success ends after the assigned files and verification requirements pass. Any run-objective language about Git staging, commits, delivery, branches, pull requests, deployment, or runtime transitions is runtime-owned context, not worker work. Never attempt those actions. A denied runtime-owned action is expected policy enforcement and must not make an otherwise completed worker task needs_user or failed.",
+    "toolFailureSummary and unresolvedPermissions are blocker fields. Include only failures or permissions that still invalidate the final task outcome. Omit recovered command attempts, successful retries, and expected denials of runtime-owned actions. When every required verification has passed and no task-scoped blocker remains, both arrays must be empty.",
     `Run objective:\n${input.run.originalIntent}`,
     `Stable constraints:\n${input.run.constraints.map((item) => `- ${item}`).join("\n") || "- none"}`,
     `Task ${input.task.taskId}: ${input.task.title}\n${input.task.goal}`,
@@ -49,7 +51,7 @@ export function buildWorkerPrompt(input: {
   "reason": "short reason",
   "outcomeSummary": "compact result",
   "files": { "touched": [], "created": [], "deleted": [], "renamed": [] },
-  "verification": [{ "command": "trusted command", "exitCode": 0, "outputSummary": "bounded summary" }],
+  "verification": [{ "command": "trusted command", "exitCode": 0, "outputSummary": "bounded summary", "startedAt": "ISO timestamp before command", "finishedAt": "ISO timestamp after command" }],
   "toolFailureSummary": [],
   "unresolvedPermissions": [],
   "agentId": "exact required agent id",

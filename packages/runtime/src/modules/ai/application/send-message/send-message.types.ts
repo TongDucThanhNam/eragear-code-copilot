@@ -111,6 +111,7 @@ export interface PromptLifecycleSubagentInvocationRequested {
 }
 
 export interface PromptLifecycleEvents {
+  beforeTurnStart?(input: PromptLifecycleMessageSent): Promise<void>;
   afterMessageSend(input: PromptLifecycleMessageSent): Promise<void>;
   requestSubagentInvocation(
     input: PromptLifecycleSubagentInvocationRequested

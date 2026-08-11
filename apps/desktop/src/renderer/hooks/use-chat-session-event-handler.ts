@@ -27,6 +27,7 @@ import {
   isClientDiagnosticsEnabled,
 } from "@/hooks/use-chat-diagnostics";
 import { useChatStreamStore } from "@/store/chat-stream-store";
+import { useChatTurnDiffStore } from "@/store/chat-turn-diff-store";
 import { useFileStore } from "@/store/file-store";
 import type { UseChatOptions } from "./use-chat.types";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
@@ -48,6 +49,28 @@ import {
   rememberCompletedTurnId,
   resolveSessionEventTurnGuard,
 } from "./use-chat-turn-guards";
+
+export function applyTurnDiffReadyEvent(
+  chatId: string,
+  diff: Extract<BroadcastEvent, { type: "prompt_turn_diff_ready" }>
+): void {
+  useChatTurnDiffStore.getState().setTurnDiff(chatId, {
+    turnId: diff.turnId,
+    turnCount: diff.turnCount,
+    files: diff.files,
+  });
+}
+
+export function applyTurnMessageLinkEvent(
+  chatId: string,
+  event: Extract<BroadcastEvent, { type: "ui_message" }>
+): void {
+  if (event.message.role === "user" && event.turnId) {
+    useChatTurnDiffStore
+      .getState()
+      .linkTurnMessage(chatId, event.message.id, event.turnId);
+  }
+}
 
 interface UseChatSessionEventHandlerParams {
   loadHistory: (force?: boolean) => Promise<void>;
@@ -353,6 +376,10 @@ export function useChatSessionEventHandler(
 
   return useCallback(
     (event: BroadcastEvent) => {
+      const activeChatId = activeChatIdRef.current;
+      if (activeChatId && event.type === "ui_message") {
+        applyTurnMessageLinkEvent(activeChatId, event);
+      }
       if (
         event.type === "current_mode_update" ||
         event.type === "current_model_update"
@@ -686,6 +713,16 @@ export function useChatSessionEventHandler(
           onFileModified: (filePath) => {
             useFileStore.getState().upsertFile(filePath);
             onFileModified?.(filePath);
+          },
+          onTurnDiffReady: (diff) => {
+            const activeChatId = activeChatIdRef.current;
+            if (!activeChatId) {
+              return;
+            }
+            applyTurnDiffReadyEvent(activeChatId, {
+              type: "prompt_turn_diff_ready",
+              ...diff,
+            });
           },
           onError: (eventError) => {
             setError(eventError);

@@ -194,6 +194,14 @@ export interface SubagentInvocation {
   error?: string;
 }
 
+export interface TurnDiffFile {
+  path: string;
+  oldPath?: string;
+  kind: "added" | "modified" | "deleted" | "renamed" | "copied";
+  additions: number;
+  deletions: number;
+}
+
 // ============================================================================
 // Broadcast Event Types (matching server's BroadcastEvent)
 // ============================================================================
@@ -232,6 +240,17 @@ export type BroadcastEvent =
       turnId?: string;
     }
   | { type: "file_modified"; path: string }
+  | {
+      type: "session_reverted";
+      turnCount: number;
+      replayedMessages: number;
+    }
+  | {
+      type: "prompt_turn_diff_ready";
+      turnId: string;
+      turnCount: number;
+      files: TurnDiffFile[];
+    }
   | {
       type: "available_commands_update";
       availableCommands: Array<{
@@ -289,8 +308,10 @@ export interface SupervisorRunClientUpdate {
   status:
     | "draft"
     | "planning"
+    | "awaiting_approval"
     | "queued"
     | "running"
+    | "waiting_capacity"
     | "paused"
     | "needs_user"
     | "completing"
@@ -308,6 +329,7 @@ export interface SupervisorRunClientUpdate {
       | "ready"
       | "queued"
       | "running"
+      | "waiting_capacity"
       | "reviewing"
       | "integrating"
       | "completed"
@@ -318,7 +340,12 @@ export interface SupervisorRunClientUpdate {
       attemptId: string;
       chatId: string;
       agentId: string;
-      status: "starting" | "running" | "terminal" | "interrupted";
+      status:
+        | "starting"
+        | "running"
+        | "waiting_capacity"
+        | "terminal"
+        | "interrupted";
       files?: {
         touched: string[];
         created: string[];
@@ -343,9 +370,81 @@ export interface SupervisorRunClientUpdate {
       | "non_git_write";
     status: "pending" | "approved" | "rejected";
   }>;
+  priority: "urgent" | "high" | "normal" | "low";
+  manager?: {
+    agentId: string;
+    chatId: string;
+    status: "creating" | "running" | "stopped" | "waiting_capacity" | "failed";
+    exactResumeRequired: true;
+  };
+  plan?: {
+    version: number;
+    hash: string;
+    summary: string;
+    approvedAt?: string;
+    envelope: {
+      goal: string;
+      fileScopes: string[];
+      verificationCommands: string[];
+      successCriteria: string[];
+      permissionScopes: string[];
+      destructiveActions: string[];
+      delivery: {
+        createCommit: true;
+        targetBranch: string;
+        targetHead: string;
+        allowDefaultBranch: boolean;
+      };
+    };
+  };
+  capacityWaits: Array<{
+    waitId: string;
+    owner: "manager" | "task";
+    taskId?: string;
+    attemptId?: string;
+    agentId: string;
+    kind:
+      | "quota_exhausted"
+      | "transient_rate_limit"
+      | "auth_required"
+      | "transport"
+      | "session_fatal"
+      | "unknown";
+    retryAt: string;
+    resetAt?: string;
+  }>;
+  decisions: Array<{
+    decisionId: string;
+    kind: string;
+    status: "open" | "answered" | "cancelled";
+    prompt: string;
+    createdAt: string;
+    answeredAt?: string;
+  }>;
   finalVerification: Array<{ command: string; exitCode: number | null }>;
+  finalCommitSha?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SupervisorManagerInboxItem {
+  runId: string;
+  revision: number;
+  projectId?: string;
+  runStatus: SupervisorRunClientUpdate["status"];
+  priority: SupervisorRunClientUpdate["priority"];
+  decisionId: string;
+  kind: string;
+  status: "open" | "answered" | "cancelled";
+  prompt: string;
+  createdAt: string;
+  answeredAt?: string;
+}
+
+export interface SupervisorManagerInboxRunUpdate {
+  runId: string;
+  revision: number;
+  items: SupervisorManagerInboxItem[];
 }
 
 // ============================================================================

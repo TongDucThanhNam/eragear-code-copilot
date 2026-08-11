@@ -98,9 +98,6 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   >(null);
   const [deleteSessionTarget, setDeleteSessionTarget] =
     useState<SessionItem | null>(null);
-  const [pendingCreateSessionKey, setPendingCreateSessionKey] = useState<
-    string | null
-  >(null);
   const [isOpeningProjectFolder, setIsOpeningProjectFolder] = useState(false);
 
   const {
@@ -157,15 +154,6 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   });
   const trpcUtils = trpc.useUtils();
 
-  const createSessionMutation = trpc.createSession.useMutation({
-    onSuccess: () => {
-      trpcUtils.getSessions.invalidate();
-      trpcUtils.getSessionsPage.invalidate();
-    },
-    onError: (err) => {
-      toast.error(err.message || "Failed to create session");
-    },
-  });
   const loadAgentSessionMutation = trpc.loadAgentSession.useMutation({
     onSuccess: () => {
       trpcUtils.getSessions.invalidate();
@@ -175,9 +163,8 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       toast.error(err.message || "Failed to import agent session");
     },
   });
-  const isCreatingSession = createSessionMutation.isPending;
   const isLoadingAgentSession = loadAgentSessionMutation.isPending;
-  const isSessionBootstrapPending = isCreatingSession || isLoadingAgentSession;
+  const isSessionBootstrapPending = isLoadingAgentSession;
   const updateSessionMetaMutation = trpc.updateSessionMeta.useMutation({
     onSuccess: () => {
       trpcUtils.getSessions.invalidate();
@@ -435,41 +422,17 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     setDeleteSessionTarget(session);
   };
 
-  const handleCreateSession = async (params: {
-    projectId: string;
-    agent: {
-      id: string;
-      name: string;
-    };
-  }) => {
+  const handleCreateSession = async (params: { projectId: string }) => {
     if (isSessionBootstrapPending) {
       return;
     }
-    const requestKey = `${params.projectId}:${params.agent.id}`;
-    let didNavigate = false;
-    setPendingCreateSessionKey(requestKey);
-    setSessionBootstrapPhase("creating_session");
-    try {
-      setActiveProjectId(params.projectId);
-      await setActiveMutation.mutateAsync({ id: params.projectId });
-      const newSession = await createSessionMutation.mutateAsync({
-        projectId: params.projectId,
-        agentId: params.agent.id,
-      });
-      setSessionBootstrapPhase("initializing_agent");
-      navigate({
-        to: "/",
-        search: { chatId: newSession.chatId },
-      });
-      didNavigate = true;
-    } catch {
-      // Error is handled by mutation onError callbacks.
-    } finally {
-      setPendingCreateSessionKey(null);
-      if (!didNavigate) {
-        setSessionBootstrapPhase("idle");
-      }
-    }
+    setActiveProjectId(params.projectId);
+    setSessionBootstrapPhase("idle");
+    setActiveMutation.mutate({ id: params.projectId });
+    navigate({
+      to: "/",
+      search: { draftProjectId: params.projectId },
+    });
   };
 
   const fetchDiscoveredSessions = async (params: {
@@ -713,7 +676,6 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
               discoverContext={discoverContext}
               discoverIsLoading={discoverIsLoading}
               isActive={isActive}
-              isCreatingSession={isCreatingSession}
               isSessionBootstrapPending={isSessionBootstrapPending}
               key={project.id}
               onCreateSession={handleCreateSession}
@@ -721,7 +683,6 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
               onEditProject={handleEditProject}
               onOpenDiscoverDialog={handleOpenDiscoverDialog}
               onSelectProject={handleSelectProject}
-              pendingCreateSessionKey={pendingCreateSessionKey}
               project={{ id: project.id, name: project.name }}
               projectSessions={projectSessions}
               sessionActions={{

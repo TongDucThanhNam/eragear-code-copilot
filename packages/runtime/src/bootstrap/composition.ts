@@ -143,7 +143,7 @@ async function createAppCompositionWithRuntimeConfig(
     disposed = true;
     unsubscribeRuntimeConfigSync();
     moduleEventSubscriptions.dispose();
-    serviceModule.dispose();
+    await serviceModule.dispose();
     await persistenceOwner.dispose();
     authOwner.dispose();
     await core.logStore.flush();
