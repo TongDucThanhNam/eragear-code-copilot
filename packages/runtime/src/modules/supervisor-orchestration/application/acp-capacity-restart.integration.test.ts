@@ -33,6 +33,7 @@ function runningFixture(): SupervisorRunState {
             agentId: "agent-1",
             isolatedProjectRoot: "C:/worktrees/attempt-1",
             status: "running",
+            turnId: "turn-1",
             idempotencyKey: "run-1:task-a:1",
             startedAt: "2026-08-10T10:00:00.000Z",
           },
@@ -125,6 +126,7 @@ describe("ACP capacity restart integration", () => {
       agentId: "agent-1",
       isolatedProjectRoot: "C:/worktrees/attempt-1",
       status: "running",
+      turnId: "turn-1",
     });
     expect(calls).toEqual(["stop:chat-1", "exact:chat-1"]);
     expect(events).toEqual([

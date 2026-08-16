@@ -10,6 +10,7 @@ export const Route = createFileRoute("/mission-control")({
 function MissionControlPage() {
   return (
     <SidebarProvider
+      className="h-dvh min-h-0 overflow-hidden"
       style={
         {
           "--sidebar-width": "calc(var(--spacing) * 72)",
@@ -17,7 +18,7 @@ function MissionControlPage() {
       }
     >
       <AppSidebar variant="sidebar" />
-      <SidebarInset>
+      <SidebarInset className="min-h-0 overflow-hidden">
         <MissionControl />
       </SidebarInset>
     </SidebarProvider>

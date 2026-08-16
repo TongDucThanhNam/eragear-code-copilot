@@ -43,6 +43,10 @@ import {
   openProjectInExternalApp,
 } from "./external-project-apps.js";
 import {
+  installProcessOutputErrorGuards,
+  writeProcessOutputSafely,
+} from "./process-output-safety.js";
+import {
   DesktopRemoteConnectHost,
   resolveRemoteConnectConfigFromSettings,
 } from "./remote-connect.js";
@@ -57,6 +61,8 @@ import {
   createRendererContentSecurityPolicy,
   withRendererContentSecurityPolicyHeaders,
 } from "./security.js";
+
+installProcessOutputErrorGuards();
 
 const DEFAULT_REMOTE_RUNTIME_PORT = 443;
 const DEFAULT_RENDERER_URL_PORT = 3001;
@@ -347,9 +353,12 @@ function createMainWindow(): void {
   mainWindow.on("enter-full-screen", notifyWindowState);
   mainWindow.on("leave-full-screen", notifyWindowState);
 
-  mainWindow.webContents.on("console-message", (_event, level, message) => {
-    const label = level >= 2 ? "renderer:err" : "renderer";
-    console.log(`[${label}] ${message}`);
+  mainWindow.webContents.on("console-message", ({ level, message }) => {
+    const label =
+      level === "warning" || level === "error" ? "renderer:err" : "renderer";
+    writeProcessOutputSafely(process.stdout, () => {
+      console.log(`[${label}] ${message}`);
+    });
   });
 
   mainWindow.webContents.once("did-finish-load", () => {

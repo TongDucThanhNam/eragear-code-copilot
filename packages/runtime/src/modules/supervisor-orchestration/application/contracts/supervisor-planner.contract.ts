@@ -19,6 +19,7 @@ export const SupervisorPlannerTaskProposalSchema = z
       .array(PlannerIdentifierSchema)
       .max(SUPERVISOR_RUN_LIMIT_CAPS.maxTasks),
     candidateAgentId: PlannerIdentifierSchema.optional(),
+    preferredModelId: z.string().trim().min(1).max(512).optional(),
     scopeIntent: z.array(z.string().trim().min(1).max(1024)).max(4096),
     verificationRequirements: z
       .array(z.string().trim().min(1).max(1000))

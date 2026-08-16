@@ -95,6 +95,7 @@ describe("UsageStatsSqliteRepository", () => {
         {
           id: "5h",
           label: "5h",
+          usageKind: "model_tokens",
           percentRemaining: 52,
           startedAt: "2026-08-09T00:00:00.000Z",
           resetAt: "2026-08-09T05:00:00.000Z",

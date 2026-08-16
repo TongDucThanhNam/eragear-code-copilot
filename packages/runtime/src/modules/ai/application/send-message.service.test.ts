@@ -1168,11 +1168,14 @@ describe("SendMessageService", () => {
   test("returns chat to ready when prompt request fails but session remains alive", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
+    const completedTurns: PromptTurnCompleteEvent[] = [];
     const session = createChatSession({
       prompt: () => Promise.reject(new Error("unexpected prompt crash")),
     });
     const runtime = createSessionRuntime("chat-1", session, events);
-    const service = createService(repo, runtime);
+    const service = createService(repo, runtime, undefined, (event) => {
+      completedTurns.push(event);
+    });
 
     const result = await service.execute({
       userId: "user-1",
@@ -1202,6 +1205,13 @@ describe("SendMessageService", () => {
     );
     expect(session.activeTurnId).toBeUndefined();
     expect(session.activePromptTask).toBeUndefined();
+    expect(completedTurns).toEqual([
+      expect.objectContaining({
+        chatId: "chat-1",
+        turnId: result.turnId,
+        stopReason: "error",
+      }),
+    ]);
   });
 
   test("aborts orphaned prompt after subscriber grace period elapses", async () => {
@@ -1264,11 +1274,14 @@ describe("SendMessageService", () => {
   test("marks chat error without synthetic chat_finish when agent process exits mid-turn", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
+    const completedTurns: PromptTurnCompleteEvent[] = [];
     const session = createChatSession({
       prompt: () => Promise.reject(new Error("process exited unexpectedly")),
     });
     const runtime = createSessionRuntime("chat-1", session, events);
-    const service = createService(repo, runtime);
+    const service = createService(repo, runtime, undefined, (event) => {
+      completedTurns.push(event);
+    });
 
     const result = await service.execute({
       userId: "user-1",
@@ -1293,6 +1306,13 @@ describe("SendMessageService", () => {
     );
     expect(errorStatusEvent).toBeDefined();
     expect(session.activeTurnId).toBeUndefined();
+    expect(completedTurns).toEqual([
+      expect.objectContaining({
+        chatId: "chat-1",
+        turnId: result.turnId,
+        stopReason: "error",
+      }),
+    ]);
   });
 
   test("rejects message send for session owned by another user", async () => {

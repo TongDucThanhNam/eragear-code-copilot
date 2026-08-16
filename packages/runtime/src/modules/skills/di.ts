@@ -1,4 +1,1 @@
-export {
-  LocalAdeSkillsAdapter,
-  type LocalAdeSkillsSource,
-} from "./infra/local-ade-skills.adapter";
+export { FilesystemSkillsAdapter } from "./infra/filesystem-skills.adapter";

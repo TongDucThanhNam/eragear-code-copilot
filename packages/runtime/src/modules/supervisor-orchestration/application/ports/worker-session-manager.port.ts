@@ -43,6 +43,11 @@ export interface WorkerSessionManagerPort {
     chatId: string;
     eventId: string;
   }): Promise<SupervisorWorkerBinding | null>;
+  claimStoppedSession(input: {
+    userId: string;
+    chatId: string;
+    eventId: string;
+  }): Promise<SupervisorWorkerBinding | null>;
   stop(input: {
     runId: string;
     userId: string;

@@ -9,7 +9,6 @@ export type WorkerResultRejectionReason =
   | "semantic_not_succeeded"
   | "agent_mismatch"
   | "chat_mismatch"
-  | "missing_verification"
   | "verification_failed"
   | "missing_patch"
   | "read_only_changed_files"
@@ -41,11 +40,7 @@ export class WorkerResultService {
     if (result.chatId !== input.attempt.chatId) {
       reasons.add("chat_mismatch");
     }
-    if (result.verification.length === 0) {
-      reasons.add("missing_verification");
-    }
     if (
-      result.verification.some((evidence) => evidence.exitCode !== 0) ||
       input.task.verificationCommands.some(
         (command) =>
           !result.verification.some(

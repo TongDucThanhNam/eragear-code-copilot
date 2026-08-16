@@ -39,8 +39,9 @@ integration disabled.
   branch/ref, delivery authorization, a monotonically increasing version, and
   a deterministic hash.
 - Approval requires `planVersion`, `planHash`, and `expectedRevision`. It locks
-  the execution envelope and authorizes exactly one final commit on the shown
-  current branch, including the default branch when explicitly shown.
+  the execution envelope and authorizes direct-branch before/after worker
+  checkpoint commits plus one final commit on the shown current branch,
+  including the default branch when explicitly shown.
 - Replans inside the approved goal, file/command envelope, permissions, success
   criteria, and delivery policy are automatic. Scope expansion, destructive
   action, or changed success criteria create a durable user decision.
@@ -59,11 +60,11 @@ integration disabled.
 - The global scheduler uses weighted fairness: urgent 8, high 4, normal 2,
   low 1. Every runnable run gets at most one dispatch per round before
   additional weight is consumed.
-- Read-only work may run across projects. Write integration is serialized per
-  project.
+- Read-only work may run across projects. Direct write execution is serialized
+  per Git repository and uses the exact registered project cwd.
 - Unstarted work may be rerouted. Once an attempt has an assignment, quota
   suspension preserves the same `agentId`, `chatId`, ACP session id,
-  `attemptId`, and worktree.
+  `attemptId`, project cwd, and direct checkpoint refs.
 - Quota signals reuse the existing snapshot/reset/cache/refresh/backoff/dedupe/
   cooldown/lease subsystem. They only advise dispatch admission.
 - ACP errors, JSON-RPC metadata, bounded redacted stderr, and assistant failure
@@ -72,7 +73,7 @@ integration disabled.
 - With an ETA, retry at `resetAt` plus bounded deterministic jitter. Without an
   ETA use 1, 5, 15, and 30 minutes, then at most hourly.
 - Capacity exhaustion publishes a typed suspension event, stops the process,
-  releases the agent slot, and leaves the same attempt/worktree resumable.
+  releases the agent slot, and leaves the same attempt/direct branch resumable.
   Suspension does not consume an attempt.
 - Resume is always `exactOnly`; failure creates a Manager Inbox decision and
   never falls back to a new ACP session.
@@ -112,18 +113,20 @@ creates duplicate runs.
 
 ### Git delivery and safety
 
-After the full DAG and aggregate verification pass, create exactly one commit
-on the approved current branch:
+Each write attempt creates complete-repository before/after checkpoint commits
+on the approved current branch. After the full DAG and aggregate verification
+pass, create one additional final commit:
 
-1. Revalidate branch, HEAD, approved fingerprints, dirty overlap, and union of
-   run-owned files.
+1. Revalidate branch, approved fingerprints, run-owned files, and that every
+   commit since the approved HEAD is a Supervisor checkpoint.
 2. Create a safety ref.
-3. Use an isolated Git index to stage only the run-owned union, excluding all
-   pre-existing user staged/unstaged changes.
+3. Use an isolated Git index for the final run-owned union. Pre-existing user
+   staged/unstaged state is already preserved by the first pre-worker commit.
 4. Run normal Git hooks; never pass `--no-verify`.
 5. Record the final commit SHA.
 
-If branch/HEAD changed after approval, integration becomes `needs_user`.
+If the branch changed or HEAD gained any non-Supervisor commit after approval,
+integration becomes `needs_user`.
 Supervisos never pushes, opens a PR, deploys, switches branch, resets, stashes,
 or auto-reverts failed/cancelled work. Plan approval only grants the explicit
 file/command/delivery envelope; project-root sandboxing, allowlists, and
@@ -173,12 +176,14 @@ commands, results, and remaining work.
   plan hash/envelope, v1 migration, weighted fairness/capacity groups, Telegram
   replay protection, and path-scoped commit.
 - Integration: quota between turns stops a process; restart restores the same
-  session/attempt/worktree with exact resume and completes.
+  session/attempt/direct project cwd with exact resume and completes.
 - Manager planning/replan quota waits never create a new manager session.
-- Multiple projects/agents continue when one run is quota blocked; same-project
-  write integration never overlaps.
-- Final commit excludes every pre-existing dirty/staged change, allows an
-  approved default branch, and fails closed on branch/HEAD/drift/conflict.
+- Multiple projects/agents continue when one run is quota blocked; writes to
+  the same Git repository never overlap.
+- The pre-worker checkpoint commits the complete dirty/staged repository state;
+  the post-worker checkpoint commits the complete worker result. Finalization
+  accepts only the resulting Supervisor checkpoint ancestry, allows an approved
+  default branch, and fails closed on foreign branch/HEAD/drift/conflict.
 - Desktop closure does not stop the daemon; reconnect restores portfolio and
   subscriptions.
 - Telegram E2E covers approve, changes, question answer, pause/resume/cancel,
@@ -189,7 +194,8 @@ commands, results, and remaining work.
   or MiniMax model wiring remains.
 - Final smoke: create in Desktop, approve via Telegram, close Desktop, hit
   quota, exact-resume the same ACP session after refresh, aggregate verification
-  passes, one current-branch commit is created, and completion is reported.
+  passes, before/after checkpoints and one final current-branch commit exist,
+  and completion is reported.
 
 ## Fixed scope
 
@@ -197,4 +203,5 @@ commands, results, and remaining work.
 - No native Manager UI in this phase.
 - No push, PR, deploy, or branch switching.
 - Goals live until completion, cancellation, or a genuine blocker.
-- Existing user changes in a dirty worktree must be preserved.
+- Existing user changes in a dirty repository must be preserved by the
+  pre-worker checkpoint.

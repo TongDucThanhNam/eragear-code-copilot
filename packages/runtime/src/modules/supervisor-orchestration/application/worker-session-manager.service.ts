@@ -14,7 +14,18 @@ import type {
   SupervisorWorkerBinding,
   WorkerSessionManagerPort,
 } from "./ports/worker-session-manager.port";
-import { buildWorkerPrompt } from "./worker-prompt.builder";
+import {
+  type AcpSessionConfigOption,
+  resolvePreferredSessionEffort,
+} from "./preferred-session-effort";
+import {
+  type AcpSessionModes,
+  resolveSafeSessionModeId,
+} from "./safe-session-mode";
+import {
+  buildWorkerPrompt,
+  buildWorkerResumePrompt,
+} from "./worker-prompt.builder";
 
 const MAX_RESERVATION_ATTEMPTS = 8;
 
@@ -23,6 +34,8 @@ export interface WorkerSessionCreatePort {
     userId: string;
     projectId?: string;
     trustedProjectRoot?: string;
+    envMode?: "local" | "worktree";
+    worktreePath?: string;
     agentId?: string;
     chatId?: string;
   }): Promise<{
@@ -36,6 +49,8 @@ export interface WorkerSessionCreatePort {
         providers?: string[];
       }>;
     };
+    modes?: AcpSessionModes;
+    configOptions?: AcpSessionConfigOption[];
   }>;
 }
 
@@ -64,6 +79,19 @@ export interface WorkerModelSetPort {
   execute(userId: string, chatId: string, modelId: string): Promise<unknown>;
 }
 
+export interface WorkerModeSetPort {
+  execute(userId: string, chatId: string, modeId: string): Promise<unknown>;
+}
+
+export interface WorkerConfigOptionSetPort {
+  execute(
+    userId: string,
+    chatId: string,
+    configId: string,
+    value: string
+  ): Promise<unknown>;
+}
+
 export interface WorkerSessionManagerDeps {
   runs: SupervisorRunRepositoryPort;
   createSession: WorkerSessionCreatePort;
@@ -71,6 +99,9 @@ export interface WorkerSessionManagerDeps {
   stopSession: WorkerSessionStopPort;
   resumeSession: WorkerSessionResumePort;
   setModel?: WorkerModelSetPort;
+  setMode?: WorkerModeSetPort;
+  setConfigOption?: WorkerConfigOptionSetPort;
+  preferredEffort?: string;
   capacity?: {
     suspendWorker(input: {
       runId: string;
@@ -91,6 +122,9 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
   private readonly stopSession: WorkerSessionStopPort;
   private readonly resumeSession: WorkerSessionResumePort;
   private readonly setModel?: WorkerModelSetPort;
+  private readonly setMode?: WorkerModeSetPort;
+  private readonly setConfigOption?: WorkerConfigOptionSetPort;
+  private readonly preferredEffort?: string;
   private readonly capacity?: WorkerSessionManagerDeps["capacity"];
   private readonly now: () => string;
   private readonly idFactory: (prefix: string) => string;
@@ -102,6 +136,9 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     this.stopSession = deps.stopSession;
     this.resumeSession = deps.resumeSession;
     this.setModel = deps.setModel;
+    this.setMode = deps.setMode;
+    this.setConfigOption = deps.setConfigOption;
+    this.preferredEffort = deps.preferredEffort;
     this.capacity = deps.capacity;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.idFactory = deps.createId ?? createId;
@@ -130,20 +167,46 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
           input.workspace?.projectRoot ??
           input.isolatedProjectRoot ??
           run.projectRoot,
+        ...((input.workspace?.kind === "isolated_git" ||
+          input.isolatedProjectRoot) && {
+          envMode: "worktree" as const,
+          worktreePath:
+            input.workspace?.projectRoot ?? input.isolatedProjectRoot,
+        }),
         agentId: task.preferredAgentId,
         chatId: attempt.chatId,
       });
       if (session.id !== attempt.chatId) {
         throw new Error("Worker session returned a different chat id");
       }
-      await this.assertAndSelectScheduledModel({
+      const workerModeId = resolveSafeSessionModeId(
+        task.executionMode,
+        session.modes,
+        "worker"
+      );
+      if (workerModeId) {
+        if (!this.setMode) {
+          throw new Error("Worker session mode selection is unavailable");
+        }
+        await this.setMode.execute(input.userId, attempt.chatId, workerModeId);
+      }
+      await this.applyPreferredEffort({
+        userId: input.userId,
+        chatId: attempt.chatId,
+        configOptions: session.configOptions,
+      });
+      const selectedModelId = await this.assertAndSelectWorkerModel({
         userId: input.userId,
         run,
+        task,
         chatId: attempt.chatId,
         models: session.models,
       });
       await this.updateAttempt(input, attempt.attemptId, (draftAttempt) => {
         draftAttempt.status = "running";
+        if (selectedModelId) {
+          draftAttempt.modelId = selectedModelId;
+        }
         if (session.sessionId) {
           draftAttempt.agentSessionId = session.sessionId;
         }
@@ -157,7 +220,6 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
         text: buildWorkerPrompt({
           run: latestRun,
           task: latestTask,
-          attempt,
           dependencySummaries: collectDependencySummaries(
             latestRun,
             latestTask
@@ -304,6 +366,49 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     );
   }
 
+  async claimStoppedSession(input: {
+    userId: string;
+    chatId: string;
+    eventId: string;
+  }): Promise<SupervisorWorkerBinding | null> {
+    const eventId = `worker-stopped:${input.eventId}`;
+    for (let retry = 0; retry < MAX_RESERVATION_ATTEMPTS; retry += 1) {
+      const binding = await this.findBinding({
+        userId: input.userId,
+        chatId: input.chatId,
+      });
+      if (!binding) {
+        return null;
+      }
+      const run = await this.requireRun(binding.runId, input.userId);
+      const attempt = requireAttempt(run, binding.taskId, binding.attemptId);
+      if (
+        (attempt.status !== "starting" && attempt.status !== "running") ||
+        run.processedEventIds.includes(eventId)
+      ) {
+        return null;
+      }
+      const next = transitionSupervisorRun(run, {
+        expectedRevision: run.revision,
+        now: this.now(),
+        mutate(draft) {
+          draft.processedEventIds.push(eventId);
+        },
+      });
+      try {
+        await this.runs.save(next, run.revision);
+        return binding;
+      } catch (error) {
+        if (!(error instanceof SupervisorRunRevisionConflictError)) {
+          throw error;
+        }
+      }
+    }
+    throw new Error(
+      "Could not claim stopped worker session after revision conflicts"
+    );
+  }
+
   async stop(input: {
     runId: string;
     userId: string;
@@ -342,8 +447,29 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
   }): Promise<void> {
     const run = await this.requireRun(input.runId, input.userId);
     const attempt = requireAttempt(run, input.taskId, input.attemptId);
-    await this.resumeSession.execute(input.userId, attempt.chatId, {
-      mode: "exact_only",
+    const resumed = (await this.resumeSession.execute(
+      input.userId,
+      attempt.chatId,
+      {
+        mode: "exact_only",
+      }
+    )) as { configOptions?: AcpSessionConfigOption[] };
+    await this.applyPreferredEffort({
+      userId: input.userId,
+      chatId: attempt.chatId,
+      configOptions: resumed.configOptions,
+    });
+    const latestRun = await this.requireRun(input.runId, input.userId);
+    const task = requireTask(latestRun, input.taskId);
+    const submitted = await this.sendMessage.execute({
+      userId: input.userId,
+      chatId: attempt.chatId,
+      source: "orchestrator",
+      text: buildWorkerResumePrompt(task),
+    });
+    await this.updateAttempt(input, input.attemptId, (draftAttempt) => {
+      draftAttempt.status = "running";
+      draftAttempt.turnId = submitted.turnId;
     });
   }
 
@@ -356,20 +482,19 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     const run = await this.requireRun(input.runId, input.userId);
     const task = requireTask(run, input.taskId);
     const attempt = requireAttempt(run, input.taskId, input.attemptId);
-    if (attempt.turnId) {
-      return;
-    }
+    const prompt = attempt.turnId
+      ? buildWorkerResumePrompt(task)
+      : buildWorkerPrompt({
+          run,
+          task,
+          dependencySummaries: collectDependencySummaries(run, task),
+        });
     try {
       const submitted = await this.sendMessage.execute({
         userId: input.userId,
         chatId: attempt.chatId,
         source: "orchestrator",
-        text: buildWorkerPrompt({
-          run,
-          task,
-          attempt,
-          dependencySummaries: collectDependencySummaries(run, task),
-        }),
+        text: prompt,
       });
       await this.updateAttempt(input, input.attemptId, (draftAttempt) => {
         draftAttempt.status = "running";
@@ -454,27 +579,32 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     );
   }
 
-  private async assertAndSelectScheduledModel(input: {
+  private async assertAndSelectWorkerModel(input: {
     userId: string;
     run: SupervisorRunState;
+    task: SupervisorRunState["tasks"][number];
     chatId: string;
     models?: Awaited<ReturnType<WorkerSessionCreatePort["execute"]>>["models"];
-  }): Promise<void> {
+  }): Promise<string | undefined> {
     const providerId = input.run.legacyAutomation?.providerId;
-    if (!providerId) {
-      return;
+    const requestedModelId =
+      input.run.legacyAutomation?.workerModelId ?? input.task.preferredModelId;
+    if (!(providerId || requestedModelId)) {
+      return input.models?.currentModelId;
     }
     if (!input.models) {
       throw new Error(
-        "Scheduled worker model provider could not be proven compatible"
+        "Preferred worker model availability could not be proven"
       );
     }
-    const modelId =
-      input.run.legacyAutomation?.workerModelId ?? input.models.currentModelId;
+    const modelId = requestedModelId ?? input.models.currentModelId;
     const model = input.models.availableModels.find(
       (candidate) => candidate.modelId === modelId
     );
-    if (!(model && workerModelMatchesProvider(model, providerId))) {
+    if (!model) {
+      throw new Error(`Preferred worker model ${modelId} is unavailable`);
+    }
+    if (providerId && !workerModelMatchesProvider(model, providerId)) {
       throw new Error(
         `Scheduled worker model ${modelId} is incompatible with provider ${providerId}`
       );
@@ -485,6 +615,30 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
       }
       await this.setModel.execute(input.userId, input.chatId, modelId);
     }
+    return modelId;
+  }
+
+  private async applyPreferredEffort(input: {
+    userId: string;
+    chatId: string;
+    configOptions?: AcpSessionConfigOption[];
+  }): Promise<void> {
+    const selection = resolvePreferredSessionEffort(
+      input.configOptions,
+      this.preferredEffort
+    );
+    if (!selection) {
+      return;
+    }
+    if (!this.setConfigOption) {
+      throw new Error("Worker effort selection is unavailable");
+    }
+    await this.setConfigOption.execute(
+      input.userId,
+      input.chatId,
+      selection.configId,
+      selection.value
+    );
   }
 
   private async updateAttempt(

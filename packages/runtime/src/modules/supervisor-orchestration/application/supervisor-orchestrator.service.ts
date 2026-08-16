@@ -10,6 +10,7 @@ import {
   type SupervisorRunState,
   SupervisorRunStateSchema,
   type SupervisorTaskRecord,
+  type SupervisorWorkerAttempt,
   SupervisorWorkerResultSchema,
 } from "../domain/supervisor-run.schemas";
 import {
@@ -36,10 +37,12 @@ import type {
   WorkerWorkspacePort,
 } from "./ports/worker-workspace.port";
 import type { SupervisorFinalCommitService } from "./supervisor-final-commit.service";
-import type { SupervisorPlannerService } from "./supervisor-planner.service";
+import {
+  normalizeSafeRelativePath,
+  type SupervisorPlannerService,
+} from "./supervisor-planner.service";
 import type { SupervisorSchedulerService } from "./supervisor-scheduler.service";
 import type { WorkerIntegrationService } from "./worker-integration.service";
-import { extractWorkerResult } from "./worker-result.extractor";
 import type { WorkerResultService } from "./worker-result.service";
 
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
@@ -874,6 +877,9 @@ export class SupervisorOrchestratorService {
           this.workspaces.dispose(workspace).catch(() => undefined)
         )
       );
+      if (isDirectWorkspaceBusy(error)) {
+        return run;
+      }
       const blocked = await this.saveTransition(run, (draft) => {
         draft.status = "needs_user";
         for (const taskId of decision.dispatchTaskIds) {
@@ -952,6 +958,18 @@ export class SupervisorOrchestratorService {
           patch: patch.artifact,
         });
       }
+    }
+    if (!persistedResult) {
+      const verification = await this.verifyWorkerTask({
+        run,
+        task,
+        result,
+        workspace,
+      });
+      result = SupervisorWorkerResultSchema.parse({
+        ...result,
+        verification,
+      });
     }
     if (!persistedResult) {
       const assessment = this.results.assess({ task, attempt, result });
@@ -1057,16 +1075,12 @@ export class SupervisorOrchestratorService {
     }
     let result: unknown;
     if (input.action === "done") {
-      try {
-        result = extractWorkerResult(input.resultText);
-      } catch {
-        result = createTerminalFailureResult({
-          attempt,
-          status: "needs_user",
-          reason: "Worker completion lacked a valid structured result",
-          now: this.now(),
-        });
-      }
+      result = createTerminalSuccessResult({
+        attempt,
+        reason: input.reason,
+        resultText: input.resultText,
+        now: this.now(),
+      });
     } else {
       result = createTerminalFailureResult({
         attempt,
@@ -1130,12 +1144,16 @@ export class SupervisorOrchestratorService {
     if (!validatedTasks) {
       throw new Error("Deterministic manager plan validation is unavailable");
     }
-    assertManagerEnvelope(run, turn.envelope, validatedTasks);
+    const normalizedEnvelope = {
+      ...turn.envelope,
+      fileScopes: turn.envelope.fileScopes.map(normalizeSafeRelativePath),
+    };
+    assertManagerEnvelope(run, normalizedEnvelope, validatedTasks);
     const version = (run.plan?.version ?? 0) + 1;
     const hash = computeSupervisorPlanHash({
       version,
       summary: turn.summary,
-      envelope: turn.envelope,
+      envelope: normalizedEnvelope,
       tasks: validatedTasks,
     });
     const autoApproved = Boolean(
@@ -1143,7 +1161,7 @@ export class SupervisorOrchestratorService {
         run.plan?.approvedAt &&
         isReplanInsideApprovedEnvelope({
           approved: run.plan.envelope,
-          proposed: turn.envelope,
+          proposed: normalizedEnvelope,
         })
     );
     const proposed = await this.saveTransition(run, (draft) => {
@@ -1155,7 +1173,7 @@ export class SupervisorOrchestratorService {
         version,
         hash,
         summary: turn.summary,
-        envelope: turn.envelope,
+        envelope: normalizedEnvelope,
         ...(autoApproved && run.plan?.approvedAt && run.plan.approvedByUserId
           ? {
               approvedAt: run.plan.approvedAt,
@@ -1192,6 +1210,24 @@ export class SupervisorOrchestratorService {
     });
   }
 
+  private async verifyWorkerTask(input: {
+    run: SupervisorRunState;
+    task: SupervisorTaskRecord;
+    result: ReturnType<typeof SupervisorWorkerResultSchema.parse>;
+    workspace?: PreparedWorkerWorkspace;
+  }) {
+    if (
+      input.result.semanticStatus !== "succeeded" ||
+      input.task.verificationCommands.length === 0
+    ) {
+      return [];
+    }
+    return await this.finalVerifier.verify({
+      projectRoot: input.workspace?.projectRoot ?? input.run.projectRoot,
+      commands: input.task.verificationCommands,
+    });
+  }
+
   private async finalize(run: SupervisorRunState): Promise<SupervisorRunState> {
     let completing = await this.saveTransition(run, (draft) => {
       draft.status = "completing";
@@ -1199,24 +1235,21 @@ export class SupervisorOrchestratorService {
     const commands = [
       ...new Set(completing.tasks.flatMap((task) => task.verificationCommands)),
     ];
-    if (commands.length === 0) {
-      return await this.saveTransition(completing, (draft) => {
-        draft.status = "needs_user";
+    if (commands.length > 0) {
+      const evidence = await this.finalVerifier.verify({
+        projectRoot: completing.projectRoot,
+        commands,
       });
-    }
-    const evidence = await this.finalVerifier.verify({
-      projectRoot: completing.projectRoot,
-      commands,
-    });
-    const passed = commands.every((command) =>
-      evidence.some((item) => item.command === command && item.exitCode === 0)
-    );
-    completing = await this.saveTransition(completing, (draft) => {
-      draft.finalVerification = evidence;
-      draft.status = passed ? "completing" : "needs_user";
-    });
-    if (!passed) {
-      return completing;
+      const passed = commands.every((command) =>
+        evidence.some((item) => item.command === command && item.exitCode === 0)
+      );
+      completing = await this.saveTransition(completing, (draft) => {
+        draft.finalVerification = evidence;
+        draft.status = passed ? "completing" : "needs_user";
+      });
+      if (!passed) {
+        return completing;
+      }
     }
     if (!this.finalCommit) {
       return await this.saveTransition(completing, (draft) => {
@@ -1293,6 +1326,15 @@ export class SupervisorOrchestratorService {
     await this.globalSchedule();
     return await this.requireRun(run.runId, run.userId);
   }
+}
+
+function isDirectWorkspaceBusy(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "DIRECT_WORKSPACE_BUSY"
+  );
 }
 
 export class SupervisorWorkspacePreparationError extends Error {
@@ -1424,6 +1466,31 @@ function createTerminalFailureResult(input: {
     startedAt: input.attempt.startedAt,
     finishedAt: input.now,
   };
+}
+
+function createTerminalSuccessResult(input: {
+  attempt: SupervisorWorkerAttempt;
+  reason: string;
+  resultText: string;
+  now: string;
+}) {
+  const outcomeSummary = input.resultText.trim().slice(0, 8000);
+  return SupervisorWorkerResultSchema.parse({
+    semanticStatus: "succeeded",
+    reason: input.reason.trim().slice(0, 4000) || "ACP worker completed",
+    outcomeSummary: outcomeSummary || "ACP worker completed the assigned task",
+    files: { touched: [], created: [], deleted: [], renamed: [] },
+    verification: [],
+    toolFailureSummary: [],
+    unresolvedPermissions: [],
+    agentId: input.attempt.agentId,
+    chatId: input.attempt.chatId,
+    ...(input.attempt.agentSessionId
+      ? { agentSessionId: input.attempt.agentSessionId }
+      : {}),
+    startedAt: input.attempt.startedAt,
+    finishedAt: input.now,
+  });
 }
 
 function filterEligibleAgents(

@@ -66,7 +66,7 @@ interface SupervisorWorkerPermissionDeps {
   logger: LoggerPort;
 }
 
-/** Resolves ACP approvals only inside an approved worker's isolated worktree. */
+/** Resolves ACP approvals only inside the project root bound to an approved worker. */
 export class SupervisorWorkerPermissionService {
   private readonly deps: SupervisorWorkerPermissionDeps;
 

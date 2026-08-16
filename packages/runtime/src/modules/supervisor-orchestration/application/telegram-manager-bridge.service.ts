@@ -21,6 +21,7 @@ export interface TelegramManagerConfig {
   lastDigestDate?: string;
   lastDigestAt?: string;
   notifiedRevisions?: Record<string, number>;
+  notifiedStates?: Record<string, string>;
   pendingPlanChange?: {
     runId: string;
     revision: number;
@@ -119,6 +120,7 @@ export class TelegramManagerBridgeService {
   private readonly inbox: TelegramManagerInboxPort;
   private readonly api: TelegramManagerApiPort;
   private readonly now: () => Date;
+  private readonly notificationQueues = new Map<string, Promise<void>>();
 
   constructor(
     secrets: TelegramManagerSecretStorePort,
@@ -334,30 +336,40 @@ export class TelegramManagerBridgeService {
   }
 
   async pollOnce(userId: string, signal?: AbortSignal): Promise<number> {
-    const config = await this.secrets.loadConfig(userId);
-    if (!config) {
+    const initialConfig = await this.secrets.loadConfig(userId);
+    if (!initialConfig) {
       return 0;
     }
+    let currentConfig: TelegramManagerConfig = initialConfig;
     const updates = await this.api.getUpdates({
-      botToken: config.botToken,
-      ...(config.updateOffset !== undefined
-        ? { offset: config.updateOffset }
+      botToken: currentConfig.botToken,
+      ...(currentConfig.updateOffset !== undefined
+        ? { offset: currentConfig.updateOffset }
         : {}),
       ...(signal ? { signal } : {}),
     });
-    let offset = config.updateOffset ?? 0;
+    let offset = currentConfig.updateOffset ?? 0;
     for (const update of updates) {
       offset = Math.max(offset, update.updateId + 1);
-      await this.handleInboundUpdate(userId, config, update);
-    }
-    if (offset !== config.updateOffset) {
-      const latest = (await this.secrets.loadConfig(userId)) ?? config;
-      await this.secrets.saveConfig(userId, {
+      try {
+        await this.handleInboundUpdate(userId, currentConfig, update);
+      } catch {
+        // A malformed or stale Telegram update must not poison long polling.
+      }
+      const latest: TelegramManagerConfig =
+        (await this.secrets.loadConfig(userId)) ?? currentConfig;
+      currentConfig = {
         ...latest,
         updateOffset: offset,
-      });
+      };
+      await this.secrets.saveConfig(userId, currentConfig);
     }
-    await this.sendDigestIfDue(userId);
+    // Keep action feedback as the final message for an update batch. A due
+    // portfolio digest can wait for the next empty poll instead of burying the
+    // user's approve/pause/cancel acknowledgement.
+    if (updates.length === 0) {
+      await this.sendDigestIfDue(userId);
+    }
     return updates.length;
   }
 
@@ -365,19 +377,48 @@ export class TelegramManagerBridgeService {
     userId: string,
     run: SupervisorRunClientUpdate
   ): Promise<void> {
+    const previous = this.notificationQueues.get(userId) ?? Promise.resolve();
+    const queued = previous
+      .catch(() => undefined)
+      .then(() => this.notifyRunUpdateSerial(userId, run));
+    this.notificationQueues.set(userId, queued);
+    try {
+      await queued;
+    } finally {
+      if (this.notificationQueues.get(userId) === queued) {
+        this.notificationQueues.delete(userId);
+      }
+    }
+  }
+
+  private async notifyRunUpdateSerial(
+    userId: string,
+    run: SupervisorRunClientUpdate
+  ): Promise<void> {
     const config = await this.secrets.loadConfig(userId);
     if (!config?.chatId) {
       return;
     }
-    if ((config.notifiedRevisions?.[run.runId] ?? -1) >= run.revision) {
+    const fingerprint = notificationFingerprint(run);
+    if (config.notifiedStates?.[run.runId] === fingerprint) {
       return;
     }
     const shouldNotify =
+      run.status === "awaiting_approval" ||
       run.status === "completed" ||
       run.status === "failed" ||
       run.status === "needs_user" ||
+      run.status === "waiting_capacity" ||
       run.decisions.some((decision) => decision.status === "open");
     if (!shouldNotify) {
+      await this.saveNotificationState(userId, config, run, fingerprint, false);
+      return;
+    }
+    if (
+      config.notifiedStates?.[run.runId] === undefined &&
+      (config.notifiedRevisions?.[run.runId] ?? -1) >= run.revision
+    ) {
+      await this.saveNotificationState(userId, config, run, fingerprint, false);
       return;
     }
     await this.api.sendMessage({
@@ -386,12 +427,33 @@ export class TelegramManagerBridgeService {
       text: formatRunNotification(run),
       buttons: await this.callbackButtons({ userId, run }),
     });
+    await this.saveNotificationState(userId, config, run, fingerprint, true);
+  }
+
+  private async saveNotificationState(
+    userId: string,
+    fallbackConfig: TelegramManagerConfig,
+    run: SupervisorRunClientUpdate,
+    fingerprint: string,
+    notified: boolean
+  ): Promise<void> {
+    const latest = (await this.secrets.loadConfig(userId)) ?? fallbackConfig;
     await this.secrets.saveConfig(userId, {
-      ...config,
-      notifiedRevisions: capRevisionMap({
-        ...(config.notifiedRevisions ?? {}),
-        [run.runId]: run.revision,
-      }),
+      ...latest,
+      ...(notified
+        ? {
+            notifiedRevisions: capRecordEntry(
+              latest.notifiedRevisions ?? {},
+              run.runId,
+              run.revision
+            ),
+          }
+        : {}),
+      notifiedStates: capRecordEntry(
+        latest.notifiedStates ?? {},
+        run.runId,
+        fingerprint
+      ),
     });
   }
 
@@ -401,16 +463,35 @@ export class TelegramManagerBridgeService {
     update: TelegramInboundUpdate
   ): Promise<void> {
     if (update.callback) {
-      const result = await this.handleCallback({
-        userId,
-        chatId: update.callback.chatId,
-        callbackData: update.callback.data,
-      });
-      await this.api.answerCallback({
-        botToken: config.botToken,
-        callbackQueryId: update.callback.id,
-        text: result.applied ? "Applied" : "Expired or unavailable",
-      });
+      await this.api
+        .answerCallback({
+          botToken: config.botToken,
+          callbackQueryId: update.callback.id,
+          text: "Processing…",
+        })
+        .catch(() => undefined);
+      try {
+        const result = await this.handleCallback({
+          userId,
+          chatId: update.callback.chatId,
+          callbackData: update.callback.data,
+        });
+        await this.api
+          .sendMessage({
+            botToken: config.botToken,
+            chatId: update.callback.chatId,
+            text: callbackResultMessage(result),
+          })
+          .catch(() => undefined);
+      } catch {
+        await this.api
+          .sendMessage({
+            botToken: config.botToken,
+            chatId: update.callback.chatId,
+            text: "Action failed. Refresh Mission Control and try the latest button.",
+          })
+          .catch(() => undefined);
+      }
       return;
     }
     const text = update.message?.text?.trim();
@@ -418,7 +499,15 @@ export class TelegramManagerBridgeService {
     if (!(text && chatId)) {
       return;
     }
-    if (!config.chatId && TELEGRAM_PAIRING_CODE_PATTERN.test(text)) {
+    if (!config.chatId) {
+      if (!TELEGRAM_PAIRING_CODE_PATTERN.test(text)) {
+        await this.api.sendMessage({
+          botToken: config.botToken,
+          chatId,
+          text: "Send the 6-digit one-time code shown in Eragear Mission Control.",
+        });
+        return;
+      }
       const paired = await this.acceptPairingCode({
         userId,
         chatId,
@@ -584,14 +673,76 @@ function formatRunNotification(run: SupervisorRunClientUpdate): string {
   if (run.status === "completed") {
     return `Goal ${run.runId} completed${run.finalCommitSha ? ` at ${run.finalCommitSha.slice(0, 12)}` : ""}.`;
   }
+  if (run.status === "awaiting_approval" && run.plan) {
+    const summary = run.plan.summary.slice(0, 3000);
+    return `Goal ${run.runId} awaits plan approval: ${summary}`;
+  }
+  if (run.status === "waiting_capacity") {
+    const wait = run.capacityWaits[0];
+    return wait
+      ? `Goal ${run.runId} paused for ${wait.kind}; it will retry after ${wait.retryAt}.`
+      : `Goal ${run.runId} is waiting for provider capacity.`;
+  }
   const open = run.decisions.find((decision) => decision.status === "open");
   return open
     ? `Goal ${run.runId} needs a decision: ${open.prompt}`
     : `Goal ${run.runId} changed to ${run.status}.`;
 }
 
-function capRevisionMap(
-  values: Record<string, number>
-): Record<string, number> {
-  return Object.fromEntries(Object.entries(values).slice(-200));
+function notificationFingerprint(run: SupervisorRunClientUpdate): string {
+  const openDecisions = run.decisions
+    .filter((decision) => decision.status === "open")
+    .map((decision) => decision.decisionId)
+    .sort()
+    .join(",");
+  if (openDecisions) {
+    return `${run.status}:decisions:${openDecisions}`;
+  }
+  if (run.status === "awaiting_approval" && run.plan) {
+    return `awaiting_approval:${run.plan.version}:${run.plan.hash}`;
+  }
+  if (run.status === "completed") {
+    return `completed:${run.finalCommitSha ?? "no-commit"}`;
+  }
+  if (run.status === "waiting_capacity") {
+    const waits = run.capacityWaits
+      .map((wait) => `${wait.kind}:${wait.retryAt}`)
+      .sort()
+      .join(",");
+    return `waiting_capacity:${waits}`;
+  }
+  return run.status;
+}
+
+function callbackResultMessage(result: {
+  applied: boolean;
+  reason: string;
+}): string {
+  if (!result.applied) {
+    return result.reason === "chat_not_paired"
+      ? "Action rejected because this chat is not paired."
+      : "Action was not applied because this button is expired or unavailable.";
+  }
+  return (
+    {
+      approve_plan: "Plan approved. Supervisos is starting the run.",
+      request_changes:
+        "Send one message describing the requested plan changes.",
+      pause: "Run paused.",
+      resume: "Run resumed.",
+      cancel: "Run cancelled.",
+    }[result.reason] ?? "Action applied."
+  );
+}
+
+function capRecordEntry<T>(
+  values: Record<string, T>,
+  key: string,
+  value: T
+): Record<string, T> {
+  const entries = Object.entries(values).filter(
+    ([entryKey]) => entryKey !== key
+  );
+  entries.push([key, value]);
+  return Object.fromEntries(entries.slice(-200));
 }

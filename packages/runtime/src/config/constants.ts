@@ -115,9 +115,9 @@ export const DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS = 150;
 /** Maximum time an ACP permission request may remain unresolved */
 export const DEFAULT_ACP_PERMISSION_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 /** Maximum NDJSON line size accepted from ACP agent stdout */
-export const DEFAULT_ACP_NDJSON_MAX_LINE_BYTES = 1024 * 1024;
+export const DEFAULT_ACP_NDJSON_MAX_LINE_BYTES = 8 * 1024 * 1024;
 /** Maximum buffered NDJSON bytes accepted before fail-fast termination */
-export const DEFAULT_ACP_NDJSON_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+export const DEFAULT_ACP_NDJSON_MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 /** Maximum cumulative stderr bytes accepted from one ACP process before termination */
 export const DEFAULT_ACP_STDERR_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 /** Hard cap for compaction batch size per run */

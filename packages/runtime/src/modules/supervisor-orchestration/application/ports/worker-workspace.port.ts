@@ -6,9 +6,11 @@ import type {
 
 export interface PreparedWorkerWorkspace {
   workspaceId: string;
-  kind: "read_only" | "isolated_git";
+  kind: "read_only" | "direct_git" | "isolated_git";
   userProjectRoot: string;
   projectRoot: string;
+  repositoryRoot?: string;
+  gitWorktreeRoot?: string;
   baseHead?: string;
   targetFingerprints: Record<string, string>;
 }
@@ -29,6 +31,7 @@ export interface WorkerWorkspacePort {
     filesAllowed: string[];
     baseSnapshot: SupervisorRunState["baseSnapshot"];
   }): Promise<PreparedWorkerWorkspace>;
+  claim(workspace: PreparedWorkerWorkspace): Promise<void>;
   collect(workspace: PreparedWorkerWorkspace): Promise<CollectedWorkerPatch>;
   apply(input: {
     workspace: PreparedWorkerWorkspace;

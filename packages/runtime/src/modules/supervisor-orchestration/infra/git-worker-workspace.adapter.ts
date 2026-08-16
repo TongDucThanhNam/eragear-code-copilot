@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  access,
   mkdir,
   readFile,
   realpath,
@@ -21,10 +20,13 @@ import type {
 const execFileAsync = promisify(execFile);
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 const LEADING_CURRENT_DIR = /^\.\//;
+const LINE_BREAK_PATTERN = /\r?\n/;
+const TRAILING_SLASH = /\/$/;
 
 export class WorkerWorkspacePolicyError extends Error {
   readonly code:
     | "DIRTY_PATH_OVERLAP"
+    | "DIRECT_WORKSPACE_BUSY"
     | "NON_GIT_WRITE_UNSUPPORTED"
     | "BASELINE_HEAD_DRIFT"
     | "WORKSPACE_PATH_ESCAPE";
@@ -42,6 +44,7 @@ interface GitWorkerWorkspaceAdapterDeps {
 
 export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
   private readonly storageRoot: () => Promise<string>;
+  private readonly activeDirectWorkspaces = new Map<string, string>();
 
   constructor(deps: GitWorkerWorkspaceAdapterDeps = {}) {
     this.storageRoot = deps.storageRoot ?? getStorageDirPath;
@@ -78,79 +81,123 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
       };
     }
 
-    const dirtyOverlap = input.baseSnapshot.dirtyPaths.filter((dirtyPath) =>
-      input.filesAllowed.some((allowedPath) =>
-        pathsOverlap(dirtyPath, allowedPath)
-      )
-    );
-    if (dirtyOverlap.length > 0) {
-      throw new WorkerWorkspacePolicyError(
-        "DIRTY_PATH_OVERLAP",
-        `Write task overlaps dirty user paths: ${dirtyOverlap.join(", ")}`
-      );
-    }
-
     let head: string;
+    let repositoryRoot: string;
     try {
       await runGit(userProjectRoot, ["rev-parse", "--is-inside-work-tree"]);
       head = (await runGit(userProjectRoot, ["rev-parse", "HEAD"])).trim();
+      repositoryRoot = await realpath(
+        (await runGit(userProjectRoot, ["rev-parse", "--show-toplevel"])).trim()
+      );
     } catch {
       throw new WorkerWorkspacePolicyError(
         "NON_GIT_WRITE_UNSUPPORTED",
         "Automatic write workers require a Git-backed project"
       );
     }
-    if (
-      input.baseSnapshot.head &&
-      !(
-        head.startsWith(input.baseSnapshot.head) ||
-        input.baseSnapshot.head.startsWith(head)
-      )
-    ) {
+    const preRef = directCheckpointRef(workspaceId, "pre");
+    const claimedHere = this.claimDirectWorkspace(repositoryRoot, workspaceId);
+    try {
+      const existingCheckpoint = await resolveGitRef(repositoryRoot, preRef);
+      if (existingCheckpoint) {
+        head = existingCheckpoint;
+      } else {
+        if (
+          input.baseSnapshot.head &&
+          !(await isSupervisorOwnedDescendant(
+            repositoryRoot,
+            input.baseSnapshot.head,
+            head
+          ))
+        ) {
+          throw new WorkerWorkspacePolicyError(
+            "BASELINE_HEAD_DRIFT",
+            "Project HEAD changed after the run base snapshot"
+          );
+        }
+        await runGit(repositoryRoot, ["add", "-A", "--", "."]);
+        await runGit(repositoryRoot, [
+          "commit",
+          "--allow-empty",
+          "-m",
+          `supervisos: checkpoint before worker ${workspaceId.slice(0, 12)}`,
+        ]);
+        head = (await runGit(repositoryRoot, ["rev-parse", "HEAD"])).trim();
+        await runGit(repositoryRoot, ["update-ref", preRef, head]);
+      }
+      return {
+        workspaceId,
+        kind: "direct_git",
+        userProjectRoot,
+        projectRoot: userProjectRoot,
+        repositoryRoot,
+        baseHead: head,
+        targetFingerprints: await this.fingerprint({
+          projectRoot: userProjectRoot,
+          relativePaths: input.filesAllowed,
+        }),
+      };
+    } catch (error) {
+      if (claimedHere) {
+        this.releaseDirectWorkspace(repositoryRoot, workspaceId);
+      }
+      throw error;
+    }
+  }
+
+  async claim(workspace: PreparedWorkerWorkspace): Promise<void> {
+    if (workspace.kind !== "direct_git") {
+      return;
+    }
+    const repositoryRoot = workspace.repositoryRoot
+      ? await realpath(workspace.repositoryRoot)
+      : await realpath(
+          (
+            await runGit(workspace.projectRoot, [
+              "rev-parse",
+              "--show-toplevel",
+            ])
+          ).trim()
+        );
+    this.claimDirectWorkspace(repositoryRoot, workspace.workspaceId);
+  }
+
+  private claimDirectWorkspace(
+    repositoryRoot: string,
+    workspaceId: string
+  ): boolean {
+    const repositoryKey = repositoryRoot.toLowerCase();
+    const activeWorkspace = this.activeDirectWorkspaces.get(repositoryKey);
+    if (activeWorkspace && activeWorkspace !== workspaceId) {
       throw new WorkerWorkspacePolicyError(
-        "BASELINE_HEAD_DRIFT",
-        "Project HEAD changed after the run base snapshot"
+        "DIRECT_WORKSPACE_BUSY",
+        "Another Supervisor worker is already writing to this Git repository"
       );
     }
+    this.activeDirectWorkspaces.set(repositoryKey, workspaceId);
+    return activeWorkspace !== workspaceId;
+  }
 
-    const storageRoot = await this.storageRoot();
-    const workspaceParent = path.resolve(
-      storageRoot,
-      "supervisor-worktrees",
-      stableId(input.runId)
-    );
-    const workspaceRoot = path.resolve(workspaceParent, workspaceId);
-    assertPathInside(workspaceParent, workspaceRoot);
-    await mkdir(workspaceParent, { recursive: true });
-    if (!(await pathExists(path.join(workspaceRoot, ".git")))) {
-      await runGit(userProjectRoot, [
-        "worktree",
-        "add",
-        "--detach",
-        workspaceRoot,
-        head,
-      ]);
+  private releaseDirectWorkspace(
+    repositoryRoot: string,
+    workspaceId: string
+  ): void {
+    const repositoryKey = repositoryRoot.toLowerCase();
+    if (this.activeDirectWorkspaces.get(repositoryKey) === workspaceId) {
+      this.activeDirectWorkspaces.delete(repositoryKey);
     }
-    return {
-      workspaceId,
-      kind: "isolated_git",
-      userProjectRoot,
-      projectRoot: await realpath(workspaceRoot),
-      baseHead: head,
-      targetFingerprints: await this.fingerprint({
-        projectRoot: userProjectRoot,
-        relativePaths: input.filesAllowed,
-      }),
-    };
   }
 
   async collect(
     workspace: PreparedWorkerWorkspace
   ): Promise<CollectedWorkerPatch> {
+    if (workspace.kind === "direct_git") {
+      return await this.collectDirectWorkspace(workspace);
+    }
     if (workspace.kind !== "isolated_git" || !workspace.baseHead) {
       throw new Error("Read-only workspaces do not produce patch artifacts");
     }
-    await runGit(workspace.projectRoot, ["add", "-A"]);
+    await runGit(workspace.projectRoot, ["add", "-A", "--", "."]);
     const patchText = await runGit(workspace.projectRoot, [
       "diff",
       "--cached",
@@ -158,6 +205,7 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
       "--full-index",
       workspace.baseHead,
       "--",
+      ".",
     ]);
     const manifestOutput = await runGit(workspace.projectRoot, [
       "diff",
@@ -167,8 +215,133 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
       "-M",
       workspace.baseHead,
       "--",
+      ".",
     ]);
-    const files = parseNameStatus(manifestOutput);
+    const userRepositoryRoot = await realpath(
+      (
+        await runGit(workspace.userProjectRoot, [
+          "rev-parse",
+          "--show-toplevel",
+        ])
+      ).trim()
+    );
+    const projectPrefix = normalizePath(
+      path.relative(userRepositoryRoot, workspace.userProjectRoot)
+    );
+    const files = rebaseManifestToProjectRoot(
+      parseNameStatus(manifestOutput),
+      projectPrefix
+    );
+    const patchBytes = Buffer.from(patchText, "utf8");
+    const sha256 = createHash("sha256").update(patchBytes).digest("hex");
+    const storageRoot = await this.storageRoot();
+    const artifactDir = path.resolve(storageRoot, "supervisor-artifacts");
+    const storageRef = path.resolve(artifactDir, `${sha256}.patch`);
+    assertPathInside(artifactDir, storageRef);
+    await mkdir(artifactDir, { recursive: true });
+    await writeFile(storageRef, patchBytes);
+    return {
+      workspace,
+      artifact: {
+        artifactId: `patch-${sha256.slice(0, 24)}`,
+        sha256,
+        byteLength: patchBytes.byteLength,
+        storageRef,
+      },
+      files,
+    };
+  }
+
+  private async collectDirectWorkspace(
+    workspace: PreparedWorkerWorkspace
+  ): Promise<CollectedWorkerPatch> {
+    if (!workspace.baseHead) {
+      throw new Error("Direct Git workspace is missing its pre-worker commit");
+    }
+    const repositoryRoot = await realpath(
+      workspace.repositoryRoot ??
+        (
+          await runGit(workspace.projectRoot, ["rev-parse", "--show-toplevel"])
+        ).trim()
+    );
+    const postRef = directCheckpointRef(workspace.workspaceId, "post");
+    let postHead = await resolveGitRef(repositoryRoot, postRef);
+    let patchText: string;
+    let manifestOutput: string;
+    if (postHead) {
+      patchText = await runGit(repositoryRoot, [
+        "diff",
+        "--binary",
+        "--full-index",
+        workspace.baseHead,
+        postHead,
+        "--",
+        ".",
+      ]);
+      manifestOutput = await runGit(repositoryRoot, [
+        "diff",
+        "--name-status",
+        "-z",
+        "-M",
+        workspace.baseHead,
+        postHead,
+        "--",
+        ".",
+      ]);
+    } else {
+      const currentHead = (
+        await runGit(repositoryRoot, ["rev-parse", "HEAD"])
+      ).trim();
+      if (currentHead !== workspace.baseHead) {
+        throw new WorkerWorkspacePolicyError(
+          "BASELINE_HEAD_DRIFT",
+          "Git HEAD changed while the direct worker was running"
+        );
+      }
+      await runGit(repositoryRoot, ["add", "-A", "--", "."]);
+      patchText = await runGit(repositoryRoot, [
+        "diff",
+        "--cached",
+        "--binary",
+        "--full-index",
+        workspace.baseHead,
+        "--",
+        ".",
+      ]);
+      manifestOutput = await runGit(repositoryRoot, [
+        "diff",
+        "--cached",
+        "--name-status",
+        "-z",
+        "-M",
+        workspace.baseHead,
+        "--",
+        ".",
+      ]);
+      await runGit(repositoryRoot, [
+        "commit",
+        "--allow-empty",
+        "-m",
+        `supervisos: checkpoint after worker ${workspace.workspaceId.slice(0, 12)}`,
+      ]);
+      postHead = (await runGit(repositoryRoot, ["rev-parse", "HEAD"])).trim();
+      await runGit(repositoryRoot, ["update-ref", postRef, postHead]);
+    }
+    const projectPrefix = normalizePath(
+      path.relative(repositoryRoot, workspace.userProjectRoot)
+    );
+    const files = rebaseManifestToProjectRoot(
+      parseNameStatus(manifestOutput),
+      projectPrefix
+    );
+    return await this.persistPatchArtifact(workspace, patchText, files);
+  }
+
+  private async persistPatchArtifact(
+    workspace: PreparedWorkerWorkspace,
+    patchText: string,
+    files: CollectedWorkerPatch["files"]
+  ): Promise<CollectedWorkerPatch> {
     const patchBytes = Buffer.from(patchText, "utf8");
     const sha256 = createHash("sha256").update(patchBytes).digest("hex");
     const storageRoot = await this.storageRoot();
@@ -198,7 +371,7 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
       storageRef: string;
     };
   }): Promise<void> {
-    if (input.workspace.kind !== "isolated_git") {
+    if (input.workspace.kind === "read_only") {
       throw new Error("Read-only workspaces do not apply patches");
     }
     const patchBytes = await readFile(input.artifact.storageRef);
@@ -208,6 +381,31 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
       patchBytes.byteLength !== input.artifact.byteLength
     ) {
       throw new Error("Worker patch artifact integrity check failed");
+    }
+    if (input.workspace.kind === "direct_git") {
+      const repositoryRoot = await realpath(
+        input.workspace.repositoryRoot ??
+          (
+            await runGit(input.workspace.projectRoot, [
+              "rev-parse",
+              "--show-toplevel",
+            ])
+          ).trim()
+      );
+      const postHead = await resolveGitRef(
+        repositoryRoot,
+        directCheckpointRef(input.workspace.workspaceId, "post")
+      );
+      const currentHead = (
+        await runGit(repositoryRoot, ["rev-parse", "HEAD"])
+      ).trim();
+      if (!(postHead && postHead === currentHead)) {
+        throw new WorkerWorkspacePolicyError(
+          "BASELINE_HEAD_DRIFT",
+          "Direct worker post-checkpoint is no longer the current HEAD"
+        );
+      }
+      return;
     }
     await runGit(input.workspace.userProjectRoot, [
       "apply",
@@ -240,16 +438,42 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
     if (workspace.kind === "read_only") {
       return;
     }
+    if (workspace.kind === "direct_git") {
+      const repositoryRoot = workspace.repositoryRoot
+        ? await realpath(workspace.repositoryRoot)
+        : await realpath(
+            (
+              await runGit(workspace.projectRoot, [
+                "rev-parse",
+                "--show-toplevel",
+              ])
+            ).trim()
+          );
+      this.releaseDirectWorkspace(repositoryRoot, workspace.workspaceId);
+      return;
+    }
     const storageRoot = await this.storageRoot();
     const allowedRoot = path.resolve(storageRoot, "supervisor-worktrees");
-    assertPathInside(allowedRoot, workspace.projectRoot);
+    const gitWorktreeRoot =
+      workspace.gitWorktreeRoot ??
+      (await realpath(
+        (
+          await runGit(workspace.projectRoot, ["rev-parse", "--show-toplevel"])
+        ).trim()
+      ));
+    assertPathInside(allowedRoot, gitWorktreeRoot);
     await runGit(workspace.userProjectRoot, [
       "worktree",
       "remove",
       "--force",
-      workspace.projectRoot,
+      gitWorktreeRoot,
     ]).catch(() => undefined);
-    await rm(workspace.projectRoot, { recursive: true, force: true });
+    await rm(gitWorktreeRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
     await runGit(workspace.userProjectRoot, ["worktree", "prune"]);
   }
 }
@@ -298,6 +522,41 @@ function parseNameStatus(output: string) {
   };
 }
 
+function rebaseManifestToProjectRoot(
+  manifest: ReturnType<typeof parseNameStatus>,
+  projectPrefix: string
+): ReturnType<typeof parseNameStatus> {
+  const rebase = (filePath: string) =>
+    rebaseGitPathToProject(filePath, projectPrefix) ??
+    `../${normalizePath(filePath)}`;
+  return {
+    touched: uniqueSorted(manifest.touched.map(rebase)),
+    created: uniqueSorted(manifest.created.map(rebase)),
+    deleted: uniqueSorted(manifest.deleted.map(rebase)),
+    renamed: manifest.renamed
+      .map((item) => ({ from: rebase(item.from), to: rebase(item.to) }))
+      .sort((left, right) => left.from.localeCompare(right.from)),
+  };
+}
+
+function rebaseGitPathToProject(
+  filePath: string,
+  projectPrefix: string
+): string | undefined {
+  const normalizedPath = normalizePath(filePath);
+  const normalizedPrefix = normalizePath(projectPrefix).replace(
+    TRAILING_SLASH,
+    ""
+  );
+  if (!normalizedPrefix) {
+    return normalizedPath;
+  }
+  if (!normalizedPath.startsWith(`${normalizedPrefix}/`)) {
+    return undefined;
+  }
+  return normalizedPath.slice(normalizedPrefix.length + 1);
+}
+
 function pathsOverlap(left: string, right: string): boolean {
   const normalizedLeft = normalizePath(left);
   const normalizedRight = normalizePath(right);
@@ -314,6 +573,74 @@ function normalizePath(value: string): string {
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+async function isSupervisorOwnedDescendant(
+  repositoryRoot: string,
+  expectedHead: string,
+  currentHead: string
+): Promise<boolean> {
+  let resolvedExpectedHead: string;
+  try {
+    resolvedExpectedHead = (
+      await runGit(repositoryRoot, [
+        "rev-parse",
+        "--verify",
+        `${expectedHead}^{commit}`,
+      ])
+    ).trim();
+  } catch {
+    return false;
+  }
+  if (resolvedExpectedHead === currentHead) {
+    return true;
+  }
+  const expectedIsAncestor = await runGit(repositoryRoot, [
+    "merge-base",
+    "--is-ancestor",
+    resolvedExpectedHead,
+    currentHead,
+  ]).then(
+    () => true,
+    () => false
+  );
+  if (!expectedIsAncestor) {
+    return false;
+  }
+  const interveningCommits = (
+    await runGit(repositoryRoot, [
+      "rev-list",
+      "--reverse",
+      `${resolvedExpectedHead}..${currentHead}`,
+    ])
+  )
+    .split(LINE_BREAK_PATTERN)
+    .map((commit) => commit.trim())
+    .filter(Boolean);
+  for (const commit of interveningCommits) {
+    const subject = (
+      await runGit(repositoryRoot, ["show", "-s", "--format=%s", commit])
+    ).trim();
+    if (subject.startsWith("supervisos: checkpoint ")) {
+      continue;
+    }
+    if (!subject.startsWith("supervisos: ")) {
+      return false;
+    }
+    const changedPaths = (
+      await runGit(repositoryRoot, [
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        commit,
+      ])
+    ).trim();
+    if (changedPaths) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function stableId(value: string): string {
@@ -348,16 +675,28 @@ async function fingerprintPath(target: string): Promise<string> {
   }
 }
 
-async function pathExists(target: string): Promise<boolean> {
+function directCheckpointRef(
+  workspaceId: string,
+  phase: "pre" | "post"
+): string {
+  return `refs/eragear/supervisor-direct-${workspaceId}-${phase}`;
+}
+
+async function resolveGitRef(
+  repositoryRoot: string,
+  ref: string
+): Promise<string | undefined> {
   try {
-    await access(target);
-    return true;
+    return (
+      await runGit(repositoryRoot, ["rev-parse", "--verify", `${ref}^{commit}`])
+    ).trim();
   } catch {
-    return false;
+    return undefined;
   }
 }
 
 export const __gitWorkerWorkspaceInternals = {
   parseNameStatus,
   pathsOverlap,
+  rebaseManifestToProjectRoot,
 };

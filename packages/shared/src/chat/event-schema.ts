@@ -207,6 +207,7 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
           ]),
           executionMode: z.enum(["read_only", "write"]),
           dependencies: z.array(z.string()),
+          preferredModelId: z.string().optional(),
           status: z.enum([
             "blocked",
             "ready",
@@ -226,6 +227,7 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
                 attemptId: z.string(),
                 chatId: z.string(),
                 agentId: z.string(),
+                modelId: z.string().optional(),
                 status: z.enum([
                   "starting",
                   "running",
@@ -241,6 +243,12 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
         })
         .strict()
     ),
+    limits: z
+      .object({
+        maxAttemptsPerTask: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
     gates: z.array(
       z
         .object({

@@ -144,10 +144,39 @@ describe("QuotaCycleUsageService", () => {
     expect(cycle?.estimate.confidence).toBe("unavailable");
     expect(cycle?.estimate.reasons.join(" ")).toContain("first observed");
   });
+
+  test("does not correlate model tokens with MCP tool-call quotas", async () => {
+    const scanner = new FakeUsageScanner();
+    const result = await new QuotaCycleUsageService({
+      repository: new FakeUsageRepository([]),
+      scanner,
+      quotaProvider: {
+        list: () =>
+          Promise.resolve(
+            createQuotaResult({
+              usageKind: "tool_calls",
+            })
+          ),
+      },
+      nowMs: () => CHECKED_AT,
+    }).get("user-1");
+
+    const cycle = result.providers[0]?.cycles[0];
+    expect(cycle?.observed.tokens.totalTokens).toBe(0);
+    expect(cycle?.observed.apiEquivalent.totalUsd).toBe(0);
+    expect(cycle?.estimate.confidence).toBe("unavailable");
+    expect(cycle?.estimate.projectedTokenCapacity).toBeUndefined();
+    expect(cycle?.estimate.reasons.join(" ")).toContain("MCP tool calls");
+    expect(scanner.inputs).toEqual([]);
+  });
 });
 
 function createQuotaResult(
-  options: { includeProviderStart?: boolean; durationMs?: boolean } = {}
+  options: {
+    includeProviderStart?: boolean;
+    durationMs?: boolean;
+    usageKind?: "model_tokens" | "tool_calls";
+  } = {}
 ): ProviderQuotaListResult {
   const includeProviderStart = options.includeProviderStart !== false;
   const includeDuration = options.durationMs !== false;
@@ -167,6 +196,7 @@ function createQuotaResult(
           {
             id: "primary",
             label: "Primary",
+            ...(options.usageKind ? { usageKind: options.usageKind } : {}),
             percentRemaining: 52,
             ...(includeProviderStart
               ? { startedAt: new Date(CYCLE_START).toISOString() }

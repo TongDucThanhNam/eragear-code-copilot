@@ -37,6 +37,7 @@ import {
 } from "./usage-pricing";
 
 const CLI_PROVIDER_IDS: UsageStatsCliProviderId[] = [
+  "antigravity",
   "amp",
   "claude",
   "codex",
@@ -48,6 +49,7 @@ const CLI_PROVIDER_IDS: UsageStatsCliProviderId[] = [
 ];
 
 const PROVIDER_DISPLAY_NAMES: Record<UsageStatsCliProviderId, string> = {
+  antigravity: "Antigravity",
   amp: "Amp",
   claude: "Claude Code",
   codex: "Codex",
@@ -67,6 +69,7 @@ const DEFAULT_PROVIDER_SCAN_TIMEOUT_MS: Record<
   UsageStatsCliProviderId,
   number
 > = {
+  antigravity: 30_000,
   amp: 12_000,
   claude: 12_000,
   codex: 120_000,
@@ -77,6 +80,11 @@ const DEFAULT_PROVIDER_SCAN_TIMEOUT_MS: Record<
   zcode: 12_000,
 };
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ANTIGRAVITY_DATA_DIR_NAMES = [
+  "antigravity",
+  "antigravity-cli",
+  "antigravity-ide",
+] as const;
 const GEMINI_SESSION_FILE_RE = /[\\/]chats[\\/]session-[^\\/]+\.json$/;
 const CURSOR_WEB_BASE_TRAILING_SLASH_RE = /\/+$/;
 const CSV_LINE_RE = /\r?\n/;
@@ -171,6 +179,19 @@ interface PersistedCodexUsageIndex {
 interface LocalCliUsageScannerOptions {
   codexIndexFilePath?: () => string;
   persistCodexIndex?: boolean;
+}
+
+interface ProtobufField {
+  fieldNumber: number;
+  wireType: number;
+  varint?: bigint;
+  bytes?: Buffer;
+}
+
+interface AntigravityGenerationUsage {
+  date: Date;
+  modelName?: string;
+  tokens: UsageStatsTokenTotals;
 }
 
 interface AmpThread {
@@ -337,6 +358,14 @@ export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
     pricingSnapshot: PricingSnapshot
   ): Promise<MutableProviderUsage | null> {
     switch (providerId) {
+      case "antigravity":
+        return await loadAntigravityUsage(
+          start,
+          end,
+          recentStart,
+          warnings,
+          pricingSnapshot
+        );
       case "amp":
         return await loadAmpUsage(
           start,
@@ -1522,6 +1551,315 @@ async function loadGeminiUsage(
   }
 
   return usage;
+}
+
+async function loadAntigravityUsage(
+  start: Date,
+  end: Date,
+  recentStart: Date,
+  warnings: string[],
+  pricingSnapshot: PricingSnapshot
+): Promise<MutableProviderUsage | null> {
+  const conversationDirs = getAntigravityConversationDirs();
+  if (conversationDirs.length === 0) {
+    return null;
+  }
+
+  const usage = createProviderUsage("antigravity", pricingSnapshot);
+  const databaseFiles = (
+    await Promise.all(
+      conversationDirs.map((dir) => listFilesRecursive(dir, ".db"))
+    )
+  )
+    .flat()
+    .filter((file) => antigravityDatabaseMayContainRange(file, start));
+
+  await runWithConcurrency(
+    databaseFiles,
+    Math.min(getFileConcurrency(), 4),
+    async (databasePath) => {
+      try {
+        await withReadonlySqlite(databasePath, (db) => {
+          const hasGeneratorMetadata = db
+            .query(
+              "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'gen_metadata' LIMIT 1"
+            )
+            .get() as { present?: number } | null;
+          if (!hasGeneratorMetadata?.present) {
+            return;
+          }
+
+          const statement = db.query(`
+            SELECT idx, data
+            FROM gen_metadata
+            WHERE data IS NOT NULL
+            ORDER BY idx ASC
+          `);
+          for (const row of statement.iterate() as Iterable<{
+            idx?: number;
+            data?: Uint8Array;
+          }>) {
+            if (!row.data) {
+              continue;
+            }
+            try {
+              const generation = parseAntigravityGenerationUsage(row.data);
+              if (!generation) {
+                continue;
+              }
+              if (
+                !isInRange(generation.date, start, end) ||
+                generation.tokens.totalTokens <= 0
+              ) {
+                continue;
+              }
+              recordUsage({
+                usage,
+                date: generation.date,
+                tokens: generation.tokens,
+                modelName: generation.modelName,
+                recentStart,
+              });
+            } catch (error) {
+              warnings.push(
+                `Skipped Antigravity generation ${databasePath}:${row.idx ?? "unknown"}: ${sanitizeErrorMessage(error)}`
+              );
+            }
+          }
+        });
+      } catch (error) {
+        warnings.push(
+          `Skipped Antigravity database ${databasePath}: ${sanitizeErrorMessage(error)}`
+        );
+      }
+    }
+  );
+
+  return usage;
+}
+
+function getAntigravityConversationDirs(): string[] {
+  return ANTIGRAVITY_DATA_DIR_NAMES.map((name) =>
+    path.join(getGeminiBaseDir(), name, "conversations")
+  ).filter((dir) => existsSync(dir));
+}
+
+function antigravityDatabaseMayContainRange(
+  databasePath: string,
+  start: Date
+): boolean {
+  const startMs = start.getTime();
+  if (startMs <= 0) {
+    return true;
+  }
+  return (
+    Math.max(
+      bunFile(databasePath).lastModified,
+      bunFile(`${databasePath}-wal`).lastModified
+    ) >= startMs
+  );
+}
+
+function parseAntigravityGenerationUsage(
+  rawData: Uint8Array
+): AntigravityGenerationUsage | null {
+  let chatModelMetadata: Buffer | undefined;
+  visitProtobufFields(Buffer.from(rawData), (field) => {
+    if (field.fieldNumber === 1 && field.wireType === 2 && field.bytes) {
+      chatModelMetadata = field.bytes;
+    }
+  });
+  if (!chatModelMetadata) {
+    return null;
+  }
+
+  let usageMetadata: Buffer | undefined;
+  let chatStartMetadata: Buffer | undefined;
+  let responseModel: string | undefined;
+  let responseModelFull: string | undefined;
+  let modelDisplayName: string | undefined;
+  visitProtobufFields(chatModelMetadata, (field) => {
+    if (field.wireType !== 2 || !field.bytes) {
+      return;
+    }
+    if (field.fieldNumber === 4) {
+      usageMetadata = field.bytes;
+    } else if (field.fieldNumber === 9) {
+      chatStartMetadata = field.bytes;
+    } else if (field.fieldNumber === 19) {
+      responseModel = readProtobufString(field.bytes);
+    } else if (field.fieldNumber === 21) {
+      modelDisplayName = readProtobufString(field.bytes);
+    } else if (field.fieldNumber === 22) {
+      responseModelFull = readProtobufString(field.bytes);
+    }
+  });
+  if (!(usageMetadata && chatStartMetadata)) {
+    return null;
+  }
+
+  const date = parseAntigravityCreatedAt(chatStartMetadata);
+  if (!date) {
+    return null;
+  }
+
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheInputTokens = 0;
+  let cacheOutputTokens = 0;
+  visitProtobufFields(usageMetadata, (field) => {
+    if (field.wireType !== 0 || field.varint === undefined) {
+      return;
+    }
+    const value = protobufCountToNumber(field.varint);
+    if (field.fieldNumber === 2) {
+      inputTokens = value;
+    } else if (field.fieldNumber === 3) {
+      outputTokens = value;
+    } else if (field.fieldNumber === 4) {
+      cacheOutputTokens = value;
+    } else if (field.fieldNumber === 5) {
+      cacheInputTokens = value;
+    }
+  });
+
+  return {
+    date,
+    modelName: normalizeModelName(
+      responseModelFull ?? responseModel ?? modelDisplayName
+    ),
+    tokens: createTokens({
+      input: inputTokens + cacheInputTokens,
+      output: outputTokens + cacheOutputTokens,
+      cacheInput: cacheInputTokens,
+      cacheOutput: cacheOutputTokens,
+    }),
+  };
+}
+
+function parseAntigravityCreatedAt(metadata: Buffer): Date | null {
+  let timestamp: Buffer | undefined;
+  visitProtobufFields(metadata, (field) => {
+    if (field.fieldNumber === 4 && field.wireType === 2 && field.bytes) {
+      timestamp = field.bytes;
+    }
+  });
+  if (!timestamp) {
+    return null;
+  }
+
+  let seconds = 0;
+  let nanos = 0;
+  visitProtobufFields(timestamp, (field) => {
+    if (field.wireType !== 0 || field.varint === undefined) {
+      return;
+    }
+    if (field.fieldNumber === 1) {
+      seconds = protobufCountToNumber(field.varint);
+    } else if (field.fieldNumber === 2) {
+      nanos = protobufCountToNumber(field.varint);
+    }
+  });
+  if (seconds <= 0) {
+    return null;
+  }
+  const date = new Date(seconds * 1000 + Math.floor(nanos / 1_000_000));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function visitProtobufFields(
+  buffer: Buffer,
+  visitor: (field: ProtobufField) => void
+): void {
+  let offset = 0;
+  while (offset < buffer.length) {
+    const tag = readProtobufVarint(buffer, offset);
+    offset = tag.nextOffset;
+    const fieldNumber = Number(tag.value / 8n);
+    const wireType = Number(tag.value % 8n);
+    if (fieldNumber <= 0) {
+      throw new Error("Invalid protobuf field number");
+    }
+
+    if (wireType === 0) {
+      const value = readProtobufVarint(buffer, offset);
+      offset = value.nextOffset;
+      visitor({ fieldNumber, wireType, varint: value.value });
+      continue;
+    }
+    if (wireType === 1) {
+      offset = advanceProtobufOffset(buffer, offset, 8);
+      visitor({ fieldNumber, wireType });
+      continue;
+    }
+    if (wireType === 2) {
+      const length = readProtobufVarint(buffer, offset);
+      offset = length.nextOffset;
+      const byteLength = protobufCountToNumber(length.value);
+      const nextOffset = advanceProtobufOffset(buffer, offset, byteLength);
+      visitor({
+        fieldNumber,
+        wireType,
+        bytes: buffer.subarray(offset, nextOffset),
+      });
+      offset = nextOffset;
+      continue;
+    }
+    if (wireType === 5) {
+      offset = advanceProtobufOffset(buffer, offset, 4);
+      visitor({ fieldNumber, wireType });
+      continue;
+    }
+    throw new Error(`Unsupported protobuf wire type ${wireType}`);
+  }
+}
+
+function readProtobufVarint(
+  buffer: Buffer,
+  offset: number
+): { value: bigint; nextOffset: number } {
+  let value = 0n;
+  let multiplier = 1n;
+  for (
+    let index = 0;
+    index < 10 && offset + index < buffer.length;
+    index += 1
+  ) {
+    const byte = buffer[offset + index];
+    if (byte === undefined) {
+      break;
+    }
+    value += BigInt(byte % 128) * multiplier;
+    if (byte < 128) {
+      return { value, nextOffset: offset + index + 1 };
+    }
+    multiplier *= 128n;
+  }
+  throw new Error("Invalid protobuf varint");
+}
+
+function advanceProtobufOffset(
+  buffer: Buffer,
+  offset: number,
+  byteLength: number
+): number {
+  const nextOffset = offset + byteLength;
+  if (byteLength < 0 || nextOffset < offset || nextOffset > buffer.length) {
+    throw new Error("Invalid protobuf field length");
+  }
+  return nextOffset;
+}
+
+function protobufCountToNumber(value: bigint): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("Protobuf integer exceeds the supported range");
+  }
+  return Number(value);
+}
+
+function readProtobufString(bytes: Buffer): string | undefined {
+  const value = bytes.toString("utf8").trim();
+  return value || undefined;
 }
 
 async function loadOpenCodeUsage(

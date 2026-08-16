@@ -14,7 +14,7 @@ export function initializeSupervisorOrchestrationEvents(params: {
   workerSessions: WorkerSessionManagerPort;
   manager?: Pick<
     AcpManagerSessionCoordinator,
-    "claimCompletedTurn" | "resumePending"
+    "claimCompletedTurn" | "claimStoppedTurn" | "resumePending"
   >;
   workerResults: AcpManagerResultReaderPort;
   capacity?: Pick<AcpCapacityCoordinator, "resumeDue">;
@@ -27,17 +27,54 @@ export function initializeSupervisorOrchestrationEvents(params: {
     eventBus: params.eventBus,
     types: [
       "prompt_turn_completed",
+      "agent_session_stopped",
       "supervisor_turn_terminal",
       "supervisor_capacity_resumed",
       "provider_quota_refreshed",
     ],
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This is the single typed event router for mutually exclusive orchestration lifecycle events.
     async handler(event) {
+      if (event.type === "agent_session_stopped") {
+        const managerStop = await params.manager?.claimStoppedTurn({
+          userId: event.userId,
+          chatId: event.chatId,
+          ...(event.stopReason ? { reason: event.stopReason } : {}),
+        });
+        if (managerStop) {
+          return;
+        }
+        const binding = await params.workerSessions.claimStoppedSession({
+          userId: event.userId,
+          chatId: event.chatId,
+          eventId: `${event.agentSessionId ?? event.chatId}:${event.stopReason ?? "stopped"}`,
+        });
+        if (!binding) {
+          return;
+        }
+        await params.orchestrator.recordWorkerTerminal({
+          runId: binding.runId,
+          userId: binding.userId,
+          taskId: binding.taskId,
+          attemptId: binding.attemptId,
+          action: "needs_user",
+          reason:
+            event.stopReason ??
+            "ACP worker session stopped before completing its active turn",
+          resultText: "",
+        });
+        return;
+      }
       if (event.type === "provider_quota_refreshed") {
-        if (event.status === "ready" && event.changed) {
+        if (
+          event.status === "ready" &&
+          event.changed &&
+          event.windows.length > 0 &&
+          !event.windows.some(isQuotaWindowExhausted)
+        ) {
           await params.capacity?.resumeDue({
             userId: event.userId,
-            now: "9999-12-31T23:59:59.999Z",
+            capacityGroup: event.providerId,
+            forceDue: true,
           });
         }
         return;
@@ -122,7 +159,7 @@ export function initializeSupervisorOrchestrationEvents(params: {
         attemptId: binding.attemptId,
         action: resultText ? "done" : "needs_user",
         reason: resultText
-          ? "ACP worker submitted its structured result"
+          ? "ACP worker completed with a persisted assistant handoff"
           : "ACP worker completed without a persisted assistant result",
         resultText: resultText ?? "",
       });
@@ -135,4 +172,24 @@ export function initializeSupervisorOrchestrationEvents(params: {
       });
     },
   });
+}
+
+function isQuotaWindowExhausted(window: {
+  percentRemaining?: number;
+  remaining?: number;
+  total?: number;
+  unlimited?: boolean;
+}) {
+  if (window.unlimited) {
+    return false;
+  }
+  if (window.percentRemaining !== undefined) {
+    return window.percentRemaining <= 0;
+  }
+  return (
+    window.remaining !== undefined &&
+    window.remaining <= 0 &&
+    window.total !== undefined &&
+    window.total > 0
+  );
 }

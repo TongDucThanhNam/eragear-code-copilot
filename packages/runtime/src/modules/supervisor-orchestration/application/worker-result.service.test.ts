@@ -93,18 +93,35 @@ describe("WorkerResultService", () => {
     ).toThrow();
   });
 
-  test("rejects missing verification and patch evidence", () => {
+  test("rejects missing required verification and patch evidence", () => {
     const assessment = new WorkerResultService().assess({
       task: createTask(),
       attempt: createAttempt(),
       result: createResult({ verification: [], patch: undefined }),
     });
     expect(assessment.reasons).toEqual(
-      expect.arrayContaining([
-        "missing_verification",
-        "verification_failed",
-        "missing_patch",
-      ])
+      expect.arrayContaining(["verification_failed", "missing_patch"])
+    );
+  });
+
+  test("does not turn optional diagnostic failures into Supervisor blockers", () => {
+    const assessment = new WorkerResultService().assess({
+      task: createTask({ verificationCommands: [] }),
+      attempt: createAttempt(),
+      result: createResult({
+        verification: [
+          {
+            command: "project-wide diagnostic",
+            exitCode: 1,
+            outputSummary: "unrelated pre-existing failures",
+            startedAt: "2026-07-11T00:00:00.000Z",
+            finishedAt: "2026-07-11T00:00:01.000Z",
+          },
+        ],
+      }),
+    });
+    expect(assessment).toEqual(
+      expect.objectContaining({ decision: "accept", reasons: [] })
     );
   });
 

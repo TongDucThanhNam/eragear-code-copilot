@@ -730,7 +730,8 @@ async function captureCheckpointCommit(params: {
       args: ["read-tree", "--empty"],
       env,
     });
-    if (await resolveCommit(params.projectRoot, "HEAD")) {
+    const headCommit = await resolveCommit(params.projectRoot, "HEAD");
+    if (headCommit) {
       await runGitCommand({
         cwd: params.projectRoot,
         args: ["read-tree", "HEAD"],
@@ -739,14 +740,22 @@ async function captureCheckpointCommit(params: {
     }
     await runGitCommand({
       cwd: params.projectRoot,
-      args: [
-        "add",
-        "-A",
-        "--",
-        ".",
-        ":(exclude).eragear",
-        ":(exclude).eragear/**",
-      ],
+      args: ["-c", "core.safecrlf=false", "add", "-A", "--", "."],
+      env,
+    });
+    await runGitCommand({
+      cwd: params.projectRoot,
+      args: headCommit
+        ? ["reset", "-q", "HEAD", "--", PROJECT_DATA_DIR_NAME]
+        : [
+            "rm",
+            "-r",
+            "--cached",
+            "--ignore-unmatch",
+            "-q",
+            "--",
+            PROJECT_DATA_DIR_NAME,
+          ],
       env,
     });
     const treeSha = (

@@ -49,6 +49,7 @@ export function evaluateWorkerIntegrationGate(input: {
     reasons.add("scope_drift");
   }
   if (
+    input.workspace.kind !== "direct_git" &&
     files.touched.some((filePath) =>
       input.run.baseSnapshot.dirtyPaths.some((dirtyPath) =>
         pathsOverlap(filePath, dirtyPath)
@@ -58,6 +59,7 @@ export function evaluateWorkerIntegrationGate(input: {
     reasons.add("dirty_path_overlap");
   }
   if (
+    input.workspace.kind !== "direct_git" &&
     files.touched.some((filePath) => {
       const dispatchFingerprint = input.workspace.targetFingerprints[filePath];
       const currentFingerprint = input.currentFingerprints[filePath];
@@ -86,9 +88,6 @@ export function evaluateWorkerIntegrationGate(input: {
       return !evidence || evidence.exitCode !== 0;
     })
   ) {
-    reasons.add("verification_failed");
-  }
-  if (input.result.verification.some((evidence) => evidence.exitCode !== 0)) {
     reasons.add("verification_failed");
   }
   if (input.result.toolFailureSummary.length > 0) {

@@ -29,6 +29,17 @@ describe("ACP capacity classification", () => {
     ).toBeFalse();
   });
 
+  test("parses OpenCode's local reset timestamp", () => {
+    const classified = classifyAcpCapacityFailure({
+      assistantFailure:
+        "Usage limit reached for 5 hour. Your limit will reset at 2026-08-13 17:31:50",
+    });
+    expect(classified.kind).toBe("quota_exhausted");
+    expect(classified.resetAt).toBe(
+      new Date("2026-08-13 17:31:50").toISOString()
+    );
+  });
+
   test("uses ETA plus jitter and caps no-ETA backoff at hourly", () => {
     const nowMs = Date.parse("2026-08-10T10:00:00.000Z");
     const withEta = Date.parse(

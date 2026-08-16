@@ -237,6 +237,7 @@ function getCandidateAuthPaths(): string[] {
   const home = os.homedir();
   if (home) {
     paths.add(path.join(home, ".config", "opencode", "auth.json"));
+    paths.add(path.join(home, ".local", "share", "opencode", "auth.json"));
     paths.add(path.join(home, ".config", "codex", "auth.json"));
     paths.add(path.join(home, ".codex", "auth.json"));
     paths.add(

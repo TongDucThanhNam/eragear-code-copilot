@@ -39,6 +39,7 @@ import type {
   AgentUseCases,
   AiUseCases,
   CredentialUseCases,
+  QuotaUseCases,
   SessionUseCases,
   SupervisorOrchestrationUseCases,
   ToolingUseCases,
@@ -62,7 +63,8 @@ export function createSupervisorOrchestrationUseCases(
   ai: AiUseCases,
   agents: AgentUseCases,
   credential: CredentialUseCases,
-  tooling: ToolingUseCases
+  tooling: ToolingUseCases,
+  quota: QuotaUseCases
 ): SupervisorOrchestrationUseCases {
   const runs = new NotifyingSupervisorRunRepository(
     deps.supervisorRunRepo,
@@ -91,7 +93,10 @@ export function createSupervisorOrchestrationUseCases(
       stop: (userId, chatId) => session.stop.execute(userId, chatId),
       resumeExact: (userId, chatId) =>
         session.resume.execute(userId, chatId, { mode: "exact_only" }),
+      getModelId: (chatId) =>
+        deps.sessionRuntime.get(chatId)?.models?.currentModelId,
     },
+    quota: quota.provider,
   });
   const resultReader = new SessionRepositoryAcpManagerResultReaderAdapter(
     deps.sessionRepo
@@ -123,6 +128,12 @@ export function createSupervisorOrchestrationUseCases(
     sendMessage: ai.sendMessage,
     stopSession: session.stop,
     resumeSession: session.resume,
+    setModel: ai.setModel,
+    setMode: ai.setMode,
+    setConfigOption: ai.setConfigOption,
+    preferredModelId: "openai/gpt-5.6-sol",
+    preferredEffort: "max",
+    trustedVerificationCommands,
     results: resultReader,
     capacity,
     readiness: profiles,
@@ -134,6 +145,9 @@ export function createSupervisorOrchestrationUseCases(
     stopSession: session.stop,
     resumeSession: session.resume,
     setModel: ai.setModel,
+    setMode: ai.setMode,
+    setConfigOption: ai.setConfigOption,
+    preferredEffort: readSupervisorModelEffort() ?? "max",
     capacity,
   });
   const workerPermissions = new SupervisorWorkerPermissionService({
@@ -168,11 +182,7 @@ export function createSupervisorOrchestrationUseCases(
     finalVerifier,
     finalCommit,
     configuredLimits: {
-      maxConcurrency: readBoundedLimit(
-        "SUPERVISOR_ORCHESTRATION_MAX_CONCURRENCY",
-        2,
-        SUPERVISOR_RUN_LIMIT_CAPS.maxConcurrency
-      ),
+      maxConcurrency: 1,
       maxTasks: readBoundedLimit(
         "SUPERVISOR_ORCHESTRATION_MAX_TASKS",
         12,
@@ -199,17 +209,23 @@ export function createSupervisorOrchestrationUseCases(
           const state = await session.queries.state(input.userId, input.chatId);
           return {
             status: state.status,
-            resumable:
-              state.status === "stopped" && state.loadSessionSupported === true,
+            resumable: state.loadSessionSupported === true,
+            promptActive:
+              state.status === "running" &&
+              (state.chatStatus === "submitted" ||
+                state.chatStatus === "streaming" ||
+                state.chatStatus === "awaiting_permission" ||
+                state.chatStatus === "cancelling"),
           };
         } catch {
-          return { status: "missing", resumable: false };
+          return { status: "missing", resumable: false, promptActive: false };
         }
       },
     },
     workerSessions,
     workspaces,
-    orchestrator
+    orchestrator,
+    manager
   );
   const globalScheduler = new SupervisorGlobalSchedulerService({
     runs,
@@ -300,4 +316,18 @@ function readBoundedLimit(
     throw new Error(`${key} must be an integer from ${minimum} to ${maximum}`);
   }
   return parsed;
+}
+
+function readSupervisorModelEffort(): string | undefined {
+  const key = "SUPERVISOR_ORCHESTRATION_MODEL_EFFORT";
+  const value = process.env[key]?.trim().toLowerCase();
+  if (!value) {
+    return undefined;
+  }
+  if (!["none", "low", "medium", "high", "xhigh", "max"].includes(value)) {
+    throw new Error(
+      `${key} must be one of none, low, medium, high, xhigh, or max`
+    );
+  }
+  return value;
 }

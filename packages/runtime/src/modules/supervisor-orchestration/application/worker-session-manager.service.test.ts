@@ -78,6 +78,21 @@ function createHarness(
         providers?: string[];
       }>;
     };
+    modes?: {
+      currentModeId: string;
+      availableModes: Array<{
+        id: string;
+        name: string;
+        description?: string | null;
+      }>;
+    };
+    configOptions?: Array<{
+      id: string;
+      category?: string;
+      currentValue?: string;
+      options?: Array<{ value: string }>;
+    }>;
+    preferredEffort?: string;
   } = {}
 ) {
   const runs = new MemoryRunRepository(options.run ?? createWorkerRun());
@@ -85,10 +100,14 @@ function createHarness(
     chatId?: string;
     agentId?: string;
     trustedProjectRoot?: string;
+    envMode?: "local" | "worktree";
+    worktreePath?: string;
   }> = [];
   const sent: Array<{ chatId: string; text: string; source: string }> = [];
   const stopped: string[] = [];
   const selectedModels: string[] = [];
+  const selectedModes: string[] = [];
+  const selectedEfforts: string[] = [];
   let id = 0;
   const deps: WorkerSessionManagerDeps = {
     runs,
@@ -102,6 +121,10 @@ function createHarness(
           id: input.chatId ?? "missing-chat",
           sessionId: `agent-session-${created.length}`,
           ...(options.models ? { models: options.models } : {}),
+          ...(options.modes ? { modes: options.modes } : {}),
+          ...(options.configOptions
+            ? { configOptions: options.configOptions }
+            : {}),
         });
       },
     },
@@ -119,7 +142,10 @@ function createHarness(
     },
     resumeSession: {
       execute() {
-        return Promise.resolve({ ok: true });
+        return Promise.resolve({
+          ok: true,
+          configOptions: options.configOptions,
+        });
       },
     },
     setModel: {
@@ -128,6 +154,19 @@ function createHarness(
         return Promise.resolve();
       },
     },
+    setMode: {
+      execute(_userId, _chatId, modeId) {
+        selectedModes.push(modeId);
+        return Promise.resolve();
+      },
+    },
+    setConfigOption: {
+      execute(_userId, _chatId, configId, value) {
+        selectedEfforts.push(`${configId}:${value}`);
+        return Promise.resolve();
+      },
+    },
+    preferredEffort: options.preferredEffort,
     now: () => "2026-07-11T00:00:00.000Z",
     createId(prefix) {
       id += 1;
@@ -140,11 +179,57 @@ function createHarness(
     sent,
     stopped,
     selectedModels,
+    selectedModes,
+    selectedEfforts,
     service: new WorkerSessionManagerService(deps),
   };
 }
 
 describe("WorkerSessionManagerService", () => {
+  test("keeps every ACP worker on the dedicated builder role", async () => {
+    const run = createWorkerRun();
+    run.tasks = run.tasks.map((task) => ({
+      ...task,
+      executionMode: task.taskId === "task-a" ? "read_only" : "write",
+    }));
+    const harness = createHarness({
+      run,
+      modes: {
+        currentModeId: "manager",
+        availableModes: [
+          { id: "manager", name: "manager" },
+          { id: "builder", name: "builder" },
+        ],
+      },
+      configOptions: [
+        {
+          id: "effort",
+          category: "thought_level",
+          currentValue: "none",
+          options: [{ value: "none" }, { value: "xhigh" }],
+        },
+      ],
+      preferredEffort: "xhigh",
+    });
+
+    await harness.service.dispatch({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: "task-a",
+      idempotencyKey: "run-1:task-a:1",
+    });
+    await harness.service.dispatch({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: "task-b",
+      idempotencyKey: "run-1:task-b:1",
+    });
+
+    expect(harness.selectedModes).toEqual(["builder", "builder"]);
+    expect(harness.selectedEfforts).toEqual(["effort:xhigh", "effort:xhigh"]);
+    expect(harness.sent).toHaveLength(2);
+  });
+
   test("provisions distinct sessions through existing service facades and binds turns", async () => {
     const harness = createHarness();
     const first = await harness.service.dispatch({
@@ -158,13 +243,23 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: "task-b",
       idempotencyKey: "run-1:task-b:1",
-      isolatedProjectRoot: "C:/isolated/task-b",
+      workspace: {
+        workspaceId: "workspace-task-b",
+        kind: "direct_git",
+        userProjectRoot: "C:/repo",
+        projectRoot: "C:/repo",
+        repositoryRoot: "C:/repo",
+        baseHead: "abc123",
+        targetFingerprints: {},
+      },
     });
     expect(first.attempt.chatId).not.toBe(second.attempt.chatId);
     expect(first.attempt.agentSessionId).toBe("agent-session-1");
     expect(second.attempt.agentSessionId).toBe("agent-session-2");
     expect(harness.created).toHaveLength(2);
-    expect(harness.created[1]?.trustedProjectRoot).toBe("C:/isolated/task-b");
+    expect(harness.created[1]?.trustedProjectRoot).toBe("C:/repo");
+    expect(harness.created[1]?.envMode).toBeUndefined();
+    expect(harness.created[1]?.worktreePath).toBeUndefined();
     expect(harness.sent.map((item) => item.source)).toEqual([
       "orchestrator",
       "orchestrator",
@@ -304,7 +399,42 @@ describe("WorkerSessionManagerService", () => {
     expect(mismatch.stopped).toHaveLength(1);
   });
 
-  test("resubmits the same attempt after an exact capacity resume", async () => {
+  test("selects and persists a Manager-assigned model for a normal Supervisor task", async () => {
+    const run = createWorkerRun();
+    const task = run.tasks[0];
+    if (!task) {
+      throw new Error("Expected worker fixture task");
+    }
+    task.preferredModelId = "minimax-coding-plan/MiniMax-M3";
+    const harness = createHarness({
+      run,
+      models: {
+        currentModelId: "zai-coding-plan/glm-5.3",
+        availableModels: [
+          {
+            modelId: "zai-coding-plan/glm-5.3",
+            provider: "zai-coding-plan",
+          },
+          {
+            modelId: "minimax-coding-plan/MiniMax-M3",
+            provider: "minimax-coding-plan",
+          },
+        ],
+      },
+    });
+
+    const dispatched = await harness.service.dispatch({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: task.taskId,
+      idempotencyKey: "run-1:task-a:1",
+    });
+
+    expect(harness.selectedModels).toEqual(["minimax-coding-plan/MiniMax-M3"]);
+    expect(dispatched.attempt.modelId).toBe("minimax-coding-plan/MiniMax-M3");
+  });
+
+  test("submits the original task after capacity recovers before the first turn", async () => {
     const base = createWorkerRun();
     const task = base.tasks[0];
     if (!task) {
@@ -344,6 +474,101 @@ describe("WorkerSessionManagerService", () => {
     expect(harness.created).toHaveLength(0);
     expect(harness.sent).toHaveLength(1);
     expect(harness.sent[0]?.chatId).toBe("chat-quota");
+    expect(harness.sent[0]?.text).toContain(`# Task: ${task.title}`);
+    expect(harness.sent[0]?.text).not.toContain("Continue the current task");
+    const run = await harness.runs.get("run-1", "user-1");
+    expect(run?.tasks[0]?.attempts[0]?.turnId).toBe("turn-1");
+  });
+
+  test("continues the existing task after capacity interrupts an active turn", async () => {
+    const base = createWorkerRun();
+    const task = base.tasks[0];
+    if (!task) {
+      throw new Error("Expected worker fixture task");
+    }
+    const harness = createHarness({
+      run: {
+        ...base,
+        status: "running",
+        tasks: [
+          {
+            ...task,
+            status: "running",
+            attempts: [
+              {
+                attemptId: "attempt-quota",
+                chatId: "chat-quota",
+                agentId: task.preferredAgentId ?? "agent-code",
+                agentSessionId: "acp-session-quota",
+                status: "running",
+                turnId: "turn-before-quota",
+                idempotencyKey: "run-1:task-a:1",
+                startedAt: "2026-07-11T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    await harness.service.resumePendingCapacity({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: task.taskId,
+      attemptId: "attempt-quota",
+    });
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.text).toContain("Continue the current task");
+    expect(harness.sent[0]?.text).not.toContain(task.goal);
+    const run = await harness.runs.get("run-1", "user-1");
+    expect(run?.tasks[0]?.attempts[0]?.turnId).toBe("turn-1");
+  });
+
+  test("continues the same attempt after an exact recovery resume", async () => {
+    const base = createWorkerRun();
+    const task = base.tasks[0];
+    if (!task) {
+      throw new Error("Expected worker fixture task");
+    }
+    const harness = createHarness({
+      run: {
+        ...base,
+        status: "running",
+        tasks: [
+          {
+            ...task,
+            status: "running",
+            attempts: [
+              {
+                attemptId: "attempt-recovery",
+                chatId: "chat-recovery",
+                agentId: task.preferredAgentId ?? "agent-code",
+                agentSessionId: "acp-session-recovery",
+                status: "running",
+                turnId: "turn-before-restart",
+                idempotencyKey: "run-1:task-a:1",
+                startedAt: "2026-07-11T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    await harness.service.resume({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: task.taskId,
+      attemptId: "attempt-recovery",
+    });
+
+    expect(harness.created).toHaveLength(0);
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.chatId).toBe("chat-recovery");
+    expect(harness.sent[0]?.source).toBe("orchestrator");
+    expect(harness.sent[0]?.text).toContain("Continue the current task");
+    expect(harness.sent[0]?.text).not.toContain("compact JSON object");
     const run = await harness.runs.get("run-1", "user-1");
     expect(run?.tasks[0]?.attempts[0]?.turnId).toBe("turn-1");
   });

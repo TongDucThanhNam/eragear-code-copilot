@@ -144,15 +144,14 @@ describe("quota adapter normalizers", () => {
             {
               type: "TOKENS_LIMIT",
               unit: 3,
-              number: 100,
-              usage: 20,
               percentage: 20,
             },
             {
               type: "TIME_LIMIT",
               unit: 0,
-              number: 60,
-              usage: 15,
+              usage: 60,
+              currentValue: 15,
+              remaining: 45,
               percentage: 25,
             },
           ],
@@ -164,15 +163,48 @@ describe("quota adapter normalizers", () => {
     expect(windows).toEqual([
       expect.objectContaining({
         id: "5h",
+        usageKind: "model_tokens",
         percentRemaining: 80,
-        remaining: 80,
       }),
       expect.objectContaining({
         id: "mcp",
+        usageKind: "tool_calls",
         percentRemaining: 75,
+        total: 60,
+        used: 15,
         remaining: 45,
       }),
     ]);
+  });
+
+  test("uses Z.ai MCP counters instead of the metadata number field", () => {
+    const windows = normalizeZaiQuota(
+      {
+        data: {
+          limits: [
+            {
+              type: "TIME_LIMIT",
+              unit: 0,
+              number: 1,
+              usage: 100,
+              currentValue: 0,
+              remaining: 100,
+              percentage: 0,
+            },
+          ],
+        },
+      },
+      NOW_MS
+    );
+
+    expect(windows[0]).toMatchObject({
+      id: "mcp",
+      usageKind: "tool_calls",
+      percentRemaining: 100,
+      total: 100,
+      used: 0,
+      remaining: 100,
+    });
   });
 
   test("sends the Z.ai provider credential as a Bearer token", async () => {

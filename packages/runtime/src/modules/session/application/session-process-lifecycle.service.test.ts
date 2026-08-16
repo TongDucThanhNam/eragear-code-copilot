@@ -8,6 +8,7 @@ import type {
 import { createUiMessageState } from "#runtime/shared/utils/ui-message.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import type { AgentSessionStoppedContext } from "./session-lifecycle.notifier";
 import { SessionProcessLifecycleService } from "./session-process-lifecycle.service";
 
 function createSession(chatId: string): ChatSession {
@@ -129,12 +130,27 @@ async function flushAsync(): Promise<void> {
 describe("SessionProcessLifecycleService", () => {
   test("marks session error and stopped on abnormal exit", async () => {
     const session = createSession("chat-abnormal-exit");
+    session.sessionId = "agent-session-1";
+    session.projectId = "project-1";
+    session.activePromptTask = {
+      turnId: "turn-1",
+      promise: Promise.resolve(),
+    };
     const runtimeStub = createRuntimeStub(session);
     const repoStub = createRepoStub();
+    const stoppedEvents: AgentSessionStoppedContext[] = [];
     const service = new SessionProcessLifecycleService(
       runtimeStub.runtime,
       repoStub.repo,
-      createLoggerStub()
+      createLoggerStub(),
+      {
+        agentSessionCreated: () => Promise.resolve(),
+        agentSessionStopped(input) {
+          stoppedEvents.push(input);
+          return Promise.resolve();
+        },
+        sessionDeleted: () => Promise.resolve(),
+      }
     );
     const proc = new EventEmitter() as ChildProcess;
 
@@ -159,6 +175,16 @@ describe("SessionProcessLifecycleService", () => {
     ]);
     expect(runtimeStub.deleteCalls).toBe(1);
     expect(runtimeStub.runtime.has(session.id)).toBe(false);
+    expect(stoppedEvents).toEqual([
+      {
+        userId: "user-1",
+        projectRoot: "/tmp/project",
+        projectId: "project-1",
+        chatId: "chat-abnormal-exit",
+        agentSessionId: "agent-session-1",
+        stopReason: "Agent process exited with code 1",
+      },
+    ]);
   });
 
   test("marks session inactive on clean exit and stops once", async () => {
@@ -193,6 +219,70 @@ describe("SessionProcessLifecycleService", () => {
       },
     ]);
     expect(runtimeStub.deleteCalls).toBe(1);
+  });
+
+  test("does not publish an unexpected stop without an active prompt", async () => {
+    const session = createSession("chat-idle-exit");
+    const runtimeStub = createRuntimeStub(session);
+    const repoStub = createRepoStub();
+    const stoppedEvents: AgentSessionStoppedContext[] = [];
+    const service = new SessionProcessLifecycleService(
+      runtimeStub.runtime,
+      repoStub.repo,
+      createLoggerStub(),
+      {
+        agentSessionCreated: () => Promise.resolve(),
+        agentSessionStopped(input) {
+          stoppedEvents.push(input);
+          return Promise.resolve();
+        },
+        sessionDeleted: () => Promise.resolve(),
+      }
+    );
+    const proc = new EventEmitter() as ChildProcess;
+
+    service.attach(proc, session.id);
+    proc.emit("exit", 0, null);
+    await flushAsync();
+
+    expect(stoppedEvents).toEqual([]);
+  });
+
+  test("publishes an unexpected stop while a turn remains active after its prompt task cleared", async () => {
+    const session = createSession("chat-active-turn-exit");
+    session.sessionId = "agent-session-1";
+    session.activeTurnId = "turn-1";
+    const runtimeStub = createRuntimeStub(session);
+    const repoStub = createRepoStub();
+    const stoppedEvents: AgentSessionStoppedContext[] = [];
+    const service = new SessionProcessLifecycleService(
+      runtimeStub.runtime,
+      repoStub.repo,
+      createLoggerStub(),
+      {
+        agentSessionCreated: () => Promise.resolve(),
+        agentSessionStopped(input) {
+          stoppedEvents.push(input);
+          return Promise.resolve();
+        },
+        sessionDeleted: () => Promise.resolve(),
+      }
+    );
+    const proc = new EventEmitter() as ChildProcess;
+
+    service.attach(proc, session.id);
+    proc.emit("exit", 0, null);
+    await flushAsync();
+
+    expect(stoppedEvents).toEqual([
+      {
+        userId: "user-1",
+        projectRoot: "/tmp/project",
+        chatId: "chat-active-turn-exit",
+        agentSessionId: "agent-session-1",
+        stopReason: "Agent process stopped before completing its active prompt",
+      },
+    ]);
   });
 
   test("handles duplicate lifecycle signals idempotently", async () => {

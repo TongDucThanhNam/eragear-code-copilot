@@ -8,6 +8,7 @@ export {
 export {
   AcpCapacityCoordinator,
   type AcpCapacityCoordinatorDeps,
+  type AcpCapacityQuotaPort,
   type AcpCapacitySessionLifecyclePort,
 } from "./application/acp-capacity-coordinator.service";
 export {
@@ -148,11 +149,10 @@ export {
   type WorkerIntegrationGateReason,
 } from "./application/worker-integration-gate";
 export type { WorkerDependencySummary } from "./application/worker-prompt.builder";
-export { buildWorkerPrompt } from "./application/worker-prompt.builder";
 export {
-  extractWorkerResult,
-  WorkerResultExtractionError,
-} from "./application/worker-result.extractor";
+  buildWorkerPrompt,
+  buildWorkerResumePrompt,
+} from "./application/worker-prompt.builder";
 export type {
   WorkerResultAssessment,
   WorkerResultRejectionReason,

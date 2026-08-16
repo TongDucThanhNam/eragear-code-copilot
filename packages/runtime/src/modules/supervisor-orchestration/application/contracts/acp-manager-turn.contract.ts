@@ -5,7 +5,10 @@ import {
 } from "../../domain/supervisor-run.schemas";
 import { SupervisorPlannerTaskProposalSchema } from "./supervisor-planner.contract";
 
-const BaseTurnSchema = z.object({ schemaVersion: z.literal(1) });
+const BaseTurnSchema = z.object({
+  schemaVersion: z.literal(1),
+  runId: z.string().trim().min(1).max(160).optional(),
+});
 
 const AcpManagerPlanPayloadSchema = BaseTurnSchema.extend({
   summary: z.string().trim().min(1).max(8000),

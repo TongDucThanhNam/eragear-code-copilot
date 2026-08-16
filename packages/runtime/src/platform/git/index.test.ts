@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { GitAdapter } from "./index";
 
 const tempDirs: string[] = [];
+const LINE_BREAK_REGEX = /\r?\n/;
 
 async function createTempProjectDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "eragear-git-adapter-"));
@@ -221,6 +222,45 @@ describe("GitAdapter", () => {
         encoding: "utf8",
       }).stdout.trim()
     ).toBe(originalHead);
+  });
+
+  test("captures a nested project while excluding its ignored Eragear data", async () => {
+    const repositoryRoot = await createTempProjectDir();
+    runGitOrThrow(repositoryRoot, ["init"]);
+    runGitOrThrow(repositoryRoot, ["config", "user.email", "test@example.com"]);
+    runGitOrThrow(repositoryRoot, ["config", "user.name", "Test User"]);
+    const projectRoot = join(repositoryRoot, "lab");
+    await mkdir(join(projectRoot, ".eragear"), { recursive: true });
+    await writeFile(
+      join(repositoryRoot, ".gitignore"),
+      "lab/.eragear/\n",
+      "utf8"
+    );
+    await writeFile(join(projectRoot, "tracked.txt"), "initial\n", "utf8");
+    runGitOrThrow(repositoryRoot, ["add", ".gitignore", "lab/tracked.txt"]);
+    runGitOrThrow(repositoryRoot, ["commit", "-m", "initial"]);
+    await writeFile(join(projectRoot, "tracked.txt"), "changed\n", "utf8");
+    await writeFile(
+      join(projectRoot, ".eragear", "runtime-state.json"),
+      "{}\n",
+      "utf8"
+    );
+
+    const checkpoint = await new GitAdapter().captureTurnCheckpoint({
+      projectRoot,
+      sessionId: "nested-chat",
+      turnId: "turn-1",
+      turnCount: 1,
+      kind: "turn",
+    });
+    const treePaths = spawnSync(
+      "git",
+      ["ls-tree", "-r", "--name-only", checkpoint.commitSha],
+      { cwd: repositoryRoot, encoding: "utf8" }
+    ).stdout.split(LINE_BREAK_REGEX);
+
+    expect(treePaths).toContain("lab/tracked.txt");
+    expect(treePaths).not.toContain("lab/.eragear/runtime-state.json");
   });
 
   test("restores a turn checkpoint with a safety ref and preserves Eragear data", async () => {

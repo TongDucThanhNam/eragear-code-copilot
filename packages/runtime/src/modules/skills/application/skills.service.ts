@@ -1,6 +1,6 @@
 import type {
-  SetSkillEnabledInput,
-  SkillDescriptor,
+  ManageProjectSkillInput,
+  SkillsCatalogSnapshot,
   SkillsListResult,
   SkillsProjectInput,
 } from "./contracts/skills.contract";
@@ -20,18 +20,28 @@ export class SkillsService {
     return toResult(await this.skills.listSkills(userId, input));
   }
 
-  async setEnabled(
+  async addToProject(
     userId: string,
-    input: SetSkillEnabledInput
+    input: ManageProjectSkillInput
   ): Promise<SkillsListResult> {
-    return toResult(await this.skills.setSkillEnabled(userId, input));
+    return toResult(await this.skills.addSkillToProject(userId, input));
+  }
+
+  async removeFromProject(
+    userId: string,
+    input: ManageProjectSkillInput
+  ): Promise<SkillsListResult> {
+    return toResult(await this.skills.removeSkillFromProject(userId, input));
   }
 }
 
-function toResult(skills: SkillDescriptor[]): SkillsListResult {
+function toResult(snapshot: SkillsCatalogSnapshot): SkillsListResult {
   return {
-    skills,
-    enabledCount: skills.filter((skill) => skill.enabled).length,
-    totalCount: skills.length,
+    ...snapshot,
+    installedCount: snapshot.skills.filter(
+      (skill) =>
+        skill.status === "installed" || skill.status === "missing-source"
+    ).length,
+    totalCount: snapshot.skills.length,
   };
 }

@@ -10,6 +10,14 @@ import {
   AcpManagerTurnSchema,
 } from "./contracts/acp-manager-turn.contract";
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
+import {
+  type AcpSessionConfigOption,
+  resolvePreferredSessionEffort,
+} from "./preferred-session-effort";
+import {
+  type AcpSessionModes,
+  resolveSafeSessionModeId,
+} from "./safe-session-mode";
 
 const MAX_CAS_ATTEMPTS = 8;
 const MAX_MANAGER_RESULT_CHARS = 64_000;
@@ -22,7 +30,12 @@ export interface AcpManagerSessionCreatePort {
     projectRoot?: string;
     agentId?: string;
     chatId?: string;
-  }): Promise<{ id: string; sessionId?: string }>;
+  }): Promise<{
+    id: string;
+    sessionId?: string;
+    modes?: AcpSessionModes;
+    configOptions?: AcpSessionConfigOption[];
+  }>;
 }
 
 export interface AcpManagerMessageSendPort {
@@ -43,6 +56,27 @@ export interface AcpManagerSessionResumePort {
     userId: string,
     chatId: string,
     options: { mode: "exact_only" }
+  ): Promise<unknown>;
+}
+
+export interface AcpManagerModeSetPort {
+  execute(userId: string, chatId: string, modeId: string): Promise<unknown>;
+}
+
+export interface AcpManagerModelSetPort {
+  execute(
+    userId: string,
+    chatId: string,
+    modelId: string
+  ): Promise<{ configOptions?: AcpSessionConfigOption[] }>;
+}
+
+export interface AcpManagerConfigOptionSetPort {
+  execute(
+    userId: string,
+    chatId: string,
+    configId: string,
+    value: string
   ): Promise<unknown>;
 }
 
@@ -75,6 +109,12 @@ export interface AcpManagerSessionCoordinatorDeps {
   sendMessage: AcpManagerMessageSendPort;
   stopSession: AcpManagerSessionStopPort;
   resumeSession: AcpManagerSessionResumePort;
+  setModel?: AcpManagerModelSetPort;
+  setMode?: AcpManagerModeSetPort;
+  setConfigOption?: AcpManagerConfigOptionSetPort;
+  preferredModelId?: string;
+  preferredEffort?: string;
+  trustedVerificationCommands?: string[];
   results: AcpManagerResultReaderPort;
   capacity?: AcpManagerCapacityPort;
   readiness?: AcpManagerReadinessPort;
@@ -89,12 +129,24 @@ export interface AcpManagerCompletedTurn {
   turn: AcpManagerTurn;
 }
 
+export interface AcpManagerStoppedTurn {
+  runId: string;
+  userId: string;
+  turnId: string;
+}
+
 export class AcpManagerSessionCoordinator {
   private readonly runs: SupervisorRunRepositoryPort;
   private readonly createSession: AcpManagerSessionCreatePort;
   private readonly sendMessage: AcpManagerMessageSendPort;
   private readonly stopSession: AcpManagerSessionStopPort;
   private readonly resumeSession: AcpManagerSessionResumePort;
+  private readonly setModel?: AcpManagerModelSetPort;
+  private readonly setMode?: AcpManagerModeSetPort;
+  private readonly setConfigOption?: AcpManagerConfigOptionSetPort;
+  private readonly preferredModelId?: string;
+  private readonly preferredEffort?: string;
+  private readonly trustedVerificationCommands: string[];
   private readonly results: AcpManagerResultReaderPort;
   private readonly capacity?: AcpManagerCapacityPort;
   private readonly readiness?: AcpManagerReadinessPort;
@@ -107,6 +159,14 @@ export class AcpManagerSessionCoordinator {
     this.sendMessage = deps.sendMessage;
     this.stopSession = deps.stopSession;
     this.resumeSession = deps.resumeSession;
+    this.setModel = deps.setModel;
+    this.setMode = deps.setMode;
+    this.setConfigOption = deps.setConfigOption;
+    this.preferredModelId = deps.preferredModelId;
+    this.preferredEffort = deps.preferredEffort;
+    this.trustedVerificationCommands = [
+      ...(deps.trustedVerificationCommands ?? []),
+    ];
     this.results = deps.results;
     this.capacity = deps.capacity;
     this.readiness = deps.readiness;
@@ -142,14 +202,47 @@ export class AcpManagerSessionCoordinator {
             "ACP manager did not establish an exact-resumable session id"
           );
         }
+        const managerModeId = resolveSafeSessionModeId(
+          "read_only",
+          created.modes,
+          "manager"
+        );
+        if (managerModeId) {
+          if (!this.setMode) {
+            throw new Error("ACP manager mode selection is unavailable");
+          }
+          await this.setMode.execute(run.userId, manager.chatId, managerModeId);
+        }
+        const modelConfigOptions = await this.applyPreferredModel(
+          run.userId,
+          manager.chatId
+        );
+        await this.applyPreferredEffort({
+          userId: run.userId,
+          chatId: manager.chatId,
+          configOptions: modelConfigOptions ?? created.configOptions,
+        });
         run = await this.updateRun(run.runId, run.userId, (draft) => {
           const draftManager = requireManager(draft);
           draftManager.agentSessionId = created.sessionId;
           draftManager.status = "running";
         });
       } else if (manager.status === "stopped") {
-        await this.resumeSession.execute(run.userId, manager.chatId, {
-          mode: "exact_only",
+        const resumed = (await this.resumeSession.execute(
+          run.userId,
+          manager.chatId,
+          {
+            mode: "exact_only",
+          }
+        )) as { configOptions?: AcpSessionConfigOption[] };
+        const modelConfigOptions = await this.applyPreferredModel(
+          run.userId,
+          manager.chatId
+        );
+        await this.applyPreferredEffort({
+          userId: run.userId,
+          chatId: manager.chatId,
+          configOptions: modelConfigOptions ?? resumed.configOptions,
         });
         await this.readiness
           ?.recordExactResumeSuccess({
@@ -166,6 +259,7 @@ export class AcpManagerSessionCoordinator {
       const prompt = buildAcpManagerPrompt({
         run,
         turnKind: input.turnKind,
+        trustedVerificationCommands: this.trustedVerificationCommands,
         ...(input.requestedChanges
           ? { requestedChanges: input.requestedChanges }
           : {}),
@@ -226,6 +320,47 @@ export class AcpManagerSessionCoordinator {
       });
       throw error;
     }
+  }
+
+  private async applyPreferredEffort(input: {
+    userId: string;
+    chatId: string;
+    configOptions?: AcpSessionConfigOption[];
+  }): Promise<void> {
+    const selection = resolvePreferredSessionEffort(
+      input.configOptions,
+      this.preferredEffort
+    );
+    if (!selection) {
+      return;
+    }
+    if (!this.setConfigOption) {
+      throw new Error("ACP manager effort selection is unavailable");
+    }
+    await this.setConfigOption.execute(
+      input.userId,
+      input.chatId,
+      selection.configId,
+      selection.value
+    );
+  }
+
+  private async applyPreferredModel(
+    userId: string,
+    chatId: string
+  ): Promise<AcpSessionConfigOption[] | undefined> {
+    if (!this.preferredModelId) {
+      return undefined;
+    }
+    if (!this.setModel) {
+      throw new Error("ACP manager model selection is unavailable");
+    }
+    const result = await this.setModel.execute(
+      userId,
+      chatId,
+      this.preferredModelId
+    );
+    return result.configOptions;
   }
 
   async resumePending(input: {
@@ -298,6 +433,9 @@ export class AcpManagerSessionCoordinator {
         throw new Error("ACP manager completion has no assistant result");
       }
       turn = extractAcpManagerTurn(text);
+      if (turn.runId && turn.runId !== run.runId) {
+        throw new Error("ACP manager result run id does not match its binding");
+      }
     } catch (error) {
       await this.failCompletedTurn({
         run,
@@ -323,6 +461,76 @@ export class AcpManagerSessionCoordinator {
       turnId: input.turnId,
       turn,
     };
+  }
+
+  async recoverCompletedTurn(input: {
+    runId: string;
+    userId: string;
+  }): Promise<AcpManagerCompletedTurn | null> {
+    const run = await this.requireRun(input.runId, input.userId);
+    const manager = run.managerSession;
+    const turnId = manager?.activeTurn?.turnId;
+    if (!(manager && turnId)) {
+      return null;
+    }
+    return await this.claimCompletedTurn({
+      userId: input.userId,
+      chatId: manager.chatId,
+      turnId,
+    });
+  }
+
+  async claimStoppedTurn(input: {
+    userId: string;
+    chatId: string;
+    reason?: string;
+  }): Promise<AcpManagerStoppedTurn | null> {
+    const runs = await this.runs.listNonTerminal();
+    const run = runs.find(
+      (candidate) =>
+        candidate.userId === input.userId &&
+        candidate.managerSession?.chatId === input.chatId &&
+        candidate.managerSession.status === "running" &&
+        Boolean(candidate.managerSession.activeTurn)
+    );
+    const turnId = run?.managerSession?.activeTurn?.turnId;
+    if (!(run && turnId)) {
+      return null;
+    }
+    const eventId = `manager-stopped:${input.chatId}:${turnId}`;
+    let claimed = false;
+    const saved = await this.updateRun(run.runId, run.userId, (draft) => {
+      claimed = false;
+      const manager = draft.managerSession;
+      if (
+        !manager ||
+        manager.chatId !== input.chatId ||
+        manager.status !== "running" ||
+        manager.activeTurn?.turnId !== turnId ||
+        draft.processedEventIds.includes(eventId)
+      ) {
+        return;
+      }
+      claimed = true;
+      draft.status = "needs_user";
+      manager.status = "failed";
+      manager.lastCompletedTurnId = turnId;
+      Reflect.deleteProperty(manager, "activeTurn");
+      Reflect.deleteProperty(manager, "pendingTurnKind");
+      draft.processedEventIds.push(eventId);
+      draft.decisions.push({
+        decisionId: this.idFactory("decision"),
+        kind: "classifier_uncertain",
+        status: "open",
+        prompt:
+          input.reason ??
+          "ACP manager session stopped before completing its active turn",
+        createdAt: this.now(),
+      });
+    });
+    return claimed
+      ? { runId: saved.runId, userId: saved.userId, turnId }
+      : null;
   }
 
   private async failCompletedTurn(input: {
@@ -441,14 +649,33 @@ export class AcpManagerSessionCoordinator {
 export function extractAcpManagerTurn(text: string): AcpManagerTurn {
   const bounded = text.slice(-MAX_MANAGER_RESULT_CHARS).trim();
   const fenced = bounded.match(JSON_CODE_FENCE_PATTERN)?.[1]?.trim();
-  const candidate = fenced ?? bounded.slice(bounded.indexOf("{"));
-  try {
-    return AcpManagerTurnSchema.parse(JSON.parse(candidate));
-  } catch (error) {
-    throw new Error("ACP manager returned invalid structured output", {
-      cause: error,
-    });
+  let cause: unknown;
+  for (const candidate of fenced
+    ? [fenced]
+    : collectManagerJsonCandidates(bounded)) {
+    try {
+      return AcpManagerTurnSchema.parse(JSON.parse(candidate));
+    } catch (error) {
+      cause = error;
+    }
   }
+  throw new Error("ACP manager returned invalid structured output", { cause });
+}
+
+function collectManagerJsonCandidates(text: string): string[] {
+  const candidates = [text];
+  let index = text.lastIndexOf("{");
+  while (index >= 0) {
+    const candidate = text.slice(index).trim();
+    if (candidate !== text) {
+      candidates.push(candidate);
+    }
+    if (index === 0) {
+      break;
+    }
+    index = text.lastIndexOf("{", index - 1);
+  }
+  return candidates;
 }
 
 function requireManager(run: SupervisorRunState) {

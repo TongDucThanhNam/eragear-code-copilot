@@ -8,8 +8,8 @@ const FOUNDATION_CAPABILITIES: CapabilityDescriptor[] = [
   {
     id: "skills.local",
     kind: "skill",
-    name: "Local Skills",
-    description: "Typed slot for project and user skills discovered locally.",
+    name: "Project Skills",
+    description: "Typed slot for skills explicitly installed in the project.",
     scope: "local",
     enabled: false,
     storage: "sqlite",

@@ -88,7 +88,7 @@ export class SetModelService {
       const context = this.getRuntimeForModelSwitch(userId, chatId, modelId);
       const session = context.aggregate.raw;
       if (this.isCurrentModel(session, modelId)) {
-        return { ok: true };
+        return { ok: true, configOptions: session.configOptions ?? [] };
       }
 
       this.sessionGateway.assertSessionRunning({
@@ -152,7 +152,7 @@ export class SetModelService {
         chatId,
         session,
       });
-      return { ok: true };
+      return { ok: true, configOptions: session.configOptions ?? [] };
     });
   }
 

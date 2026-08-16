@@ -742,6 +742,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
         discoverSessions={discoverSessions}
         discoverSupported={discoverSupported}
         editProjectForm={editProjectForm}
+        editProjectId={editProjectId}
         form={form}
         isCreateProjectPending={createProjectMutation.isPending}
         isDialogOpen={isDialogOpen}

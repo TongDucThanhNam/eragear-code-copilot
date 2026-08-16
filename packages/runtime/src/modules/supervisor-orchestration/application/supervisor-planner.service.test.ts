@@ -85,6 +85,7 @@ function createProposal(
         role: "implementation",
         executionMode: "write",
         dependencies: ["research"],
+        preferredModelId: "minimax-coding-plan/MiniMax-M3",
         scopeIntent: ["packages/runtime/src/modules/example/feature.ts"],
         verificationRequirements: ["Runtime typecheck passes"],
       },
@@ -117,6 +118,9 @@ describe("SupervisorPlannerService", () => {
       "blocked",
     ]);
     expect(result.tasks[1]?.preferredAgentId).toBe("agent-code");
+    expect(result.tasks[1]?.preferredModelId).toBe(
+      "minimax-coding-plan/MiniMax-M3"
+    );
     expect(result.tasks[1]?.verificationCommands).toEqual([
       "bun run --cwd packages/runtime check-types",
     ]);
@@ -206,6 +210,21 @@ describe("SupervisorPlannerService", () => {
         SupervisorPlanValidationError
       );
     }
+  });
+
+  test("normalizes a trailing directory separator without weakening path safety", () => {
+    const base = createProposal();
+    base.tasks[1] = {
+      ...getImplementationTask(base),
+      scopeIntent: ["demos/supervisos-biosphere-terminal/"],
+    };
+    const service = new SupervisorPlannerService(new StubPlanner(base), policy);
+
+    const result = service.validateProposal(createContext(), base);
+
+    expect(result.tasks[1]?.filesAllowed).toEqual([
+      "demos/supervisos-biosphere-terminal",
+    ]);
   });
 
   test("rejects unsafe actions even when embedded in ordinary task text", () => {

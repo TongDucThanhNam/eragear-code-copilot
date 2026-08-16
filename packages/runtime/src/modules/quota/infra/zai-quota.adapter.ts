@@ -126,8 +126,18 @@ export function normalizeZaiQuota(payload: unknown, nowMs: number) {
       continue;
     }
 
-    const total = readNumber(limit, ["number", "total", "limit"]);
-    const used = readNumber(limit, ["usage", "used"]);
+    const isMcpLimit = type === "TIME_LIMIT";
+    const total = readNumber(
+      limit,
+      isMcpLimit ? ["usage", "total", "limit"] : ["total", "limit"]
+    );
+    const used = readNumber(
+      limit,
+      isMcpLimit
+        ? ["currentValue", "currentUsage", "used"]
+        : ["used", "currentValue", "currentUsage"]
+    );
+    const reportedRemaining = readNumber(limit, ["remaining"]);
     const percentage = readNumber(limit, ["percentage", "usedPercent"]);
     const percentRemaining = calculatePercentRemaining({
       percentage,
@@ -135,9 +145,10 @@ export function normalizeZaiQuota(payload: unknown, nowMs: number) {
       used,
     });
     const remaining =
-      total !== undefined && used !== undefined
+      reportedRemaining ??
+      (total !== undefined && used !== undefined
         ? Math.max(0, total - used)
-        : undefined;
+        : undefined);
 
     const resetAt = parseResetAt(
       limit.nextResetTime ?? limit.next_reset_time ?? limit.resetAt,
@@ -147,6 +158,7 @@ export function normalizeZaiQuota(payload: unknown, nowMs: number) {
       id: windowMeta.id,
       windowType: windowMeta.id,
       label: windowMeta.label,
+      usageKind: windowMeta.usageKind,
       used,
       total,
       remaining,
@@ -180,22 +192,38 @@ function calculatePercentRemaining(params: {
 
 function getZaiWindowMeta(type: string | undefined, unit: number | undefined) {
   if (type === "TIME_LIMIT") {
-    return { id: "mcp", label: "MCP", durationMs: undefined };
+    return {
+      id: "mcp",
+      label: "MCP",
+      durationMs: undefined,
+      usageKind: "tool_calls" as const,
+    };
   }
   if (type !== "TOKENS_LIMIT") {
     return null;
   }
   if (unit === 3) {
-    return { id: "5h", label: "5h", durationMs: 5 * 60 * 60 * 1000 };
+    return {
+      id: "5h",
+      label: "5h",
+      durationMs: 5 * 60 * 60 * 1000,
+      usageKind: "model_tokens" as const,
+    };
   }
   if (unit === 4) {
-    return { id: "daily", label: "Daily", durationMs: 24 * 60 * 60 * 1000 };
+    return {
+      id: "daily",
+      label: "Daily",
+      durationMs: 24 * 60 * 60 * 1000,
+      usageKind: "model_tokens" as const,
+    };
   }
   if (unit === 6) {
     return {
       id: "weekly",
       label: "Weekly",
       durationMs: 7 * 24 * 60 * 60 * 1000,
+      usageKind: "model_tokens" as const,
     };
   }
   return null;

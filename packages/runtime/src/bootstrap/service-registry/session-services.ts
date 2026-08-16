@@ -103,7 +103,8 @@ export function createSessionUseCases(
   const processLifecycle = new SessionProcessLifecycleService(
     deps.sessionRuntime,
     deps.sessionRepo,
-    deps.appLogger
+    deps.appLogger,
+    sessionLifecycleNotifier
   );
   const metadataPersistence = new SessionMetadataPersistenceService(
     deps.sessionRepo

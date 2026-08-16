@@ -1,6 +1,7 @@
 export interface SupervisorRecoverySessionState {
   status: "running" | "stopped" | "missing";
   resumable: boolean;
+  promptActive: boolean;
 }
 
 export interface SupervisorRecoverySessionPort {

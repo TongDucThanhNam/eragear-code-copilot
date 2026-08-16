@@ -17,6 +17,7 @@ import type { SupervisorPlannerPort } from "./ports/supervisor-planner.port";
 const UNSAFE_PLAN_TEXT =
   /\b(?:git\s+(?:commit|push|reset|stash|switch|checkout)|commit\b|push\b|deploy\b|credential(?:s)?\b|api[_ -]?key\b|secret(?:s)?\b|permission\s+bypass|bypass\s+permission|rm\s+-rf|remove-item\b|delete\s+(?:all|user|project|repository|repo)\b)/i;
 const WINDOWS_ABSOLUTE_PATH = /^[a-zA-Z]:[\\/]/;
+const TRAILING_SLASH = /\/$/;
 
 export class SupervisorPlanValidationError extends Error {
   readonly code:
@@ -199,6 +200,9 @@ export class SupervisorPlannerService {
         ...(this.policy.trustedVerificationCommandsByRole[task.role] ?? []),
       ],
       preferredAgentId: agentId,
+      ...(task.preferredModelId
+        ? { preferredModelId: task.preferredModelId }
+        : {}),
       status: task.dependencies.length === 0 ? "ready" : "blocked",
       attempts: [],
     };
@@ -246,8 +250,11 @@ export class SupervisorPlannerService {
   }
 }
 
-function normalizeSafeRelativePath(value: string): string {
-  const normalizedSlashes = value.replaceAll("\\", "/").trim();
+export function normalizeSafeRelativePath(value: string): string {
+  const normalizedSlashes = value
+    .replaceAll("\\", "/")
+    .trim()
+    .replace(TRAILING_SLASH, "");
   if (
     path.posix.isAbsolute(normalizedSlashes) ||
     WINDOWS_ABSOLUTE_PATH.test(normalizedSlashes) ||

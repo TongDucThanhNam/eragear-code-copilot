@@ -1,6 +1,6 @@
 import type {
-  SetSkillEnabledInput,
-  SkillDescriptor,
+  ManageProjectSkillInput,
+  SkillsCatalogSnapshot,
   SkillsProjectInput,
 } from "../contracts/skills.contract";
 
@@ -8,9 +8,13 @@ export interface SkillsPort {
   listSkills(
     userId: string,
     input?: SkillsProjectInput
-  ): Promise<SkillDescriptor[]>;
-  setSkillEnabled(
+  ): Promise<SkillsCatalogSnapshot>;
+  addSkillToProject(
     userId: string,
-    input: SetSkillEnabledInput
-  ): Promise<SkillDescriptor[]>;
+    input: ManageProjectSkillInput
+  ): Promise<SkillsCatalogSnapshot>;
+  removeSkillFromProject(
+    userId: string,
+    input: ManageProjectSkillInput
+  ): Promise<SkillsCatalogSnapshot>;
 }

@@ -174,7 +174,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       {
         to: "/settings/skills",
         label: "Skills",
-        detail: "SKILL.md library",
+        detail: "Global library",
         icon: BookOpen,
         keywords: ["skill", "instructions"],
       },

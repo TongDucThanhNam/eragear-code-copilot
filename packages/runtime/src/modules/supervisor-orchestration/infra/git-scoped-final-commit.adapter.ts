@@ -8,29 +8,64 @@ import type { SupervisorScopedCommitPort } from "../application/supervisor-final
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 10 * 1024 * 1024;
+const LINE_BREAK_PATTERN = /\r?\n/;
+const LEADING_CURRENT_DIRECTORY_PATTERN = /^\.\//;
 
 export class GitScopedFinalCommitAdapter implements SupervisorScopedCommitPort {
   async commit(
     input: Parameters<SupervisorScopedCommitPort["commit"]>[0]
   ): Promise<{ commitSha: string; safetyRef: string }> {
-    const root = await realpath(input.projectRoot);
-    const topLevel = await git(root, ["rev-parse", "--show-toplevel"]);
-    if ((await realpath(topLevel.trim())) !== root) {
-      throw new Error("Project root is not the Git worktree root");
-    }
+    const projectRoot = await realpath(input.projectRoot);
+    const repositoryRoot = await realpath(
+      (await git(projectRoot, ["rev-parse", "--show-toplevel"])).trim()
+    );
+    const projectPrefix = normalizePath(
+      path.relative(repositoryRoot, projectRoot)
+    );
     const branch = (
-      await git(root, ["symbolic-ref", "--short", "HEAD"])
+      await git(repositoryRoot, ["symbolic-ref", "--short", "HEAD"])
     ).trim();
-    const head = (await git(root, ["rev-parse", "HEAD"])).trim();
+    const head = (await git(repositoryRoot, ["rev-parse", "HEAD"])).trim();
     const expectedHead = (
-      await git(root, [
+      await git(repositoryRoot, [
         "rev-parse",
         "--verify",
         `${input.expectedHead}^{commit}`,
       ])
     ).trim();
-    if (branch !== input.expectedBranch || head !== expectedHead) {
-      throw new Error("Approved branch or HEAD changed before final commit");
+    if (branch !== input.expectedBranch) {
+      throw new Error("Approved branch changed before final commit");
+    }
+    if (head !== expectedHead) {
+      const expectedIsAncestor = await git(repositoryRoot, [
+        "merge-base",
+        "--is-ancestor",
+        expectedHead,
+        head,
+      ]).then(
+        () => true,
+        () => false
+      );
+      const interveningSubjects = expectedIsAncestor
+        ? (
+            await git(repositoryRoot, [
+              "log",
+              "--format=%s",
+              `${expectedHead}..${head}`,
+            ])
+          )
+            .split(LINE_BREAK_PATTERN)
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : [];
+      if (
+        !expectedIsAncestor ||
+        interveningSubjects.some(
+          (subject) => !subject.startsWith("supervisos: checkpoint ")
+        )
+      ) {
+        throw new Error("Approved HEAD changed outside Supervisor checkpoints");
+      }
     }
     if (
       !input.allowDefaultBranch &&
@@ -40,9 +75,16 @@ export class GitScopedFinalCommitAdapter implements SupervisorScopedCommitPort {
         "Default-branch commit was not authorized by plan approval"
       );
     }
-    const ownedPaths = input.ownedPaths.map((item) => validatePath(root, item));
+    const ownedPaths = input.ownedPaths.map((item) =>
+      validatePath(projectRoot, item)
+    );
+    const repositoryOwnedPaths = ownedPaths.map((item) =>
+      projectPrefix ? `${projectPrefix}/${item}` : item
+    );
     for (const relativePath of ownedPaths) {
-      const actual = await fingerprintPath(path.resolve(root, relativePath));
+      const actual = await fingerprintPath(
+        path.resolve(projectRoot, relativePath)
+      );
       if (input.expectedFingerprints[relativePath] !== actual) {
         throw new Error(
           `Owned file drifted after integration: ${relativePath}`
@@ -50,7 +92,7 @@ export class GitScopedFinalCommitAdapter implements SupervisorScopedCommitPort {
       }
     }
     const safetyRef = `refs/eragear/supervisor-run-${sanitizeRef(input.runId)}-safety-${Date.now()}-${randomUUID().slice(0, 8)}`;
-    await git(root, ["update-ref", safetyRef, head]);
+    await git(repositoryRoot, ["update-ref", safetyRef, head]);
 
     const tempRoot = await mkdtemp(
       path.join(tmpdir(), "eragear-supervisor-commit-")
@@ -60,32 +102,44 @@ export class GitScopedFinalCommitAdapter implements SupervisorScopedCommitPort {
       GIT_INDEX_FILE: path.join(tempRoot, "index"),
     };
     try {
-      await git(root, ["read-tree", "HEAD"], env);
-      if (ownedPaths.length > 0) {
+      await git(repositoryRoot, ["read-tree", "HEAD"], env);
+      if (repositoryOwnedPaths.length > 0) {
         await git(
-          root,
-          ["--literal-pathspecs", "add", "-A", "--", ...ownedPaths],
+          repositoryRoot,
+          ["--literal-pathspecs", "add", "-A", "--", ...repositoryOwnedPaths],
           env
         );
       }
       const staged = parseNullSeparated(
-        await git(root, ["diff", "--cached", "--name-only", "-z"], env)
+        await git(
+          repositoryRoot,
+          ["diff", "--cached", "--name-only", "-z"],
+          env
+        )
       );
-      const owned = new Set(ownedPaths);
+      const owned = new Set(repositoryOwnedPaths);
       const outsideScope = staged.filter((item) => !owned.has(item));
       if (outsideScope.length > 0) {
         throw new Error(
           `Isolated index contains out-of-scope files: ${outsideScope.join(", ")}`
         );
       }
-      await git(root, ["commit", "--allow-empty", "-m", input.message], env);
-      const commitSha = (await git(root, ["rev-parse", "HEAD"])).trim();
-      const parent = (await git(root, ["rev-parse", `${commitSha}^`])).trim();
+      await git(
+        repositoryRoot,
+        ["commit", "--allow-empty", "-m", input.message],
+        env
+      );
+      const commitSha = (
+        await git(repositoryRoot, ["rev-parse", "HEAD"])
+      ).trim();
+      const parent = (
+        await git(repositoryRoot, ["rev-parse", `${commitSha}^`])
+      ).trim();
       if (parent !== head) {
         throw new Error("Final commit parent does not match the approved HEAD");
       }
       const committedPaths = parseNullSeparated(
-        await git(root, [
+        await git(repositoryRoot, [
           "diff-tree",
           "--no-commit-id",
           "--name-only",
@@ -102,14 +156,14 @@ export class GitScopedFinalCommitAdapter implements SupervisorScopedCommitPort {
           `Final commit contains out-of-scope files: ${committedOutsideScope.join(", ")}`
         );
       }
-      if (ownedPaths.length > 0) {
-        await git(root, [
+      if (repositoryOwnedPaths.length > 0) {
+        await git(repositoryRoot, [
           "--literal-pathspecs",
           "reset",
           "-q",
           "HEAD",
           "--",
-          ...ownedPaths,
+          ...repositoryOwnedPaths,
         ]);
       }
       return { commitSha, safetyRef };
@@ -177,4 +231,10 @@ function parseNullSeparated(value: string): string[] {
 
 function sanitizeRef(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
+}
+
+function normalizePath(value: string): string {
+  return value
+    .replaceAll("\\", "/")
+    .replace(LEADING_CURRENT_DIRECTORY_PATTERN, "");
 }

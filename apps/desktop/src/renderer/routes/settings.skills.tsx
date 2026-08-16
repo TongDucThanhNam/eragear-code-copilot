@@ -10,7 +10,7 @@ function SkillsSettingsPage() {
   return (
     <>
       <SettingsPageHeader
-        description="Manage project and user skills discovered from SKILL.md files."
+        description="Manage the dormant ~/AGENTS/skills library. Project installation belongs in Project Settings."
         title="Skills"
       />
       <SkillsSettingsPanel />

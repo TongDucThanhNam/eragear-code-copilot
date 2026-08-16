@@ -1,5 +1,6 @@
 import type { SupervisorRunClientUpdate } from "@eragear-code-copilot/shared";
 import { useCallback } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useProjectStore } from "@/store/project-store";
 
@@ -49,7 +50,11 @@ export function useSupervisorRuns(chatId: string) {
   trpc.supervisorRuns.updates.useSubscription(undefined, {
     onData: updateCachedRun,
   });
-  const mutationOptions = { onSuccess: updateCachedRun };
+  const mutationOptions = {
+    onSuccess: updateCachedRun,
+    onError: (error: { message?: string }) =>
+      toast.error(error.message || "Supervisor action failed"),
+  };
   const start = trpc.supervisorRuns.createDraft.useMutation(mutationOptions);
   const approvePlan =
     trpc.supervisorRuns.approvePlan.useMutation(mutationOptions);
@@ -98,16 +103,18 @@ export function useSupervisorRuns(chatId: string) {
         priority: "normal",
       });
     },
-    approvePlan: (run: SupervisorRunClientUpdate) => {
+    approvePlan: async (run: SupervisorRunClientUpdate) => {
       if (!run.plan) {
         throw new Error("Run has no plan awaiting approval");
       }
-      return approvePlan.mutateAsync({
+      const updated = await approvePlan.mutateAsync({
         runId: run.runId,
         planVersion: run.plan.version,
         planHash: run.plan.hash,
         expectedRevision: run.revision,
       });
+      toast.success("Supervisor plan approved");
+      return updated;
     },
     requestPlanChanges: (
       run: SupervisorRunClientUpdate,
@@ -139,10 +146,18 @@ export function useSupervisorRuns(chatId: string) {
     resume: (runId: string) => resume.mutateAsync({ runId }),
     cancel: (runId: string) => cancel.mutateAsync({ runId }),
     replan: (runId: string) => replan.mutateAsync({ runId }),
-    retryTask: (runId: string, taskId: string) =>
-      retryTask.mutateAsync({ runId, taskId }),
-    approveGate: (runId: string, gateId: string) =>
-      approveGate.mutateAsync({ runId, gateId }),
+    retryTask: async (runId: string, taskId: string) => {
+      const updated = await retryTask.mutateAsync({ runId, taskId });
+      toast.success(
+        updated.status === "queued" ? "Task queued for retry" : "Task retried"
+      );
+      return updated;
+    },
+    approveGate: async (runId: string, gateId: string) => {
+      const updated = await approveGate.mutateAsync({ runId, gateId });
+      toast.success("Supervisor gate approved");
+      return updated;
+    },
     rejectGate: (runId: string, gateId: string) =>
       rejectGate.mutateAsync({ runId, gateId }),
   };

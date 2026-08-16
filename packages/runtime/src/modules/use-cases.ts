@@ -315,7 +315,7 @@ export interface SupervisorOrchestrationUseCases {
 }
 
 /**
- * Skills use-cases backed by local capability discovery.
+ * Global Skills catalog and explicit project-installation use-cases.
  */
 export interface SkillsUseCases {
   skills: UseCasePort<SkillsService>;

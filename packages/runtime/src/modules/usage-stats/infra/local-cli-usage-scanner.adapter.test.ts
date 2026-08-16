@@ -9,6 +9,7 @@ import type { PricingSnapshot } from "./usage-pricing";
 import { calculateUsageCost } from "./usage-pricing";
 
 const ORIGINAL_CODEX_HOME = process.env.CODEX_HOME;
+const ORIGINAL_GEMINI_CONFIG_DIR = process.env.GEMINI_CONFIG_DIR;
 const ORIGINAL_ZCODE_CLI_DIR = process.env.ZCODE_CLI_DIR;
 
 afterEach(() => {
@@ -16,6 +17,11 @@ afterEach(() => {
     process.env.CODEX_HOME = undefined;
   } else {
     process.env.CODEX_HOME = ORIGINAL_CODEX_HOME;
+  }
+  if (ORIGINAL_GEMINI_CONFIG_DIR === undefined) {
+    process.env.GEMINI_CONFIG_DIR = undefined;
+  } else {
+    process.env.GEMINI_CONFIG_DIR = ORIGINAL_GEMINI_CONFIG_DIR;
   }
   if (ORIGINAL_ZCODE_CLI_DIR === undefined) {
     process.env.ZCODE_CLI_DIR = undefined;
@@ -41,6 +47,37 @@ describe("LocalCliUsageScannerAdapter", () => {
     expect(cost.totalUsd).toBeCloseTo(0.002_415, 8);
     expect(cost.pricedTokens).toBe(210);
     expect(cost.unpricedTokens).toBe(0);
+  });
+
+  test("prices Antigravity Gemini 3.1 Pro aliases through the canonical Google model", () => {
+    const aliases = [
+      "google/gemini-3.1-pro-preview",
+      "gemini-3.1-pro",
+      "gemini-3.1-pro-high",
+      "gemini-3.1-pro-low",
+      "Gemini 3.1 Pro (High)",
+      "Gemini 3.1 Pro (Low)",
+      "gemini-pro-default",
+      "gemini-pro-c",
+    ];
+
+    for (const modelName of aliases) {
+      const cost = calculateUsageCost({
+        providerId: "antigravity",
+        modelName,
+        tokens: {
+          inputTokens: 150,
+          outputTokens: 60,
+          cacheInputTokens: 30,
+          cacheOutputTokens: 0,
+          totalTokens: 210,
+        },
+      });
+
+      expect(cost.totalUsd).toBeCloseTo(0.000_966, 8);
+      expect(cost.pricedTokens).toBe(210);
+      expect(cost.unpricedTokens).toBe(0);
+    }
   });
 
   test("prices MiniMax model hints from the models.dev snapshot", () => {
@@ -293,6 +330,81 @@ describe("LocalCliUsageScannerAdapter", () => {
     }
   });
 
+  test("scans Antigravity protobuf usage from the Gemini config directory", async () => {
+    const tempDir = await mkdtemp(
+      path.join(tmpdir(), "eragear-antigravity-usage-")
+    );
+    try {
+      process.env.GEMINI_CONFIG_DIR = tempDir;
+      const conversationsDir = path.join(
+        tempDir,
+        "antigravity",
+        "conversations"
+      );
+      const databasePath = path.join(conversationsDir, "conversation.db");
+      await mkdir(conversationsDir, { recursive: true });
+      const db = new Database(databasePath);
+      try {
+        db.exec(`
+          CREATE TABLE gen_metadata (
+            idx INTEGER PRIMARY KEY,
+            data BLOB,
+            size INTEGER NOT NULL DEFAULT 0
+          );
+        `);
+        const insert = db.query(
+          "INSERT INTO gen_metadata (idx, data, size) VALUES (?, ?, ?)"
+        );
+        const inRange = createAntigravityGeneratorMetadata({
+          timestampMs: Date.UTC(2026, 5, 10, 9),
+          model: "gemini-2.5-flash",
+          inputTokens: 100,
+          outputTokens: 40,
+          cacheReadTokens: 20,
+          cacheWriteTokens: 10,
+        });
+        const outOfRange = createAntigravityGeneratorMetadata({
+          timestampMs: Date.UTC(2026, 4, 1, 9),
+          model: "claude-sonnet-4-6",
+          inputTokens: 999,
+          outputTokens: 999,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        });
+        insert.run(0, inRange, inRange.length);
+        insert.run(1, outOfRange, outOfRange.length);
+      } finally {
+        db.close();
+      }
+
+      const result = await new LocalCliUsageScannerAdapter().scan({
+        range: "30d",
+        providers: ["antigravity"],
+        startMs: Date.UTC(2026, 5, 1),
+        endMs: Date.UTC(2026, 5, 12),
+      });
+
+      expect(result.providers).toHaveLength(1);
+      expect(result.providers[0]?.providerId).toBe("antigravity");
+      expect(result.providers[0]?.providerDisplayName).toBe("Antigravity");
+      expect(result.providers[0]?.status).toBe("ready");
+      expect(result.totals).toEqual({
+        inputTokens: 120,
+        outputTokens: 50,
+        cacheInputTokens: 20,
+        cacheOutputTokens: 10,
+        totalTokens: 170,
+      });
+      expect(result.modelUsage).toHaveLength(1);
+      expect(result.modelUsage[0]?.name).toBe("gemini-2.5-flash");
+      expect(result.modelUsage[0]?.tokens.totalTokens).toBe(170);
+      expect(result.daily[0]?.date).toBe("2026-06-10");
+      expect(result.warnings).toEqual([]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test("scans Codex JSONL token deltas and model usage", async () => {
     const tempDir = await mkdtemp(path.join(tmpdir(), "eragear-codex-usage-"));
     try {
@@ -517,3 +629,63 @@ describe("LocalCliUsageScannerAdapter", () => {
     }
   });
 });
+
+function createAntigravityGeneratorMetadata(input: {
+  timestampMs: number;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}): Buffer {
+  const usage = concatProtobufFields(
+    protobufVarintField(2, input.inputTokens),
+    protobufVarintField(3, input.outputTokens),
+    protobufVarintField(4, input.cacheWriteTokens),
+    protobufVarintField(5, input.cacheReadTokens)
+  );
+  const timestamp = concatProtobufFields(
+    protobufVarintField(1, Math.floor(input.timestampMs / 1000)),
+    protobufVarintField(2, (input.timestampMs % 1000) * 1_000_000)
+  );
+  const chatStart = protobufBytesField(4, timestamp);
+  const chatModel = concatProtobufFields(
+    protobufBytesField(4, usage),
+    protobufBytesField(9, chatStart),
+    protobufBytesField(19, Buffer.from(input.model, "utf8"))
+  );
+  return protobufBytesField(1, chatModel);
+}
+
+function protobufVarintField(fieldNumber: number, value: number): Buffer {
+  return Buffer.concat([
+    encodeProtobufVarint(BigInt(fieldNumber * 8)),
+    encodeProtobufVarint(BigInt(value)),
+  ]);
+}
+
+function protobufBytesField(fieldNumber: number, value: Buffer): Buffer {
+  return Buffer.concat([
+    encodeProtobufVarint(BigInt(fieldNumber * 8 + 2)),
+    encodeProtobufVarint(BigInt(value.length)),
+    value,
+  ]);
+}
+
+function concatProtobufFields(...fields: Buffer[]): Buffer {
+  return Buffer.concat(fields);
+}
+
+function encodeProtobufVarint(value: bigint): Buffer {
+  const bytes: number[] = [];
+  let remaining = value;
+  do {
+    let byte = Number(remaining % 128n);
+    remaining /= 128n;
+    if (remaining > 0n) {
+      byte += 128;
+    }
+    bytes.push(byte);
+  } while (remaining > 0n);
+  return Buffer.from(bytes);
+}

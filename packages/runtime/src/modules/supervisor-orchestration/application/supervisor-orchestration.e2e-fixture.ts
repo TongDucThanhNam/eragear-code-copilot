@@ -100,6 +100,7 @@ export function createSupervisorOrchestrationE2eHarness() {
         targetFingerprints: {},
       });
     },
+    claim: () => Promise.resolve(),
     collect: () =>
       Promise.reject(new Error("read-only e2e does not collect patches")),
     apply: () =>

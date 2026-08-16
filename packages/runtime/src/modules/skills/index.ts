@@ -1,12 +1,16 @@
 export type {
-  SetSkillEnabledInput,
+  ManageProjectSkillInput,
   SkillDescriptor,
+  SkillInstallationStatus,
+  SkillsCatalogSnapshot,
   SkillsListResult,
   SkillsProjectInput,
 } from "./application/contracts/skills.contract";
 export {
-  SetSkillEnabledInputSchema,
+  ManageProjectSkillInputSchema,
   SkillDescriptorSchema,
+  SkillInstallationStatusSchema,
+  SkillsCatalogSnapshotSchema,
   SkillsListResultSchema,
   SkillsProjectInputSchema,
 } from "./application/contracts/skills.contract";

@@ -299,13 +299,16 @@ export const SupervisorWorkerAttemptSchema = z
     chatId: IdentifierSchema,
     agentSessionId: IdentifierSchema.optional(),
     agentId: IdentifierSchema,
+    modelId: z.string().trim().min(1).max(512).optional(),
     isolatedProjectRoot: z.string().trim().min(1).max(4096).optional(),
     workspace: z
       .object({
         workspaceId: IdentifierSchema,
-        kind: z.enum(["read_only", "isolated_git"]),
+        kind: z.enum(["read_only", "direct_git", "isolated_git"]),
         userProjectRoot: z.string().trim().min(1).max(4096),
         projectRoot: z.string().trim().min(1).max(4096),
+        repositoryRoot: z.string().trim().min(1).max(4096).optional(),
+        gitWorktreeRoot: z.string().trim().min(1).max(4096).optional(),
         baseHead: z.string().trim().min(1).max(1024).optional(),
         targetFingerprints: z.record(
           z.string(),
@@ -431,6 +434,7 @@ export const SupervisorTaskRecordSchema = z
     filesAllowed: z.array(RelativePathSchema).max(4096),
     verificationCommands: z.array(z.string().trim().min(1).max(4096)).max(64),
     preferredAgentId: IdentifierSchema.optional(),
+    preferredModelId: z.string().trim().min(1).max(512).optional(),
     status: SupervisorTaskStatusSchema,
     attempts: z
       .array(SupervisorWorkerAttemptSchema)

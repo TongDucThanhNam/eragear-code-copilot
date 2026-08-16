@@ -3,6 +3,7 @@
 
 import { FolderOpen, Loader2, RefreshCw } from "lucide-react";
 import type { FormEvent } from "react";
+import { ProjectSkillsPanel } from "@/components/skills/project-skills-panel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,12 +18,14 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type {
   DiscoverContext,
   DiscoverSessionItem,
@@ -57,6 +60,7 @@ interface NavProjectTreeDialogsProps {
 
   isEditProjectOpen: boolean;
   setIsEditProjectOpen: (open: boolean) => void;
+  editProjectId: string | null;
   editProjectForm: ProjectFormState;
   setEditProjectForm: (
     updater: (prev: ProjectFormState) => ProjectFormState
@@ -113,6 +117,7 @@ export function NavProjectTreeDialogs({
   onOpenProjectFolder,
   isEditProjectOpen,
   setIsEditProjectOpen,
+  editProjectId,
   editProjectForm,
   setEditProjectForm,
   onEditProjectSubmit,
@@ -267,114 +272,140 @@ export function NavProjectTreeDialogs({
       </Dialog>
 
       <Dialog onOpenChange={setIsEditProjectOpen} open={isEditProjectOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Edit Project</DialogTitle>
+            <DialogTitle>Project Settings</DialogTitle>
+            <DialogDescription>
+              Manage this project's details and explicitly selected skills.
+            </DialogDescription>
           </DialogHeader>
-          <form className="space-y-3" onSubmit={onEditProjectSubmit}>
-            <div className="space-y-1">
-              <Label htmlFor="project-edit-name">Name</Label>
-              <Input
-                id="project-edit-name"
-                onChange={(event) =>
-                  setEditProjectForm((prev) => ({
-                    ...prev,
-                    name: event.target.value,
-                  }))
-                }
-                placeholder="Project name"
-                required
-                value={editProjectForm.name}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="project-edit-path">Path</Label>
-              <Input
-                id="project-edit-path"
-                onChange={(event) =>
-                  setEditProjectForm((prev) => ({
-                    ...prev,
-                    path: event.target.value,
-                  }))
-                }
-                placeholder="/absolute/path/to/project"
-                required
-                value={editProjectForm.path}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="project-edit-description">Description</Label>
-              <Input
-                id="project-edit-description"
-                onChange={(event) =>
-                  setEditProjectForm((prev) => ({
-                    ...prev,
-                    description: event.target.value,
-                  }))
-                }
-                placeholder="Optional description"
-                value={editProjectForm.description}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="project-edit-tags">Tags</Label>
-              <Input
-                id="project-edit-tags"
-                onChange={(event) =>
-                  setEditProjectForm((prev) => ({
-                    ...prev,
-                    tags: event.target.value,
-                  }))
-                }
-                placeholder="frontend, api, ui"
-                value={editProjectForm.tags}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="project-edit-obsidian-path">
-                Obsidian Project Path
-              </Label>
-              <Input
-                id="project-edit-obsidian-path"
-                onChange={(event) =>
-                  setEditProjectForm((prev) => ({
-                    ...prev,
-                    obsidianProjectPath: event.target.value,
-                  }))
-                }
-                placeholder="Project/VLXD"
-                value={editProjectForm.obsidianProjectPath}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="project-edit-tech-stack-tags">
-                Tech Stack Tags
-              </Label>
-              <Input
-                id="project-edit-tech-stack-tags"
-                onChange={(event) =>
-                  setEditProjectForm((prev) => ({
-                    ...prev,
-                    techStackTags: event.target.value,
-                  }))
-                }
-                placeholder="react, electron, bun, heroui"
-                value={editProjectForm.techStackTags}
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                onClick={() => setIsEditProjectOpen(false)}
-                type="button"
-                variant="ghost"
-              >
-                Cancel
-              </Button>
-              <Button disabled={isUpdateProjectPending} type="submit">
-                {isUpdateProjectPending ? "Saving..." : "Save"}
-              </Button>
-            </DialogFooter>
-          </form>
+          <Tabs className="min-h-0" defaultValue="general">
+            <TabsList className="w-full" variant="line">
+              <TabsTrigger value="general">General</TabsTrigger>
+              <TabsTrigger value="skills">Skills</TabsTrigger>
+            </TabsList>
+            <TabsContent
+              className="max-h-[65vh] overflow-y-auto pr-1"
+              value="general"
+            >
+              <form className="space-y-3" onSubmit={onEditProjectSubmit}>
+                <div className="space-y-1">
+                  <Label htmlFor="project-edit-name">Name</Label>
+                  <Input
+                    id="project-edit-name"
+                    onChange={(event) =>
+                      setEditProjectForm((prev) => ({
+                        ...prev,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="Project name"
+                    required
+                    value={editProjectForm.name}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="project-edit-path">Path</Label>
+                  <Input
+                    id="project-edit-path"
+                    onChange={(event) =>
+                      setEditProjectForm((prev) => ({
+                        ...prev,
+                        path: event.target.value,
+                      }))
+                    }
+                    placeholder="/absolute/path/to/project"
+                    required
+                    value={editProjectForm.path}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="project-edit-description">Description</Label>
+                  <Input
+                    id="project-edit-description"
+                    onChange={(event) =>
+                      setEditProjectForm((prev) => ({
+                        ...prev,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder="Optional description"
+                    value={editProjectForm.description}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="project-edit-tags">Tags</Label>
+                  <Input
+                    id="project-edit-tags"
+                    onChange={(event) =>
+                      setEditProjectForm((prev) => ({
+                        ...prev,
+                        tags: event.target.value,
+                      }))
+                    }
+                    placeholder="frontend, api, ui"
+                    value={editProjectForm.tags}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="project-edit-obsidian-path">
+                    Obsidian Project Path
+                  </Label>
+                  <Input
+                    id="project-edit-obsidian-path"
+                    onChange={(event) =>
+                      setEditProjectForm((prev) => ({
+                        ...prev,
+                        obsidianProjectPath: event.target.value,
+                      }))
+                    }
+                    placeholder="Project/VLXD"
+                    value={editProjectForm.obsidianProjectPath}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="project-edit-tech-stack-tags">
+                    Tech Stack Tags
+                  </Label>
+                  <Input
+                    id="project-edit-tech-stack-tags"
+                    onChange={(event) =>
+                      setEditProjectForm((prev) => ({
+                        ...prev,
+                        techStackTags: event.target.value,
+                      }))
+                    }
+                    placeholder="react, electron, bun, heroui"
+                    value={editProjectForm.techStackTags}
+                  />
+                </div>
+                <DialogFooter>
+                  <Button
+                    onClick={() => setIsEditProjectOpen(false)}
+                    type="button"
+                    variant="ghost"
+                  >
+                    Cancel
+                  </Button>
+                  <Button disabled={isUpdateProjectPending} type="submit">
+                    {isUpdateProjectPending ? "Saving..." : "Save"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </TabsContent>
+            <TabsContent
+              className="max-h-[65vh] overflow-y-auto pr-1"
+              value="skills"
+            >
+              {editProjectId ? (
+                <ProjectSkillsPanel projectId={editProjectId} />
+              ) : (
+                <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground text-sm">
+                  Project not found.
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 

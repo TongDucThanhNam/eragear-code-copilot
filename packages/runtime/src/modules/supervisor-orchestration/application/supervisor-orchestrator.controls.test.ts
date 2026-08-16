@@ -96,6 +96,7 @@ function createHarness(
     manager?: SupervisorOrchestratorDeps["manager"];
     finalVerifier?: SupervisorOrchestratorDeps["finalVerifier"];
     finalCommit?: SupervisorOrchestratorDeps["finalCommit"];
+    workspaces?: WorkerWorkspacePort;
   } = {}
 ) {
   const runs = new MemoryRuns(run);
@@ -175,26 +176,29 @@ function createHarness(
         });
       },
     },
-    workspaces: {
-      prepare(input: Parameters<WorkerWorkspacePort["prepare"]>[0]) {
-        return Promise.resolve({
-          workspaceId: `workspace-${input.taskId}`,
-          kind: input.executionMode === "write" ? "isolated_git" : "read_only",
-          userProjectRoot: input.projectRoot,
-          projectRoot:
-            input.executionMode === "write"
-              ? `${input.projectRoot}/.isolated/${input.taskId}`
-              : input.projectRoot,
-          ...(input.baseSnapshot.head
-            ? { baseHead: input.baseSnapshot.head }
-            : {}),
-          targetFingerprints: {},
-        });
-      },
-      dispose() {
-        return Promise.resolve();
-      },
-    } as never,
+    workspaces:
+      options.workspaces ??
+      ({
+        prepare(input: Parameters<WorkerWorkspacePort["prepare"]>[0]) {
+          return Promise.resolve({
+            workspaceId: `workspace-${input.taskId}`,
+            kind:
+              input.executionMode === "write" ? "isolated_git" : "read_only",
+            userProjectRoot: input.projectRoot,
+            projectRoot:
+              input.executionMode === "write"
+                ? `${input.projectRoot}/.isolated/${input.taskId}`
+                : input.projectRoot,
+            ...(input.baseSnapshot.head
+              ? { baseHead: input.baseSnapshot.head }
+              : {}),
+            targetFingerprints: {},
+          });
+        },
+        dispose() {
+          return Promise.resolve();
+        },
+      } as never),
     integration: {
       integrate() {
         return Promise.resolve({ decision: "allow" as const, reasons: [] });
@@ -430,6 +434,46 @@ describe("SupervisorOrchestratorService controls", () => {
         taskId: failed.taskId,
       })
     ).rejects.toThrow("exhausted its attempt budget");
+  });
+
+  test("keeps a retry queued while another direct writer owns the repository", async () => {
+    const failed = createTask("task-a", {
+      status: "needs_user",
+      attempts: [
+        {
+          attemptId: "attempt-1",
+          chatId: "chat-1",
+          agentId: "agent-1",
+          status: "terminal",
+          idempotencyKey: "run:task:1",
+          startedAt: "2026-07-11T00:00:00.000Z",
+          finishedAt: "2026-07-11T00:00:30.000Z",
+        },
+      ],
+    });
+    const base = createSupervisorRunFixture({
+      status: "needs_user",
+      tasks: [failed],
+    });
+    const busy = Object.assign(new Error("repository already has a writer"), {
+      code: "DIRECT_WORKSPACE_BUSY",
+    });
+    const harness = createHarness(base, {
+      workspaces: {
+        prepare: () => Promise.reject(busy),
+        dispose: () => Promise.resolve(),
+      } as unknown as WorkerWorkspacePort,
+    });
+
+    const retried = await harness.service.retryTask({
+      runId: base.runId,
+      userId: base.userId,
+      taskId: failed.taskId,
+    });
+
+    expect(retried.status).toBe("queued");
+    expect(retried.tasks[0]?.status).toBe("ready");
+    expect(harness.dispatched).toEqual([]);
   });
 
   test("answers a final delivery decision by revalidating and committing without a manager replan", async () => {

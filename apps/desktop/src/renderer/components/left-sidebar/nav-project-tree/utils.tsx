@@ -4,6 +4,7 @@ import type { SessionItem } from "./types";
 
 export const UNKNOWN_PROJECT_ID = "unknown";
 export const SESSION_ID_PLACEHOLDER = "<sessionId>";
+export const COLLAPSED_INACTIVE_SESSION_LIMIT = 5;
 export const AGENT_RESUME_TEMPLATE_BY_TYPE: Record<string, string> = {
   codex: `codex resume ${SESSION_ID_PLACEHOLDER}`,
   claude: `claude -r ${SESSION_ID_PLACEHOLDER}`,
@@ -35,6 +36,24 @@ export const getSessionDisplayId = (session: SessionItem) => {
   const head = rawId.slice(0, 7);
   const tail = rawId.slice(-4);
   return `${head}...${tail}`;
+};
+
+export const selectVisibleProjectSessions = (
+  sessions: SessionItem[],
+  expanded: boolean,
+  inactiveLimit = COLLAPSED_INACTIVE_SESSION_LIMIT
+) => {
+  if (expanded) {
+    return sessions;
+  }
+  let inactiveCount = 0;
+  return sessions.filter((session) => {
+    if (session.status !== "inactive" || session.pinned) {
+      return true;
+    }
+    inactiveCount += 1;
+    return inactiveCount <= inactiveLimit;
+  });
 };
 
 export const getSessionStatusLabel = (status: SessionItem["status"]) => {
@@ -73,7 +92,7 @@ export const getStatusBadgeClassName = (status: SessionItem["status"]) => {
     case "streaming":
       return "border-none bg-amber-600/10 text-amber-600 focus-visible:ring-amber-600/20 focus-visible:outline-none dark:bg-amber-400/10 dark:text-amber-400 dark:focus-visible:ring-amber-400/40 [a&]:hover:bg-amber-600/5 dark:[a&]:hover:bg-amber-400/5";
     default:
-      return "bg-destructive/10 [a&]:hover:bg-destructive/5 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 text-destructive border-none focus-visible:outline-none";
+      return "border-none bg-muted text-muted-foreground focus-visible:ring-muted-foreground/20 focus-visible:outline-none [a&]:hover:bg-muted/80";
   }
 };
 
@@ -84,7 +103,7 @@ export const getStatusDotClassName = (status: SessionItem["status"]) => {
     case "streaming":
       return "bg-amber-600 dark:bg-amber-400";
     default:
-      return "bg-destructive";
+      return "bg-muted-foreground/60";
   }
 };
 

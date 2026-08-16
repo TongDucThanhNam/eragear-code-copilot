@@ -1,6 +1,7 @@
 // biome-ignore-all lint: Legacy migrated renderer lint debt is preserved during Electron-first extraction; normalize in focused UI cleanup.
 "use client";
 
+import { Link } from "@tanstack/react-router";
 import {
   Bot,
   Check,
@@ -406,7 +407,7 @@ export function SupervisorSettingsPanel() {
           </p>
         </div>
         <Button asChild variant="outline">
-          <a href="/mission-control">Open Mission Control</a>
+          <Link to="/mission-control">Open Mission Control</Link>
         </Button>
       </div>
     </SettingsSection>

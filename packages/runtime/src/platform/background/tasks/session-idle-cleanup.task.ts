@@ -14,6 +14,7 @@ import type {
 import type { AppConfigService } from "#runtime/modules/settings";
 import { createLogger } from "#runtime/platform/logging/structured-logger";
 import type { BackgroundTaskSpec } from "#runtime/shared/types/background.types";
+import type { ChatSession } from "#runtime/shared/types/session.types";
 import { terminateProcessGracefully } from "#runtime/shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "#runtime/shared/utils/session-cleanup.util";
 
@@ -43,7 +44,7 @@ export function createSessionIdleCleanupTask(params: {
             return;
           }
 
-          if (currentSession.subscriberCount > 0) {
+          if (isSessionLive(currentSession)) {
             currentSession.idleSinceAt = undefined;
             return;
           }
@@ -90,4 +91,14 @@ export function createSessionIdleCleanupTask(params: {
       return { checked, cleaned };
     },
   };
+}
+
+function isSessionLive(session: ChatSession): boolean {
+  // Orchestrated ACP sessions intentionally run without renderer subscribers.
+  // Their active prompt lifecycle, not websocket presence, is authoritative.
+  return Boolean(
+    session.subscriberCount > 0 ||
+      session.activeTurnId ||
+      session.activePromptTask
+  );
 }

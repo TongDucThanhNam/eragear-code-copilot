@@ -189,7 +189,7 @@ export function ProjectRow({
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onClick={() => onEditProject(project.id)}>
-          Edit Project
+          Project Settings
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem

@@ -61,7 +61,7 @@ describe("auth guards", () => {
     expect(authStub.verifyApiKeyCalls()).toBe(0);
   });
 
-  test("consumes rate limit once when session misses and api key fallback succeeds", async () => {
+  test("prefers an explicit API key over ambient session credentials", async () => {
     resetAuthResolutionRateLimitForTests();
     const originalEnabled = ENV.authApiKeyRateLimitEnabled;
     const originalWindowMs = ENV.authApiKeyRateLimitTimeWindowMs;
@@ -72,7 +72,10 @@ describe("auth guards", () => {
 
     try {
       const authStub = createAuthServiceStub({
-        getSession: () => null,
+        getSession: () => ({
+          user: { id: "session-user" },
+          session: { id: "session-1" },
+        }),
         verifyApiKey: () => ({
           valid: true,
           key: { userId: "api-user-1" },
@@ -91,7 +94,7 @@ describe("auth guards", () => {
         type: "apiKey",
         userId: "api-user-1",
       });
-      expect(authStub.getSessionCalls()).toBe(1);
+      expect(authStub.getSessionCalls()).toBe(0);
       expect(authStub.verifyApiKeyCalls()).toBe(1);
     } finally {
       ENV.authApiKeyRateLimitEnabled = originalEnabled;
@@ -109,17 +112,18 @@ describe("auth guards", () => {
         status: "UNAUTHORIZED",
         statusCode: 401,
       },
-      verifyApiKey: () => ({ valid: false }),
     });
     const resolver = createAuthContextResolver(authStub.service);
 
     const result = await resolver({
-      headers: new Headers({ "x-api-key": "eg_stale_key" }),
+      headers: new Headers({
+        cookie: "better-auth.session_token=stale-session",
+      }),
     });
 
     expect(result).toBeNull();
     expect(authStub.getSessionCalls()).toBe(1);
-    expect(authStub.verifyApiKeyCalls()).toBe(1);
+    expect(authStub.verifyApiKeyCalls()).toBe(0);
   });
 
   test("rate-limits repeated auth resolution attempts for same session token", async () => {

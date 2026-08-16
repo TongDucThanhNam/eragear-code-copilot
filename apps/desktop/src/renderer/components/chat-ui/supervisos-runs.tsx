@@ -90,7 +90,9 @@ export function SupervisosRunsView(
         <Button
           aria-label="Start supervised run"
           disabled={!props.canStart || props.isPending || !intent.trim()}
-          onClick={submit}
+          onClick={() => {
+            return submit().catch(() => undefined);
+          }}
           size="sm"
           type="button"
         >
@@ -163,6 +165,7 @@ function RunCard({
                   {task.dependencies.length > 0
                     ? ` · waits for ${task.dependencies.length}`
                     : ""}
+                  {task.preferredModelId ? ` · ${task.preferredModelId}` : ""}
                 </div>
               </div>
               <span className="shrink-0 text-muted-foreground text-xs">
@@ -187,17 +190,30 @@ function RunCard({
                 ))}
               </div>
             ) : null}
-            {task.status === "failed" || task.status === "needs_user" ? (
+            {(task.status === "failed" || task.status === "needs_user") &&
+            (!run.limits ||
+              task.attempts.length < run.limits.maxAttemptsPerTask) ? (
               <Button
                 className="mt-1.5 h-6 gap-1 px-1.5 text-xs"
                 disabled={controller.isPending}
-                onClick={() => controller.retryTask(run.runId, task.taskId)}
+                onClick={() => {
+                  return controller
+                    .retryTask(run.runId, task.taskId)
+                    .catch(() => undefined);
+                }}
                 size="sm"
                 type="button"
                 variant="outline"
               >
                 <RotateCcw className="size-3" /> Retry
               </Button>
+            ) : null}
+            {(task.status === "failed" || task.status === "needs_user") &&
+            run.limits &&
+            task.attempts.length >= run.limits.maxAttemptsPerTask ? (
+              <div className="mt-1.5 text-muted-foreground text-xs">
+                Attempt budget exhausted · replan required
+              </div>
             ) : null}
           </div>
         ))}
@@ -216,7 +232,11 @@ function RunCard({
             <div className="mt-1.5 flex gap-1.5">
               <Button
                 disabled={controller.isPending || !isApprovableGate(gate.kind)}
-                onClick={() => controller.approveGate(run.runId, gate.gateId)}
+                onClick={() => {
+                  return controller
+                    .approveGate(run.runId, gate.gateId)
+                    .catch(() => undefined);
+                }}
                 size="sm"
                 type="button"
                 variant="outline"
@@ -225,7 +245,11 @@ function RunCard({
               </Button>
               <Button
                 disabled={controller.isPending}
-                onClick={() => controller.rejectGate(run.runId, gate.gateId)}
+                onClick={() => {
+                  return controller
+                    .rejectGate(run.runId, gate.gateId)
+                    .catch(() => undefined);
+                }}
                 size="sm"
                 type="button"
                 variant="ghost"
@@ -250,7 +274,9 @@ function RunCard({
           <Button
             className="mt-2 h-7"
             disabled={controller.isPending}
-            onClick={() => controller.approvePlan(run)}
+            onClick={() => {
+              return controller.approvePlan(run).catch(() => undefined);
+            }}
             size="sm"
             type="button"
           >
@@ -304,7 +330,9 @@ function ActionButton({
   return (
     <Button
       className="h-6 gap-1 px-1.5 text-xs"
-      onClick={onClick}
+      onClick={() => {
+        return onClick().catch(() => undefined);
+      }}
       size="sm"
       type="button"
       variant="ghost"

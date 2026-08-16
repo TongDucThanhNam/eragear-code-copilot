@@ -1,9 +1,14 @@
 import type { ChildProcess } from "node:child_process";
 import { SessionRuntimeEntity } from "#runtime/modules/session/domain/session-runtime.entity";
 import type { LoggerPort } from "#runtime/shared/ports/logger.port";
+import type { ChatSession } from "#runtime/shared/types/session.types";
 import { terminateSessionTerminals } from "#runtime/shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import type {
+  AgentSessionStoppedContext,
+  SessionLifecycleNotifier,
+} from "./session-lifecycle.notifier";
 import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const EXPECTED_TERMINATION_SIGNALS = new Set<NodeJS.Signals>([
@@ -28,15 +33,18 @@ export class SessionProcessLifecycleService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly logger: LoggerPort;
+  private readonly sessionLifecycleNotifier?: SessionLifecycleNotifier;
 
   constructor(
     sessionRuntime: SessionRuntimePort,
     sessionRepo: SessionRepositoryPort,
-    logger: LoggerPort
+    logger: LoggerPort,
+    sessionLifecycleNotifier?: SessionLifecycleNotifier
   ) {
     this.sessionRuntime = sessionRuntime;
     this.sessionRepo = sessionRepo;
     this.logger = logger;
+    this.sessionLifecycleNotifier = sessionLifecycleNotifier;
   }
 
   attach(proc: ChildProcess, chatId: string): void {
@@ -48,6 +56,7 @@ export class SessionProcessLifecycleService {
       settled = true;
       try {
         this.logOutcome(chatId, outcome);
+        let unexpectedStop: AgentSessionStoppedContext | undefined;
         await this.sessionRuntime.runExclusive(chatId, async () => {
           assertSessionMutationLock({
             sessionRuntime: this.sessionRuntime,
@@ -56,6 +65,11 @@ export class SessionProcessLifecycleService {
           });
           const session = this.sessionRuntime.get(chatId);
           const transition = this.resolveTransition(outcome);
+          unexpectedStop = buildUnexpectedStopContext(
+            session,
+            chatId,
+            transition.errorMessage
+          );
           if (transition.errorMessage) {
             await this.sessionRuntime.broadcast(chatId, {
               type: "error",
@@ -93,6 +107,11 @@ export class SessionProcessLifecycleService {
             this.sessionRuntime.deleteIfMatch(chatId, session);
           }
         });
+        if (unexpectedStop) {
+          await this.sessionLifecycleNotifier?.agentSessionStopped(
+            unexpectedStop
+          );
+        }
       } catch (error) {
         this.logger.error("Failed to process agent lifecycle event", {
           chatId,
@@ -191,6 +210,28 @@ export class SessionProcessLifecycleService {
       errorMessage: `Agent process exited with ${formatExitReason(outcome.code, outcome.signal)}`,
     };
   }
+}
+
+function buildUnexpectedStopContext(
+  session: ChatSession | undefined,
+  chatId: string,
+  errorMessage: string | undefined
+): AgentSessionStoppedContext | undefined {
+  if (
+    !(session?.userId && (session.activePromptTask || session.activeTurnId))
+  ) {
+    return undefined;
+  }
+  return {
+    userId: session.userId,
+    projectRoot: session.projectRoot,
+    ...(session.projectId ? { projectId: session.projectId } : {}),
+    chatId,
+    ...(session.sessionId ? { agentSessionId: session.sessionId } : {}),
+    stopReason:
+      errorMessage ??
+      "Agent process stopped before completing its active prompt",
+  };
 }
 
 function isCleanExit(

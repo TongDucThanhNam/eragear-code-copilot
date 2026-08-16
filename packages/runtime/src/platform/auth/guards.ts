@@ -420,6 +420,15 @@ async function getAuthContextWithAuth(
   if (!consumeAuthResolutionRateLimit(req)) {
     return null;
   }
+
+  const apiKeyFromHeader = extractApiKeyFromHeaders(headers);
+  if (apiKeyFromHeader) {
+    return await getAuthContextFromApiKeyWithAuth(
+      authService,
+      apiKeyFromHeader
+    );
+  }
+
   const session = await getSessionFromRequestWithAuth(authService, req, {
     rateLimitAlreadyConsumed: true,
   });
@@ -432,15 +441,10 @@ async function getAuthContextWithAuth(
     };
   }
 
-  const apiKeyFromHeader = extractApiKeyFromHeaders(headers);
-  if (!apiKeyFromHeader) {
-    if (hasDeprecatedApiKeyQuery(req.url)) {
-      logger.warn("API key in query parameters is not allowed");
-    }
-    return null;
+  if (hasDeprecatedApiKeyQuery(req.url)) {
+    logger.warn("API key in query parameters is not allowed");
   }
-
-  return await getAuthContextFromApiKeyWithAuth(authService, apiKeyFromHeader);
+  return null;
 }
 
 export function createSessionResolver(authService: AuthApiService) {

@@ -162,11 +162,20 @@ rg -n 'dev:web|dev:server|desktop:dev|desktop:build|apps/web|apps/server' packag
 - Workers must be created through the existing session create/send/stop/resume
   services with prompt source `orchestrator`. Do not spawn an agent process from
   orchestration application/domain code.
-- Write attempts use one detached Git worktree per attempt. Integration must
-  collect a hash-addressed binary patch, re-run deterministic gates, apply to
-  the user worktree without commit/push, and dispose the temporary root.
-- Dirty overlap, baseline drift, conflicts, unsupported non-Git writes, missing
-  structured evidence, and failed aggregate verification all fail closed.
+- Write attempts run directly in the registered project root so ACP loads the
+  exact project `AGENTS.md` and other cwd-relative setup. Only one direct write
+  worker may own a Git repository at a time, including across Supervisor runs.
+- Immediately before a write worker starts, checkpoint the complete Git
+  repository with an allow-empty `supervisos: checkpoint before worker ...`
+  commit. When the worker terminates, collect the hash-addressed binary diff and
+  checkpoint the complete repository again with a
+  `supervisos: checkpoint after worker ...` commit before assessing its result.
+  Keep these commits even when the result or gate fails so the attempt is
+  reviewable and recoverable.
+- Integration validates the captured direct-branch diff and checkpoint refs;
+  it must never re-apply that diff to the same project. Baseline/ref drift,
+  conflicts, unsupported non-Git writes, missing structured evidence, and
+  failed aggregate verification all fail closed.
 - Configure trusted final checks with
   `SUPERVISOR_ORCHESTRATION_VERIFICATION_COMMANDS` as a JSON array. Optional
   `SUPERVISOR_ORCHESTRATION_MAX_*` settings can only narrow the schema caps.
@@ -229,9 +238,12 @@ bun test packages/runtime/src/transport/trpc/routers/supervisor-runs.test.ts app
   restore only inside the owned session root, stop the old runtime, truncate
   persisted history, clear the stale ACP session id, start a fresh runtime
   under the same local chat id, then delete later turn refs.
-- Git actions are explicit authenticated user mutations. Default-branch writes
-  always require `confirmDefaultBranch: true`; PR creation is GitHub-only via
-  non-interactive `gh pr create` for this implementation.
+- Git actions are explicit authenticated user mutations. For Supervisor runs,
+  approving the displayed plan explicitly authorizes its direct-branch
+  before/after worker checkpoints and final commit, including on the displayed
+  default branch. Other default-branch Git workflows still require
+  `confirmDefaultBranch: true`; PR creation is GitHub-only via non-interactive
+  `gh pr create` for this implementation.
 - Normal chat worktrees are persistent and stored under Eragear storage on
   `eragear/worktree/*` branches. Environment switching must create/verify the
   target root before stopping the session, then restart the same chat through

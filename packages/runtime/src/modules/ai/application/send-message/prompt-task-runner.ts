@@ -33,6 +33,7 @@ import { AiSessionRuntimeError } from "../ports/ai-session-runtime.port";
 const ACP_STREAM_WATCHDOG_MS = 5000;
 const ACP_ASSISTANT_DRAIN_IDLE_MS = 150;
 const ACP_ASSISTANT_DRAIN_MAX_WAIT_MS = 1500;
+const PROMPT_REQUEST_FAILED = Symbol("prompt-request-failed");
 
 interface PromptTaskRunnerPolicy {
   acpRetryMaxAttempts: number;
@@ -170,6 +171,7 @@ export class PromptTaskRunner {
     try {
       completedStopReason = await this.handlePrompt(params);
     } catch (error) {
+      completedStopReason = "error";
       if (
         error instanceof AiSessionRuntimeError &&
         (error.kind === "process_exited" ||
@@ -368,6 +370,9 @@ export class PromptTaskRunner {
       turnId,
       abortSignal,
     });
+    if (response === PROMPT_REQUEST_FAILED) {
+      return "error";
+    }
     if (!response) {
       return undefined;
     }
@@ -408,7 +413,7 @@ export class PromptTaskRunner {
     broadcast: SessionRuntimePort["broadcast"];
     turnId: string;
     abortSignal?: AbortSignal;
-  }): Promise<{ stopReason: string } | null> {
+  }): Promise<{ stopReason: string } | typeof PROMPT_REQUEST_FAILED | null> {
     const {
       chatId,
       aggregate,
@@ -523,10 +528,13 @@ export class PromptTaskRunner {
         if (outcome === "return_null") {
           return null;
         }
+        if (outcome === "failed") {
+          return PROMPT_REQUEST_FAILED;
+        }
       }
     }
 
-    return await this.handlePromptExhausted({
+    await this.handlePromptExhausted({
       chatId,
       aggregate,
       session,
@@ -534,6 +542,7 @@ export class PromptTaskRunner {
       turnId,
       maxAttempts,
     });
+    return PROMPT_REQUEST_FAILED;
   }
 
   private async waitForAssistantDrain(params: {
@@ -623,7 +632,7 @@ export class PromptTaskRunner {
     broadcast: SessionRuntimePort["broadcast"];
     turnId: string;
     abortSignal?: AbortSignal;
-  }): Promise<"retry" | "return_null"> {
+  }): Promise<"retry" | "return_null" | "failed"> {
     const {
       error,
       attempt,
@@ -749,7 +758,7 @@ export class PromptTaskRunner {
             : "Agent session is unavailable"),
         killProcess: error.kind === "process_exited",
       });
-      return "return_null";
+      return "failed";
     }
 
     if (!aggregate.isCurrentTurn(turnId)) {
@@ -777,7 +786,7 @@ export class PromptTaskRunner {
       session,
       errorMessage: errorText || "Failed to send message",
     });
-    return "return_null";
+    return "failed";
   }
 
   private async finalizeCurrentTurnArtifacts(params: {
@@ -877,7 +886,7 @@ export class PromptTaskRunner {
     broadcast: SessionRuntimePort["broadcast"];
     turnId: string;
     maxAttempts: number;
-  }): Promise<null> {
+  }): Promise<void> {
     const { chatId, aggregate, session, broadcast, turnId, maxAttempts } =
       params;
     this.logger.warn("SendMessageService failed to get prompt response", {
@@ -891,7 +900,7 @@ export class PromptTaskRunner {
         turnId,
         activeTurnId: session.activeTurnId,
       });
-      return null;
+      return;
     }
 
     await this.persistAssistantFallbackMessage({
@@ -915,7 +924,6 @@ export class PromptTaskRunner {
       reason: "Failed to send message",
       killProcess: true,
     });
-    return null;
   }
 
   private async finalizePromptSuccess(params: {

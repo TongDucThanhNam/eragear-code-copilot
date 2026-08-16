@@ -324,6 +324,7 @@ export interface SupervisorRunClientUpdate {
     role: "research" | "implementation" | "test" | "review" | "integration";
     executionMode: "read_only" | "write";
     dependencies: string[];
+    preferredModelId?: string;
     status:
       | "blocked"
       | "ready"
@@ -340,6 +341,7 @@ export interface SupervisorRunClientUpdate {
       attemptId: string;
       chatId: string;
       agentId: string;
+      modelId?: string;
       status:
         | "starting"
         | "running"
@@ -355,6 +357,9 @@ export interface SupervisorRunClientUpdate {
       verification: Array<{ command: string; exitCode: number | null }>;
     }>;
   }>;
+  limits?: {
+    maxAttemptsPerTask: number;
+  };
   gates: Array<{
     gateId: string;
     taskId: string;

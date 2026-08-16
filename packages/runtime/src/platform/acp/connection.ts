@@ -276,7 +276,13 @@ export function createGuardedNdJsonStream(
         const overflowError = toError(error, "ACP NDJSON stream guard failure");
         onOverflow(overflowError);
         didError = true;
-        controller.error(overflowError);
+        // The ACP SDK starts its receive loop without retaining the returned
+        // promise. Erroring the readable therefore becomes an unhandled
+        // rejection and shuts down the whole runtime. The process error and
+        // termination above are the authoritative transport failure signal;
+        // close this stream normally so the failure stays scoped to the one
+        // agent session.
+        controller.close();
       } finally {
         reader.releaseLock();
         resolvePullWaiters();

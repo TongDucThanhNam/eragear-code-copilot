@@ -3747,3 +3747,625 @@ were left running.
 - Verification passed: desktop typecheck, renderer production build, focused
   Settings tests (`6 pass`), Biome, and patch hygiene.
 - Remaining work: none for Quota projected API cost presentation.
+
+## 2026-08-11 Global Skills library and project installation
+
+- Replaced the prior user/project discovery toggle in Settings > Skills with a
+  dormant global catalog rooted at `~/AGENTS/skills` inside the `~/AGENTS`
+  Global Skills home. Catalog entries are
+  immediate child directories containing `SKILL.md`; merely placing a skill in
+  this library never injects it into agent prompts.
+- Added explicit Add to project / Remove actions scoped to the active,
+  user-owned project. Add copies the complete skill directory into
+  `.agents/skills/<skill-name>` so project coding agents can discover it; the
+  renderer performs no direct filesystem access and uses the typed runtime
+  tRPC service.
+- Made installation fail closed on an existing unmanaged project folder. Each
+  managed copy carries an ownership/hash marker; Remove verifies both ownership
+  and the installed content hash, refusing to delete local edits. Managed
+  copies remain visible and removable if their global source later disappears.
+- Updated Local ADE discovery to treat project `.agents/skills` as invokable
+  skills while retaining project `.eragear/skills` and `.claude/skills`
+  compatibility. Removed automatic user `~/.eragear/skills` discovery so a
+  home-level library cannot silently enter prompts.
+- Updated the desktop Global Skills page with the library path, availability,
+  source metadata, and diagnostics. Corrected the catalog home to
+  `C:\Users\terasumi\AGENTS`, whose `skills` directory contains the dormant
+  global library; the missing-library empty state remains covered with an
+  isolated runtime test home.
+- Separated catalog ownership from project installation in the renderer.
+  Settings > Skills is now a read-only Global Skills catalog with refresh and
+  diagnostics only; it no longer reads the active project or exposes Add/Remove.
+  The project context action is now Project Settings, with separate General and
+  Skills tabs. The Skills tab scopes listing and Add/Remove mutations to the
+  exact project opened from the sidebar, including inactive projects.
+- Kept all project skill filesystem mutations behind the existing typed runtime
+  tRPC service. The new Project Settings renderer panel does not access the
+  filesystem, Electron main, or preload directly.
+- Verification passed: the full Local ADE file plus Skills application,
+  filesystem, and router suites (`74 pass`), runtime and desktop typechecks,
+  desktop renderer production build, focused Biome with
+  `--write --error-on-warnings`, repository-wide Biome (`1472 files`), and
+  `git diff --check`. The timed Electron smoke exited `0`, selected port 3005
+  because lower ports were occupied, brought the desktop-service runtime ready,
+  and loaded the renderer; the existing unsubscribe warnings appeared only
+  after forced-timer shutdown. The repository blocker audit also passed (`54`
+  runtime, `47` shared, and `104` desktop tests, plus desktop typecheck).
+- Follow-up verification for the Global/Project UI ownership split passed:
+  Global-vs-project skill-card coverage plus focused runtime Skills suites (`11
+  pass`), desktop typecheck, renderer production build, focused Biome, patch
+  hygiene, and a timed Electron smoke exit (`0`). The running desktop dev
+  renderer also accepted the new Project Settings, project Skills panel, and
+  Global Skills catalog modules through HMR without a final reload error.
+- Remaining work: none for the Global Skills library slice.
+
+## 2026-08-12 Telegram one-time pairing recovery
+
+- Diagnosed a live pairing queue stall where Telegram delivered `/start`
+  immediately before the six-digit one-time code. The unpaired `/start` path
+  attempted decision handling, threw because no chat was paired, and caused
+  long polling to retry the same first update forever without reaching the
+  valid code behind it.
+- Changed unpaired non-code messages to return a pairing instruction instead of
+  entering decision handling. Added regression coverage for the exact
+  `/start`-then-code batch, including chat binding, code consumption, update
+  offset advancement, and both bot replies.
+- Live verification confirmed the encrypted token resolves to
+  `@eragear_code_copilot_bot`, no webhook conflicts exist, the restarted user
+  daemon processed both pending updates, pairing became active, the one-time
+  code was consumed, and Telegram's pending update count reached zero. No bot
+  token or chat id was printed during diagnostics.
+
+## 2026-08-12 Live Supervisos Awwwards goal rehearsal
+
+- Exercised the user-daemon path against the registered project
+  `C:\Users\terasumi\Documents\source_code\htmls\lab`. The rehearsal exposed
+  an auth-precedence defect: an ambient Better Auth session masked the explicit
+  daemon API key, so loopback tRPC calls resolved to the bootstrap administrator
+  instead of `local-desktop-user` and could not see the daemon-owned project.
+- Changed auth resolution to verify an explicit API-key header before ambient
+  session credentials. The existing user-daemon loopback boundary then maps the
+  verified daemon key to the local desktop owner as designed; cookie-only
+  requests remain session-authenticated and non-loopback API-key calls are not
+  remapped. Live verification returned the Local Desktop identity and the exact
+  `lab` project after daemon restart.
+- Found that Telegram generated revision-bound `Approve plan` callbacks but did
+  not notify on `awaiting_approval`. Added that status to run notifications,
+  included a bounded plan summary, and covered the outgoing approval/change/
+  cancel button set with a regression test. The live encrypted notification
+  credential was updated after replaying plan revision 18, confirming that the
+  paired bot accepted the notification without exposing its token or chat id.
+- Aligned the live daemon launcher with the configured ACP commands and target
+  workshop: allowlisted the exact OpenCode and Codex ACP executables, raised the
+  exact-resume-passed OpenCode profile to two concurrent sessions, kept the
+  Codex profile fail-closed after its exact-resume test failed, and replaced the
+  unrelated aggregate `bun test` command with the workshop validation and arena
+  gates.
+- Created live run
+  `supervisor-run-fd850b03-2d0e-458f-b1b5-c6ae5b4c6eda`. Its ACP Manager used
+  exact resume through two schema corrections, produced an eight-task DAG with
+  shared research, two parallel implementation branches, per-demo review/QA,
+  and fail-closed integration, and reached `awaiting_approval` at revision 18.
+  No worker attempt has started and no file under the target project has been
+  changed; user approval remains required because delivery authorizes one local
+  commit on `master` while forbidding push, PR, and deploy.
+- Verification passed: focused auth/context/Telegram suites (`17 pass`), runtime
+  typecheck, focused Biome, patch hygiene, daemon health after restart, live
+  identity/project resolution, exact-resume readiness checks, ACP Manager plan
+  and replan cycles, plan-envelope validation, and Telegram notification ledger
+  update.
+- Follow-up live dispatch exposed a worker-mode/status split. The first approved
+  run launched its research attempt in OpenCode's `orchestrator` mode; that mode
+  wrote only gitignored `artifacts/<chat-id>` metadata, stopped without a
+  persisted assistant result, and left the durable attempt incorrectly marked
+  `running` while the normal session list correctly reported `stopped`. The
+  broken run was cancelled at revision 26 and its exact generated artifact
+  directory was removed.
+- Worker session dispatch now selects a safe ACP mode before sending the task:
+  read-only tasks prefer `plan`/`ask`/`review`/`architect`, write tasks prefer
+  `build`/`code`/`default`, and a session stuck in `orchestrator` with no safe
+  worker mode fails closed. Manager sessions now use the same read-only safe-mode
+  selection and prefer `plan`; the prior `orchestrator` default could create
+  artifacts, hang without ACP text, and exit code 1 instead of returning the
+  required plan object.
+- Propagated unexpected process exits during an active prompt through the
+  session lifecycle event bus. A stopped Manager turn now fails the run to
+  `needs_user`, while a stopped worker is recorded as a terminal
+  `needs_user` result. Intentional idle/session stops do not emit this recovery
+  event, and duplicate stop signals remain idempotent. This closes the stale DAG
+  state where Supervisor state claimed `running` while the normal session list
+  correctly showed `INACTIVE`.
+- Bounded ACP Manager output to four concise tasks and 6000 JSON characters,
+  encouraged directory-root scopes instead of repeated descendant paths, and
+  accepted an optional correlation `runId` only when it exactly matches the
+  durable run binding. The live OpenCode Manager consistently emitted this
+  correlation field; every other field in its compact three-task plan already
+  passed the strict schema.
+- Cancelled the stale replacement run and created live run
+  `supervisor-run-4f14c215-e9e5-4bbc-a915-94a6074b1185`. Its sticky OpenCode ACP
+  session `ses_00acf1afeffe9kB1GTeouNaYbP` was observed as genuinely
+  `running/isActive` in `plan` mode, survived exact-only resumes on the same
+  agent session id, and then stopped normally after returning a valid compact
+  plan. The run reached `awaiting_approval` at revision 20 with two independent
+  write tasks plus one dependent aggregate review/integration task. No worker
+  has been dispatched before the approval gate.
+- Verification for the mode/lifecycle/compact-plan correction passed: focused
+  Manager, Worker Session Manager, session process lifecycle, orchestration
+  event, and prompt-builder suites (`22 pass` across the final focused groups),
+  runtime typecheck, focused Biome, daemon restart health, live
+  `getSessionsPage`/`getSessionState` checks proving `isActive: true` and
+  `currentModeId: plan`, exact-resume reuse, strict plan validation, and the
+  final durable `awaiting_approval` state.
+- The approved live dispatch then exposed three Windows/runtime boundary bugs.
+  ACP output lines larger than the former 1 MiB default could reject the shared
+  SDK readable and surface as an unhandled rejection, one generated PNG could
+  exceed even a temporary 4 MiB limit, and resumed worker sessions lost their
+  persisted worktree environment. ACP input now defaults to an 8 MiB line and
+  16 MiB buffer, closes cleanly after local termination, and remains covered by
+  an over-4-MiB regression. Worker session persistence now retains `envMode`,
+  worktree path, and safe mode selections across exact resume.
+- Git worker preparation now supports a project nested below its repository
+  root. The detached Git worktree remains repository-rooted, while the ACP
+  session is rooted at the exact nested project, task manifests and dirty-path
+  checks are rebased project-relative, patches remain repository-applicable,
+  and disposal uses the stored Git worktree root with Windows `EBUSY` retries.
+  This prevents a `lab/demos/...` patch from being rejected against a
+  `demos/...` Supervisos scope.
+- Live run `supervisor-run-29ba1786-12ca-41d1-b36f-af8067d7e837` confirmed the
+  corrected UI and runtime state: Mission Control showed the run as running and
+  the sidebar showed two active worker sessions. The prior workers were stopped
+  after provider rate-limit/compaction stalls; their terminal transitions
+  advanced the durable run from revision 27 to 31 instead of leaving stale
+  `running` attempts.
+- OpenCode's global default is now `openai/gpt-5.6-sol`, its primary default
+  agent is the built-in `build` agent, and that agent resolves with variant
+  `xhigh`. The Eragear runtime model override is intentionally empty so ACP
+  creation inherits the complete OpenCode model plus variant instead of
+  replacing it with an explicit model selection whose variant is `none`.
+  A direct clean OpenCode run recorded `agent=build`,
+  `providerID=openai`, `modelID=gpt-5.6-sol`, and `variant=xhigh`; the first
+  nested-project worker also proved the corrected project root and Sol provider
+  selection before the runtime override was cleared for subsequent sessions.
+- Verification passed: focused ACP connection, Worker Session Manager, session
+  lifecycle, orchestration event, nested workspace, and patch suites (`27 pass`
+  in the final combined run and `7 pass` in the nested workspace/patch run),
+  the runtime blocker suite (`54 pass`), runtime typecheck, focused Biome, and
+  live daemon health/restart checks.
+- Follow-up recovery rehearsal used live run
+  `supervisor-run-d3d19c97-e4d5-43b9-9f33-1d583c0975df`. Its implementation
+  worker resumed the exact OpenCode session after daemon restarts, re-submitted
+  the interrupted prompt, and was observed with `agent=build`,
+  `providerID=openai`, `modelID=gpt-5.6-sol`, and `variant=xhigh`. The durable
+  run advanced from revision 25 to 29 when the worker returned its structured
+  success result, instead of leaving the attempt or sidebar in a false running
+  state.
+- Added an explicit ACP effort bridge for Supervisos sessions. The runtime reads
+  `SUPERVISOR_ORCHESTRATION_MODEL_EFFORT`, applies a supported session option
+  after create and exact resume, and the live OpenCode session advertised and
+  retained `xhigh`. The user OpenCode config now defaults to
+  `openai/gpt-5.6-sol` and built-in agent `build`; the `build` profile also
+  declares `variant: xhigh` and denies `external_directory` so detached workers
+  cannot edit the original project path directly.
+- Canonicalized a single trailing directory separator in both Manager task
+  scopes and the authoritative plan envelope before hashing/comparison. Unsafe
+  absolute, traversal, repeated-separator, and empty-segment paths still fail
+  closed. Worker prompts now treat the session working directory as the
+  authoritative isolated project root, forbid absolute/external output paths,
+  and request one bounded patch per file below 64 KiB.
+- Recovery now distinguishes a merely running ACP process from an active
+  prompt. An idle exact-resumable worker re-sends the same persisted attempt
+  prompt, while an active prompt is left alone. Unexpected process exit also
+  emits the terminal worker transition whenever its turn id remains active,
+  including the prior race where the prompt task had already been cleared.
+- The live worker created six scoped files in its detached nested-project
+  worktree and passed
+  `bunx @google/design.md lint demos/supervisos-biosphere-terminal/DESIGN.md`
+  with zero errors and zero warnings. The integration gate correctly stopped
+  at `baseline_drift` because an earlier faulty worker had created the same
+  untracked `index.html` directly in the user worktree. The hash-addressed
+  65,142-byte artifact was verified as
+  `17fed5f9aac1e5e813f97130d96c66d7cae3efb51dc5499bed5b924116d99ff7`
+  and integrated manually without touching unrelated paths. The earlier
+  `supervisos-kinetic-archive` artifact was also integrity-checked and restored,
+  leaving two complete six-file Arena entries under `htmls/lab/demos`.
+- Both entry design lints exit 0; Biosphere reports zero warnings while Kinetic
+  reports three orphaned-color warnings. The repository demo validator
+  recognizes both entries and its offline structural pass validates all 92
+  demos. The online URL pass and the aggregate strict Arena audit remain red
+  because of pre-existing failures in other demos; neither output names either
+  new entry as a failure.
+- Final regression verification passed: focused ACP/session/Supervisos suites
+  (`76 pass`, `0 fail`), runtime blocker suite (`54 pass`, `0 fail`), runtime
+  typecheck, focused Biome over 108 files, and patch hygiene.
+- Remaining work: none for the Supervisos model/session/sidebar correction or
+  the two requested Arena rehearsal outputs. The rehearsal run intentionally
+  remains `needs_user` at its fail-closed baseline-drift gate because the
+  verified artifact was integrated outside the durable run after the detected
+  overlap.
+
+## 2026-08-12 Telegram Supervisos notification and callback feedback
+
+- Fixed duplicate Telegram run notifications caused by concurrent
+  `supervisor_run_updated` handlers reading the same persisted revision ledger
+  before any handler saved it. Notifications are now serialized per user and
+  deduplicated by a durable semantic fingerprint (plan identity, open decision
+  identity, or terminal/status state), so incidental revision bumps in the same
+  actionable state do not send another message.
+- The notification ledger now refreshes an existing run key as its newest
+  bounded entry and reloads the latest encrypted config before saving. This
+  preserves concurrent polling offsets and plan-change state while retaining
+  backward compatibility with the prior revision-only ledger.
+- Telegram callback queries are acknowledged immediately with `Processing…`
+  before the plan/run mutation begins. The paired chat then receives explicit
+  success feedback for approve, request-changes, pause, resume, and cancel, or
+  an expired/unavailable/failure message instead of an indefinitely spinning
+  button.
+- Long polling now commits the update offset after every handled update and
+  isolates malformed, stale, or failed updates, preventing one callback from
+  being replayed every five seconds or blocking later updates in the same
+  batch.
+- Restarted the live user daemon on loopback port 43119. Live status confirms
+  Telegram remains configured and paired in `Asia/Saigon`; the active rehearsal
+  run remains durably `needs_user` at revision 29.
+- Verification passed: Telegram bridge and encrypted credential suites (`9
+  pass`, `0 fail`), runtime blocker suite (`54 pass`, `0 fail`), runtime
+  typecheck, focused Biome, and patch hygiene.
+
+## 2026-08-12 Live Supervisos GLM-5.2 Arena rehearsal
+
+- Switched the live OpenCode default, `build`, and `plan` profiles to
+  `zai-coding-plan/glm-5.2` with variant `high`; the Supervisos daemon effort
+  preference is also `high`. A direct smoke returned `GLM52_READY`, and the
+  OpenCode session database independently confirmed both Manager and worker
+  messages used provider `zai-coding-plan`, model `glm-5.2`, and variant
+  `high`, with `external_directory` still denied for the build profile.
+- Created and approved live run
+  `supervisor-run-07daaf69-0d0a-4f47-ba2d-3686417ba02f`. Mission Control state
+  advanced through planning, approval, and a real isolated worker at revision
+  21. The Manager used session `ses_009893ca7ffeyZNWOh0B51X7QX`; the first
+  implementation worker used `ses_009857d1fffe4vpyiq4wXhUnrT` in the exact
+  nested-project detached worktree and advertised `mode=build`, `effort=high`.
+- The GLM worker generated the six-file `Luminous Relay` demo with local
+  canvas/CSS/inline-SVG effects, keyboard controls, semantic landmarks, and
+  live `prefers-reduced-motion` handling. It passed its design lint with zero
+  findings and `node --check` with exit 0. Compared with the Sol rehearsal,
+  GLM spent substantially longer reasoning about the design-lint schema and
+  had roughly 30–60-second gaps between several file writes.
+- The run exposed a rehearsal configuration mismatch rather than a provider
+  failure: the durable task retained the previous Biosphere trusted command
+  even after the daemon launcher was changed to the Luminous command. The
+  worker correctly refused the sibling-demo check and returned evidence for
+  its own goal, so byte-exact evidence validation moved T1 to `needs_user`.
+  A retry inherited the same immutable task command and was cancelled before
+  writing files; the run ended cleanly at revision 31 to prevent wasted tokens
+  and extra Telegram notifications.
+- Verified and applied the first attempt's 68,336-byte hash-addressed artifact
+  `0b6918615bfa5b6aa31657398d4197ce8a200ea49faee9c0629b3c89a829a544`
+  to `htmls/lab/demos/supervisos-glm-luminous-relay` without touching another
+  path. The repository structural validator then caught one GLM metadata miss
+  (`name` instead of the required `title`); corrected that single field.
+- Final target verification passed: Luminous `DESIGN.md` lint has zero errors,
+  warnings, or infos; `node --check script.js` exits 0; and the offline demo
+  validator recognizes `Luminous Relay` among all 93 demos. Source inspection
+  confirms local-only assets, semantic `<main>`, focus-visible styling,
+  keyboard handlers, ARIA state, and both CSS and JavaScript reduced-motion
+  paths. No commit, push, PR, or deployment was performed.
+
+## 2026-08-12 GLM-5.2 max effort follow-up
+
+- Raised the OpenCode `build` and `plan` profiles from `high` to `max` while
+  retaining `zai-coding-plan/glm-5.2`, built-in `build` as the default agent,
+  and the worker `external_directory` deny boundary.
+- Extended the runtime settings and environment validation to accept `max` for
+  `SUPERVISOR_ORCHESTRATION_MODEL_EFFORT`. The initial daemon restart failed
+  closed because the runtime previously allowed only through `xhigh`; after
+  adding the missing value, the daemon restarted healthy on loopback port
+  43119.
+- A plain ACP session demonstrated why the Supervisos effort bridge remains
+  necessary: OpenCode advertised `high` and `max` but initialized that ordinary
+  session at `high`. A real Supervisos Manager smoke then exercised the
+  post-create config-option selection. OpenCode session
+  `ses_00971d8f9ffeIKTnLHQ2TsA6EW` recorded agent `plan`, provider
+  `zai-coding-plan`, model `glm-5.2`, and variant `max` on the session and both
+  prompt messages.
+- The max-effort smoke was configuration-only and created no worker or project
+  changes. Its run `supervisor-run-ec0d17be-259b-4a0c-8ff4-0a451e2cc9a4`
+  was cancelled cleanly at revision 7 after verification; an earlier probe was
+  also cancelled at revision 5.
+- Verification passed: runtime typecheck, focused app-config/Manager/worker
+  suites (`19 pass`, `0 fail`), focused Biome, and patch hygiene.
+
+## 2026-08-13 Research-first AWWWARDS prompt and GLM-5.2:max live build
+
+- Reworked both Supervisor orchestration prompts for Arena work. The Manager
+  now emits one bounded end-to-end demo task, records seven category-backed
+  directions and a deterministic pick, requires exact relative paths and
+  trusted commands, and preserves the authoritative intent and run binding.
+  The worker now receives an implementation-grade craft protocol covering
+  component provenance, three-category deep research, a six-line design
+  contract, deterministic motion, responsive/accessibility/performance
+  requirements, visual QA, and a mandatory correction pass.
+- Hardened the live evidence contract after rehearsal findings: workers must
+  preserve exact command exit codes without pipes, wrappers, fallback
+  executables, or output redirection; a non-zero aggregate command remains a
+  failed result even when only legacy demos are named; missing or uninspected
+  screenshot evidence is a blocker; and every sampled scroll position must
+  contain meaningful content rather than a fixed header over an empty frame.
+  Diagnostic commands may not bootstrap unrelated runtimes, and workers must
+  finish with a scoped Git-status audit and remove their own pollution.
+- Passed trusted verification commands into the sticky ACP Manager session and
+  made Manager recovery consume a persisted completed turn instead of blindly
+  replanning after a stopped process. Structured Manager results are bound to
+  their run id, while live worker recovery also accounts for active prompts and
+  resumable sessions.
+- Ran live Supervisor run
+  `supervisor-run-2cd9fc56-e6e7-44f6-9447-13369ac7fd19` with OpenCode agent
+  `builder`, provider `zai-coding-plan`, model `glm-5.2`, and variant `max`.
+  GLM selected direction 6 and deep-read the `pixelreveal`,
+  `interactive-dot-grid`, and `juiceeffect` component guides/sources across
+  three Arena categories before building the six-file `Gilt & Brine` tidal
+  oyster atelier under `htmls/lab/demos/gilt-and-brine`.
+- The first 25-shot contact sheet exposed a CSS specificity defect that left
+  16 frames effectively black. The strengthened prompt drove GLM to measure
+  the screenshots, locate the reveal-rule conflict, and correct the cascade;
+  the final real-project QA produced 25 meaningful mobile, tablet, landscape,
+  desktop, and wide screenshots with zero console/page errors. Target syntax,
+  DESIGN lint, and demo validation all exit 0. The aggregate strict Arena gate
+  still exits 1 only for five pre-existing demos and does not name
+  `gilt-and-brine`.
+- Cancelled the immutable live run at revision 16 after preserving the verified
+  artifact. Its Bun-launched Playwright command hung in the detached worktree,
+  while Node required an isolated dependency install; the aggregate strict
+  command was also red from unrelated baseline entries. Removed the exact
+  detached attempt root, including the worker-created out-of-scope `Python/`
+  directory, after stopping its verified preview server.
+- Continuous quota-triggered GLM/MiniMax generation remains intentionally
+  disabled. Before it is safe, orchestration needs a dynamic per-demo QA slug,
+  a target-scoped strict verifier, dependable Playwright dependencies inside
+  detached worktrees, and authoritative visual evidence instead of inference.
+  This prevents retry loops, Telegram noise, and quota burn on infrastructure
+  failures.
+- Final focused verification passed: Manager prompt/session/recovery and worker
+  prompt suites (`16 pass`, `0 fail`, `105 expect`), runtime typecheck, and
+  focused Biome over eight orchestration files.
+
+## 2026-08-13 Gilt & Brine benchmark correction and accepted rebuild
+
+- The prior “success” assessment above was invalidated by direct comparison
+  with `crav-burgers`: the dominant procedural aqua sphere was not identifiable
+  as an oyster with copy hidden, the carousel repeated the same primitive, the
+  sampled ice tray was empty, and the footer ended in dead space. The rejected
+  33-file entry was moved recoverably to
+  `AppData/Roaming/Eragear/rejected-demos/gilt-and-brine-20260813-0125` rather
+  than deleted.
+- Tightened the Manager and worker craft protocols around screenshot evidence.
+  A sphere, disc, metaball, rounded blob, gradient, or other low-frequency
+  primitive can no longer receive a passing signature-fidelity score regardless
+  of shader complexity. Organic subjects require category anatomy, asymmetric
+  contour, constructed edges, material layers, wet/dry response, occlusion,
+  and high-frequency detail. Final scores must come from post-capture
+  vision-capable inspection, cite exact images and visible observations, pass a
+  no-copy recognition check, and include at least three object-led scenes.
+- Started live run
+  `supervisor-run-c64d5a56-63ea-4eef-ac9e-ec5050e98645` with OpenCode
+  `builder`, `zai-coding-plan/glm-5.2`, and variant `max`. Its isolated attempt
+  produced the new raw-bar world after researching the component library and
+  the user-named CRAV benchmark. External vision review remained binding in
+  `VISUAL_REVIEW.md` until the failed object, ice, and footer gates were fixed.
+- Generated and staged a 1254×1254 high-detail oyster subject, then corrected
+  the implementation around the pixels: poster-scale hero, art-directed
+  varietal crops, deterministic oyster/lemon tray fallback, dense object-led
+  footer, visible split-text `BRINE`, and an in-tray `CRUSHED ICE` composition.
+  Also fixed a loader Promise callback that prevented reveal/ice/footer boot,
+  removed an invalid SVG GSAP transform, added real carousel tab selection
+  state, and bounded the Matter.js timestep.
+- The accepted target is now
+  `htmls/lab/demos/gilt-and-brine`. Its final 25-frame contact sheet covers
+  390×844, 768×1024, 844×390, 1280×720, and 1600×900 at five exact scroll
+  depths with zero console/page errors. Side-by-side vision audit records every
+  dimension at least 4/5 and a 4.40/5 mean; the subject is recognizable without
+  copy and the orbital, ice tray, and footer are materially different
+  object-led scenes. Browser interaction checks confirmed menu state,
+  `BELOGA` → `KUMAMOTO` carousel selection with `aria-selected`, and a visible
+  ice-body transform after the shake control.
+- Exact target verification passed: design lint reports zero errors/warnings,
+  frozen install changed nothing, the repository validator recognizes all 94
+  demos, and the repository QA command captures 25 frames with zero errors.
+  The aggregate strict Arena command still exits 1 only for pre-existing
+  `bureau-of-unlikely-weather`, `lumiere-residences`, `morph-habitat`,
+  `rivet-reed-sixfold-release`, and `tarot-arcana-awwwards`; it does not name
+  `gilt-and-brine`.
+- Live recovery exposed a remaining durable-state bug: on four observed worker
+  exits, the session row became `stopped` while the attempt/task/run stayed
+  `running` until daemon-start reconciliation. The final occurrence showed the
+  worker session stopped while run revision 13 remained running. A verified
+  daemon restart reconciled and cancelled the orphan at revision 16. This
+  explains why a sidebar can show no running session while Mission Control
+  still owns a running attempt; it must be fixed before unattended quota loops
+  are enabled.
+- Continuous quota-triggered generation remains disabled. A single accepted
+  rebuild is not enough evidence to spend GLM/MiniMax quota indefinitely while
+  the stopped-session/run-state divergence and aggregate strict baseline remain.
+
+## 2026-08-13 Dedicated ACP roles and direct-branch worker checkpoints
+
+- Replaced the global OpenCode `orchestrator` plus `team-*` strategy with three
+  non-nesting roles: default `builder` on `zai-coding-plan/glm-5.2:max`,
+  dedicated primary `manager` on `openai/gpt-5.6-sol:max`, and dormant hidden
+  `explorer` on `deepseek/deepseek-v4-flash`. Removed the old commands,
+  orchestration prompts, artifact tool, response dump, memory blueprint,
+  backup config, and prompt archive while preserving provider and unrelated
+  global settings.
+- Changed ACP mode negotiation to require `manager` for the sticky planning
+  session and `builder` for every worker. Manager creation now fails closed if
+  ACP does not advertise modes, and its effort is fixed to `max`; GLM/MiniMax
+  worker model selection remains owned by Supervisor agent profiles and quota
+  scheduling.
+- Replaced new detached-worktree attempts with serialized direct-branch writes.
+  The registered project path is the ACP cwd, so nested project instructions
+  such as `htmls/lab/AGENTS.md` are present and loadable. One direct writer owns
+  a Git repository at a time across runs.
+- Every write attempt now commits the complete repository immediately before
+  dispatch and immediately after termination, using durable pre/post refs and
+  idempotent collection. The post-worker binary diff remains gate evidence but
+  is not applied again. Failed attempts remain committed for review/rollback.
+  Finalization accepts only Supervisor checkpoint commits between the approved
+  HEAD and final commit; foreign commits still fail closed.
+- Runtime recovery now reclaims each persisted direct workspace before treating
+  its ACP session as live or resumable, including paused runs. A competing
+  recovered writer fails closed, so the per-repository write lock survives a
+  daemon restart instead of existing only for one process lifetime.
+- Telegram no longer emits a portfolio digest after processing an inbound
+  callback batch. The immediate callback acknowledgement and explicit action
+  result therefore remain the latest bot feedback instead of being obscured by
+  a follow-up digest.
+- Full Supervisor orchestration domain/application/infra verification passed:
+  `138 pass`, `0 fail`; focused recovery/direct-workspace E2E passed `13 pass`,
+  `0 fail`; runtime typecheck passed.
+
+## 2026-08-13 Normal ACP worker handoff and sanctioned image tools
+
+- Removed the orchestration protocol from ACP worker messages. A worker now
+  receives the Manager-authored task, scope, constraints, dependency outcomes,
+  and trusted checks as a normal builder request. Runtime recovery sends a
+  compact continuation nudge instead of replaying the full task prompt.
+- Removed the worker-facing structured-result JSON contract and extractor.
+  Workers finish with an ordinary natural-language handoff; Supervisos binds
+  identity and timestamps, captures the Git patch, and executes only its own
+  trusted verification commands before evaluating integration.
+- Corrected a false-failure path where a worker's optional project-wide
+  diagnostic could invalidate a task with no configured trusted commands. The
+  TIDEMARK worker had completed its scoped entry and 25-frame QA successfully,
+  but an unrelated aggregate demo failure incorrectly moved the run to
+  `needs_user`.
+- Added project-bounded OpenCode `image_generate` and `image_inspect` tools for
+  the dedicated builder role. They bridge to Codex image generation and vision
+  while exposing only project-relative PNG destinations and project-relative
+  inspection inputs to ACP workers; Manager and Explorer cannot invoke them.
+- A busy direct-write repository is now scheduling backpressure, not a fatal
+  workspace-preparation error. Retried work remains queued until the active
+  writer releases the repository. A later serialized attempt accepts only the
+  intervening `supervisos: checkpoint ...` chain plus empty approved Supervisor
+  final commits, and still rejects foreign or spoofed content commits as
+  baseline drift. Supervisor Retry, plan approval, and gate approval also
+  provide explicit success/error feedback in the renderer.
+- Verification passed: the complete Supervisor orchestration
+  domain/application/infra suite (`146 pass`, `0 fail`), runtime and desktop
+  typechecks, focused renderer tests, and focused Biome checks.
+
+## 2026-08-15 Durable worker models and usable Mission Control
+
+- Refreshed OpenCode's provider catalog and verified
+  `zai-coding-plan/glm-5.3` is available even though the stale local cache and
+  public Z.ai release page still ended at GLM-5.2. The global default
+  `builder` now uses `zai-coding-plan/glm-5.3:max`; the Manager remains
+  `openai/gpt-5.6-sol:max` and the dormant Explorer remains DeepSeek V4 Flash.
+- Made model selection durable orchestration state instead of prose. Manager
+  task proposals may carry an exact `preferredModelId`; the planner persists
+  it, worker dispatch proves the model is advertised by the new ACP session,
+  selects it before sending the task, and records the actual model on the
+  attempt. A MiniMax task can therefore no longer silently inherit the current
+  GLM builder default on retry.
+- Closed the remaining restart-only direct-writer gap. Recovery now reclaims
+  workspaces for `waiting_capacity` attempts before quota resume, not only
+  `starting` and `running` attempts. This prevents a resumed GLM writer and a
+  newly scheduled MiniMax writer from owning the same Git repository after a
+  desktop-runtime restart.
+- Rebuilt Mission Control's primary UX around actionability: active/attention
+  runs are separated from terminal history, stale terminal decisions no longer
+  inflate the open-decision count, human task titles lead each card, worker
+  sessions are directly openable, and Pause/Resume/Replan/Cancel/Retry actions
+  provide visible success or error feedback. Exhausted retry budgets now say
+  to replan instead of offering a guaranteed-error button.
+- Fixed the Mission Control route's clipped layout with an explicit bounded
+  desktop scroll container. Lower run actions are now physically reachable.
+  The project sidebar keeps live and pinned sessions visible, collapses old
+  inactive sessions behind `Show more`, and renders inactivity as neutral
+  history rather than a wall of red failures. Mission Control also has a
+  first-class `New managed goal` composer.
+- Extended the strict shared event schema with task/attempt model evidence and
+  retry limits so the renderer accepts the new durable fields instead of
+  silently dropping a live update. Mission Control now shows the assigned
+  model before a task consumes an attempt.
+- Live verification recovered the capacity-waiting AERIFORM writer across a
+  runtime restart, then planned and approved a successor TIDEMARK task with
+  `minimax-coding-plan/MiniMax-M3`. It remains queued with zero attempts behind
+  AERIFORM's repository lock, proving the two direct writers are serialized.
+- Verification passed: the complete Supervisor orchestration
+  domain/application/infra suite (`148 pass`, `0 fail`), 27 focused
+  model/planner/recovery tests, 9 renderer state/presentation tests, runtime and
+  desktop typechecks, `git diff --check`, and focused Biome checks.
+
+### Live desktop UX follow-up
+
+- A Computer Use audit reproduced a real Electron navigation failure: the
+  Mission Control sidebar item changed appearance without changing routes.
+  Replaced document anchors in the sidebar and Supervisor settings with TanStack
+  Router links and verified both Mission Control navigation and active-route
+  state in the running desktop app.
+- Reordered Mission Control around daily work. Active and attention-required
+  runs now lead the page; status totals are compact chips; plan and task details
+  are collapsed by default; New Goal opens a focused dialog; Telegram, daemon,
+  and agent-readiness setup live in a secondary collapsible section. A queued
+  direct writer now names the run holding its repository lock instead of
+  appearing silently stuck.
+- Live controls were exercised against the real runtime: the queued MiniMax
+  run transitioned `queued -> paused -> queued`, history switching rendered 18
+  terminal runs, and the New Goal dialog opened with the active `lab` project.
+- Verification passed: desktop typecheck and renderer production build, 11
+  focused Mission Control/run-router tests, 8 allowlist-backed Supervisor
+  persistence/recovery/patch tests, 11 runtime-daemon tests, 2 broken-pipe
+  safety tests, focused Biome, and `git diff --check`.
+
+## 2026-08-15 Provider-centric Usage presentation
+
+- Replaced coding-agent/source labels in Settings > Usage with a renderer-only
+  provider projection. Overview cards, the daily chart, legend, and cost
+  quality now group observed usage under providers such as OpenAI / ChatGPT,
+  Z.ai Coding Plan, MiniMax Coding Plan, Anthropic, Google, and DeepSeek while
+  retaining raw agent attribution internally for quota correlation.
+- Added observed model counts to provider summaries. The model breakdown now
+  merges the same normalized model across agents, so Codex and Pi usage of
+  `gpt-5.6-sol` appears once. The Zcode `offpeak-idle-plan` route remains a
+  deliberate exception labeled `glm-5.2 — Offpeak Idle Plan`.
+- Added focused projection coverage for cross-agent model aggregation,
+  provider-only labels, the offpeak exception, and opaque Zcode route IDs.
+  Verification passed: 4 focused tests, desktop main/renderer typechecks,
+  renderer production build, focused Biome, live read-only projection against
+  the local Zcode usage database, and focused patch hygiene. Remaining work:
+  none.
+
+## 2026-08-15 Quota page clarity and provider counter correction
+
+- Reworked Settings > Quota around three immediate questions: which providers
+  are connected, how much remains in each live limit, and when each limit
+  resets. Provider summaries now surface exhausted limits, human-readable
+  window names, status-colored progress, and local usage without raw provider
+  identifiers or duplicated percentage text.
+- Replaced the generic `Learning` state with specific capacity explanations
+  such as `No quota change yet`, `Partial cycle`, and `Usage not matched`, while
+  keeping the estimator's local-only limitations visible.
+- Corrected Z.ai MCP counter normalization to follow the provider payload:
+  `usage` is the allowance, `currentValue` is consumed usage, `remaining` is
+  explicit remaining usage, and `number` is not treated as the total. This
+  removes the contradictory `100%` alongside `0 of 1 remaining` presentation.
+- Verification passed: 16 focused quota tests, desktop and runtime typechecks,
+  renderer production build, focused Biome, patch hygiene, and a live Electron
+  visual inspection of the provider summary, available, and exhausted states.
+  Remaining work: none.
+
+## 2026-08-15 MCP quota attribution follow-up
+
+- Corrected the Z.ai MCP window classification: it now explicitly represents
+  provider-reported tool-call usage, while 5-hour and weekly windows represent
+  model-token quota.
+- Removed local model tokens, API-equivalent cost, and token-capacity estimates
+  from MCP quota cards. The card now shows MCP calls used, remaining, and total
+  allowance, with a safe legacy fallback when an older runtime snapshot lacks
+  typed counters.
+- Prevented the quota cycle service from scanning or correlating model logs for
+  tool-call windows, and excluded MCP windows from the token-efficiency table.
+  Persisted quota snapshots retain the new usage-kind classification.
+- Verification passed: 25 focused quota and persistence tests, desktop and
+  runtime typechecks, renderer production build, focused Biome, and patch
+  hygiene. Remaining work: none.

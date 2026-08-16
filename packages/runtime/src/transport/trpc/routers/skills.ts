@@ -1,5 +1,5 @@
 import {
-  SetSkillEnabledInputSchema,
+  ManageProjectSkillInputSchema,
   SkillsProjectInputSchema,
 } from "#runtime/modules/skills";
 import { getRequiredUserId } from "../auth-helpers";
@@ -13,10 +13,17 @@ export const skillsRouter = router({
       return await service.list(getRequiredUserId(ctx), input);
     }),
 
-  setEnabled: protectedProcedure
-    .input(SetSkillEnabledInputSchema)
+  addToProject: protectedProcedure
+    .input(ManageProjectSkillInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.useCases.skills.skills;
-      return await service.setEnabled(getRequiredUserId(ctx), input);
+      return await service.addToProject(getRequiredUserId(ctx), input);
+    }),
+
+  removeFromProject: protectedProcedure
+    .input(ManageProjectSkillInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const service = ctx.useCases.skills.skills;
+      return await service.removeFromProject(getRequiredUserId(ctx), input);
     }),
 });

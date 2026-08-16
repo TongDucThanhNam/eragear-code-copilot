@@ -4,6 +4,10 @@ import type {
 } from "../domain/supervisor-run.schemas";
 import { transitionSupervisorRun } from "../domain/supervisor-run.transitions";
 import type {
+  AcpManagerCompletedTurn,
+  AcpManagerSessionCoordinator,
+} from "./acp-manager-session-coordinator.service";
+import type {
   SupervisorRecoverySessionPort,
   SupervisorRecoverySummary,
 } from "./ports/supervisor-recovery.port";
@@ -16,10 +20,14 @@ export class SupervisorRecoveryService {
   private readonly runs: SupervisorRunRepositoryPort;
   private readonly sessions: SupervisorRecoverySessionPort;
   private readonly workers: Pick<WorkerSessionManagerPort, "resume">;
-  private readonly workspaces: Pick<WorkerWorkspacePort, "dispose">;
+  private readonly workspaces: Pick<WorkerWorkspacePort, "claim" | "dispose">;
+  private readonly manager?: Pick<
+    AcpManagerSessionCoordinator,
+    "recoverCompletedTurn"
+  >;
   private readonly orchestrator: Pick<
     SupervisorOrchestratorService,
-    "schedule" | "recordWorkerResult"
+    "schedule" | "recordWorkerResult" | "recordManagerTurn"
   >;
   private readonly now: () => string;
 
@@ -27,11 +35,12 @@ export class SupervisorRecoveryService {
     runs: SupervisorRunRepositoryPort,
     sessions: SupervisorRecoverySessionPort,
     workers: Pick<WorkerSessionManagerPort, "resume">,
-    workspaces: Pick<WorkerWorkspacePort, "dispose">,
+    workspaces: Pick<WorkerWorkspacePort, "claim" | "dispose">,
     orchestrator: Pick<
       SupervisorOrchestratorService,
-      "schedule" | "recordWorkerResult"
+      "schedule" | "recordWorkerResult" | "recordManagerTurn"
     >,
+    manager?: Pick<AcpManagerSessionCoordinator, "recoverCompletedTurn">,
     now: () => string = () => new Date().toISOString()
   ) {
     this.runs = runs;
@@ -39,6 +48,7 @@ export class SupervisorRecoveryService {
     this.workers = workers;
     this.workspaces = workspaces;
     this.orchestrator = orchestrator;
+    this.manager = manager;
     this.now = now;
   }
 
@@ -54,6 +64,7 @@ export class SupervisorRecoveryService {
     for (const run of await this.runs.listNonTerminal()) {
       summary.runs += 1;
       if (run.status === "paused") {
+        await this.claimActiveWorkspaces(run);
         summary.paused += 1;
         continue;
       }
@@ -68,6 +79,9 @@ export class SupervisorRecoveryService {
     summary: SupervisorRecoverySummary
   ): Promise<void> {
     if (initial.status === "planning" || initial.status === "draft") {
+      if (await this.recoverManagerTurn(initial, summary)) {
+        return;
+      }
       const next = transitionSupervisorRun(initial, {
         expectedRevision: initial.revision,
         now: this.now(),
@@ -82,16 +96,36 @@ export class SupervisorRecoveryService {
     const interrupted = new Set<string>();
     for (const task of initial.tasks) {
       const latest = task.attempts.at(-1);
+      if (latest?.status === "waiting_capacity") {
+        if (latest.workspace) {
+          try {
+            await this.workspaces.claim(latest.workspace);
+          } catch {
+            interrupted.add(latest.attemptId);
+            await this.disposeAttempt(latest, summary);
+          }
+        }
+        continue;
+      }
       if (latest?.status === "starting" || latest?.status === "running") {
+        if (latest.workspace) {
+          try {
+            await this.workspaces.claim(latest.workspace);
+          } catch {
+            interrupted.add(latest.attemptId);
+            await this.disposeAttempt(latest, summary);
+            continue;
+          }
+        }
         const state = await this.sessions.inspect({
           userId: initial.userId,
           chatId: latest.chatId,
         });
-        if (state.status === "running") {
+        if (state.status === "running" && state.promptActive) {
           summary.live += 1;
           continue;
         }
-        if (state.status === "stopped" && state.resumable) {
+        if (state.resumable) {
           try {
             await this.workers.resume({
               runId: initial.runId,
@@ -174,6 +208,60 @@ export class SupervisorRecoveryService {
 
     if (run.status === "queued" || run.status === "running") {
       await this.orchestrator.schedule(run.runId, run.userId);
+    }
+  }
+
+  private async recoverManagerTurn(
+    run: SupervisorRunState,
+    summary: SupervisorRecoverySummary
+  ): Promise<boolean> {
+    const manager = run.managerSession;
+    if (!(this.manager && manager?.activeTurn)) {
+      return false;
+    }
+    const state = await this.sessions.inspect({
+      userId: run.userId,
+      chatId: manager.chatId,
+    });
+    if (state.status === "running" && state.promptActive) {
+      summary.live += 1;
+      return true;
+    }
+    let completed: AcpManagerCompletedTurn | null;
+    try {
+      completed = await this.manager.recoverCompletedTurn({
+        runId: run.runId,
+        userId: run.userId,
+      });
+    } catch {
+      // The coordinator persists a precise needs_user decision for invalid or
+      // missing manager output before it throws.
+      summary.interrupted += 1;
+      return true;
+    }
+    if (!completed) {
+      return false;
+    }
+    await this.orchestrator.recordManagerTurn({
+      runId: completed.runId,
+      userId: completed.userId,
+      turn: completed.turn,
+    });
+    summary.resumed += 1;
+    return true;
+  }
+
+  private async claimActiveWorkspaces(run: SupervisorRunState): Promise<void> {
+    for (const task of run.tasks) {
+      const attempt = task.attempts.at(-1);
+      if (
+        attempt?.workspace &&
+        (attempt.status === "starting" ||
+          attempt.status === "running" ||
+          attempt.status === "waiting_capacity")
+      ) {
+        await this.workspaces.claim(attempt.workspace);
+      }
     }
   }
 

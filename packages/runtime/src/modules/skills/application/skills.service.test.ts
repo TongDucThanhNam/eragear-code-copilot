@@ -1,32 +1,55 @@
 import { describe, expect, test } from "bun:test";
-import type { SkillDescriptor } from "./contracts/skills.contract";
+import type {
+  ManageProjectSkillInput,
+  SkillDescriptor,
+  SkillsCatalogSnapshot,
+} from "./contracts/skills.contract";
 import type { SkillsPort } from "./ports/skills.port";
 import { SkillsService } from "./skills.service";
 
 class SkillsPortStub implements SkillsPort {
-  readonly setEnabledCalls: Array<{ skillId: string; enabled: boolean }> = [];
-  private skills: SkillDescriptor[];
+  readonly addCalls: ManageProjectSkillInput[] = [];
+  readonly removeCalls: ManageProjectSkillInput[] = [];
+  private snapshot: SkillsCatalogSnapshot;
 
   constructor(skills: SkillDescriptor[]) {
-    this.skills = skills;
+    this.snapshot = createSnapshot(skills);
   }
 
-  listSkills(): Promise<SkillDescriptor[]> {
-    return Promise.resolve(this.skills);
+  listSkills(): Promise<SkillsCatalogSnapshot> {
+    return Promise.resolve(this.snapshot);
   }
 
-  setSkillEnabled(
+  addSkillToProject(
     _userId: string,
-    input: { skillId: string; enabled: boolean }
-  ): Promise<SkillDescriptor[]> {
-    this.setEnabledCalls.push({
-      skillId: input.skillId,
-      enabled: input.enabled,
-    });
-    this.skills = this.skills.map((skill) =>
-      skill.id === input.skillId ? { ...skill, enabled: input.enabled } : skill
-    );
-    return Promise.resolve(this.skills);
+    input: ManageProjectSkillInput
+  ): Promise<SkillsCatalogSnapshot> {
+    this.addCalls.push(input);
+    this.snapshot = {
+      ...this.snapshot,
+      skills: this.snapshot.skills.map((skill) =>
+        skill.id === input.skillId
+          ? { ...skill, status: "installed" as const }
+          : skill
+      ),
+    };
+    return Promise.resolve(this.snapshot);
+  }
+
+  removeSkillFromProject(
+    _userId: string,
+    input: ManageProjectSkillInput
+  ): Promise<SkillsCatalogSnapshot> {
+    this.removeCalls.push(input);
+    this.snapshot = {
+      ...this.snapshot,
+      skills: this.snapshot.skills.map((skill) =>
+        skill.id === input.skillId
+          ? { ...skill, status: "available" as const }
+          : skill
+      ),
+    };
+    return Promise.resolve(this.snapshot);
   }
 }
 
@@ -34,50 +57,56 @@ function createSkill(
   overrides: Partial<SkillDescriptor> = {}
 ): SkillDescriptor {
   return {
-    id: "skill.project.1",
+    id: "global-skill.1",
+    folderName: "reviewer",
     name: "Reviewer",
-    scope: "project",
-    enabled: true,
-    sourcePath: "/repo/.eragear/skills/reviewer/SKILL.md",
-    prompt: "Review with project standards.",
-    tags: ["project"],
+    sourcePath: "/home/user/AGENTS/skills/reviewer/SKILL.md",
+    status: "available",
+    tags: ["global-library"],
     diagnostics: [],
     ...overrides,
   };
 }
 
+function createSnapshot(skills: SkillDescriptor[]): SkillsCatalogSnapshot {
+  return {
+    libraryPath: "/home/user/AGENTS/skills",
+    libraryExists: true,
+    projectId: "project-1",
+    projectPath: "/repo",
+    skills,
+    diagnostics: [],
+  };
+}
+
 describe("SkillsService", () => {
-  test("lists skills with enabled counts", async () => {
+  test("lists catalog skills with project installation counts", async () => {
     const service = new SkillsService(
       new SkillsPortStub([
         createSkill(),
-        createSkill({ id: "skill.project.2", enabled: false }),
+        createSkill({ id: "global-skill.2", status: "installed" }),
+        createSkill({ id: "global-skill.3", status: "missing-source" }),
       ])
     );
 
     const result = await service.list("user-1");
 
-    expect(result.totalCount).toBe(2);
-    expect(result.enabledCount).toBe(1);
-    expect(result.skills.map((skill) => skill.id)).toEqual([
-      "skill.project.1",
-      "skill.project.2",
-    ]);
+    expect(result.totalCount).toBe(3);
+    expect(result.installedCount).toBe(2);
+    expect(result.libraryPath).toBe("/home/user/AGENTS/skills");
   });
 
-  test("toggles skill enabled state through the port", async () => {
+  test("adds and removes a global skill through the project port", async () => {
     const port = new SkillsPortStub([createSkill()]);
     const service = new SkillsService(port);
+    const input = { projectId: "project-1", skillId: "global-skill.1" };
 
-    const result = await service.setEnabled("user-1", {
-      skillId: "skill.project.1",
-      enabled: false,
-    });
+    const installed = await service.addToProject("user-1", input);
+    const removed = await service.removeFromProject("user-1", input);
 
-    expect(port.setEnabledCalls).toEqual([
-      { skillId: "skill.project.1", enabled: false },
-    ]);
-    expect(result.skills[0]?.enabled).toBe(false);
-    expect(result.enabledCount).toBe(0);
+    expect(port.addCalls).toEqual([input]);
+    expect(port.removeCalls).toEqual([input]);
+    expect(installed.installedCount).toBe(1);
+    expect(removed.installedCount).toBe(0);
   });
 });

@@ -26,6 +26,7 @@ export const UsageStatsQuotaWindowSnapshotSchema = z
     id: z.string().min(1),
     windowType: z.string().min(1).optional(),
     label: z.string().min(1),
+    usageKind: z.enum(["model_tokens", "tool_calls"]).optional(),
     percentRemaining: z.number().min(0).max(100).optional(),
     used: z.number().nonnegative().optional(),
     total: z.number().nonnegative().optional(),
@@ -66,6 +67,7 @@ export const UsageStatsRangeSchema = z.enum(["24h", "7d", "30d", "all"]);
 export type UsageStatsRange = z.infer<typeof UsageStatsRangeSchema>;
 
 export const UsageStatsCliProviderIdSchema = z.enum([
+  "antigravity",
   "amp",
   "claude",
   "codex",

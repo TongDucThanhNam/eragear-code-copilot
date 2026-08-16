@@ -25,13 +25,19 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { type AppRouter, trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { isToolCallQuotaWindow } from "./provider-quota-utils";
+import {
+  buildProviderCentricUsage,
+  type ProviderCentricUsageView,
+  type ProviderDailyUsageView,
+  type ProviderModelUsageView,
+  type ProviderUsageView,
+} from "./usage-provider-view";
 
 type RouterOutput = inferRouterOutputs<AppRouter>;
 type UsageSummary = RouterOutput["usageStats"]["getSummary"];
 type CliUsage = NonNullable<UsageSummary["cliUsage"]>;
 type CliDaily = CliUsage["daily"][number];
-type CliModel = CliUsage["modelUsage"][number];
-type CliProvider = CliUsage["providers"][number];
 type UsageRange = UsageSummary["range"];
 type QuotaCycleResult = RouterOutput["quota"]["cycleUsage"];
 type QuotaCycleProvider = QuotaCycleResult["providers"][number];
@@ -53,14 +59,18 @@ const RANGE_OPTIONS: Array<{ value: UsageRange; label: string }> = [
 ];
 
 const PROVIDER_COLORS: Record<string, string> = {
-  amp: "#eab308",
-  claude: "#e8794f",
-  codex: "#a3a3a3",
+  anthropic: "#e8794f",
   cursor: "#38bdf8",
-  gemini: "#a78bfa",
-  opencode: "#fb7185",
-  pi: "#2dd4bf",
-  zcode: "#818cf8",
+  deepseek: "#22c55e",
+  google: "#a78bfa",
+  "minimax-coding-plan": "#2dd4bf",
+  moonshotai: "#f59e0b",
+  multiple: "#94a3b8",
+  "offpeak-idle-plan": "#c084fc",
+  openai: "#a3a3a3",
+  unattributed: "#64748b",
+  xai: "#f8fafc",
+  zai: "#818cf8",
 };
 
 const FALLBACK_PROVIDER_COLORS = [
@@ -106,6 +116,10 @@ export function UsageStatsSettingsPanel() {
 
   const summary = summaryQuery.data;
   const cliUsage = summary?.cliUsage;
+  const providerUsage = React.useMemo(
+    () => (cliUsage ? buildProviderCentricUsage(cliUsage) : undefined),
+    [cliUsage]
+  );
   const isBusy =
     summaryQuery.isFetching ||
     quotaCycleQuery.isFetching ||
@@ -143,9 +157,9 @@ export function UsageStatsSettingsPanel() {
         <EmptyState
           text={`Failed to load usage statistics: ${summaryQuery.error.message}`}
         />
-      ) : summary && cliUsage ? (
+      ) : summary && cliUsage && providerUsage ? (
         <div className="grid gap-8">
-          <UsageOverview usage={cliUsage} />
+          <UsageOverview providerUsage={providerUsage} usage={cliUsage} />
           <UsageMetricStrip usage={cliUsage} />
           <QuotaEfficiencyComparison
             data={quotaCycleQuery.data}
@@ -153,8 +167,8 @@ export function UsageStatsSettingsPanel() {
             isLoading={quotaCycleQuery.isLoading}
           />
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.55fr)]">
-            <BreakdownTable usage={cliUsage} />
-            <CostQuality usage={cliUsage} />
+            <BreakdownTable providerUsage={providerUsage} usage={cliUsage} />
+            <CostQuality providerUsage={providerUsage} usage={cliUsage} />
           </div>
 
           {cliUsage.warnings.length > 0 ? (
@@ -256,8 +270,14 @@ function UsageHeader({
   );
 }
 
-function UsageOverview({ usage }: { usage: CliUsage }) {
-  const providers = getVisibleProviders(usage.providers);
+function UsageOverview({
+  providerUsage,
+  usage,
+}: {
+  providerUsage: ProviderCentricUsageView;
+  usage: CliUsage;
+}) {
+  const providers = providerUsage.providers;
   const overviewProviders = providers.slice(0, 4);
 
   return (
@@ -310,7 +330,9 @@ function UsageOverview({ usage }: { usage: CliUsage }) {
                     />
                   </div>
                   <div className="mt-1.5 text-muted-foreground text-xs tabular-nums">
-                    {formatPercent(share)} of usage ·{" "}
+                    {formatPercent(share)} of usage · {provider.modelCount}{" "}
+                    {provider.modelCount === 1 ? "model" : "models"}
+                    {" · "}
                     {formatTokenCount(provider.totals.totalTokens)} tokens
                   </div>
                 </div>
@@ -326,22 +348,28 @@ function UsageOverview({ usage }: { usage: CliUsage }) {
         </div>
       </section>
 
-      <DailyUsageChart providers={providers} usage={usage} />
+      <DailyUsageChart
+        daily={providerUsage.daily}
+        providers={providers}
+        range={usage.range}
+      />
     </div>
   );
 }
 
 function DailyUsageChart({
+  daily,
   providers,
-  usage,
+  range,
 }: {
-  providers: CliProvider[];
-  usage: CliUsage;
+  daily: ProviderDailyUsageView[];
+  providers: ProviderUsageView[];
+  range: UsageRange;
 }) {
   const [metric, setMetric] = React.useState<ChartMetric>("cost");
   const chartRows = React.useMemo(
-    () => buildDailyChartData(usage.daily, usage.range, metric),
-    [metric, usage.daily, usage.range]
+    () => buildDailyChartData(daily, range, metric),
+    [daily, metric, range]
   );
   const chartConfig = React.useMemo<ChartConfig>(
     () =>
@@ -538,7 +566,14 @@ function QuotaEfficiencyComparison({
 }) {
   const rows = (data?.providers ?? [])
     .flatMap((provider) =>
-      provider.cycles.map((cycle) => ({ cycle, provider }))
+      provider.cycles
+        .filter((cycle) => {
+          const window = provider.quota.windows.find(
+            (candidate) => candidate.id === cycle.windowId
+          );
+          return !window || !isToolCallQuotaWindow(window);
+        })
+        .map((cycle) => ({ cycle, provider }))
     )
     .sort(
       (left, right) =>
@@ -732,9 +767,15 @@ function formatQuotaConfidence(
   return `${confidence.charAt(0).toUpperCase()}${confidence.slice(1)}`;
 }
 
-function BreakdownTable({ usage }: { usage: CliUsage }) {
+function BreakdownTable({
+  providerUsage,
+  usage,
+}: {
+  providerUsage: ProviderCentricUsageView;
+  usage: CliUsage;
+}) {
   const [mode, setMode] = React.useState<BreakdownMode>("model");
-  const models = [...usage.modelUsage]
+  const models = [...providerUsage.modelUsage]
     .sort(
       (left, right) =>
         right.cost.totalUsd - left.cost.totalUsd ||
@@ -782,7 +823,7 @@ function BreakdownTable({ usage }: { usage: CliUsage }) {
                 ? models.map((model, index) => (
                     <ModelBreakdownRow
                       index={index}
-                      key={`${model.providerId}:${model.name}`}
+                      key={model.key}
                       model={model}
                       usage={usage}
                     />
@@ -804,7 +845,7 @@ function ModelBreakdownRow({
   usage,
 }: {
   index: number;
-  model: CliModel;
+  model: ProviderModelUsageView;
   usage: CliUsage;
 }) {
   const share = getCostOrTokenShare(
@@ -819,8 +860,8 @@ function ModelBreakdownRow({
         <div className="flex min-w-0 items-center gap-2.5">
           <ProviderMark color={getProviderColor(model.providerId, index)} />
           <div className="min-w-0">
-            <div className="truncate font-medium" title={model.name}>
-              {model.name}
+            <div className="truncate font-medium" title={model.displayName}>
+              {model.displayName}
             </div>
             <div className="truncate text-muted-foreground text-xs">
               {model.providerDisplayName}
@@ -864,7 +905,13 @@ function DayBreakdownRow({ day, usage }: { day: CliDaily; usage: CliUsage }) {
   );
 }
 
-function CostQuality({ usage }: { usage: CliUsage }) {
+function CostQuality({
+  providerUsage,
+  usage,
+}: {
+  providerUsage: ProviderCentricUsageView;
+  usage: CliUsage;
+}) {
   const observedTokens =
     usage.pricing.pricedTokens + usage.pricing.unpricedTokens;
   const priceCoverage = safeRatio(usage.pricing.pricedTokens, observedTokens);
@@ -872,15 +919,14 @@ function CostQuality({ usage }: { usage: CliUsage }) {
     usage.pricing.unpricedTokens,
     observedTokens
   );
-  const modelCoverage = usage.modelUsage.filter(
+  const modelCoverage = providerUsage.modelUsage.filter(
     (model) => model.cost.pricedTokens > 0
   ).length;
-  const readyProviders = countReadyProviders(usage.providers);
   const qualityRows = [
     { label: "Priced coverage", value: formatPercent(priceCoverage) },
     {
       label: "Models priced",
-      value: `${modelCoverage}/${usage.modelUsage.length}`,
+      value: `${modelCoverage}/${providerUsage.modelUsage.length}`,
     },
     {
       label: "Unpriced",
@@ -899,7 +945,7 @@ function CostQuality({ usage }: { usage: CliUsage }) {
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-semibold text-base">Cost quality</h2>
         <Badge className="font-normal" variant="outline">
-          {readyProviders}/{usage.providers.length} providers ready
+          {providerUsage.providers.length} providers observed
         </Badge>
       </div>
       <div>
@@ -914,7 +960,7 @@ function CostQuality({ usage }: { usage: CliUsage }) {
         ))}
       </div>
       <div className="mt-5 grid gap-2">
-        {usage.providers.map((provider, index) => (
+        {providerUsage.providers.map((provider, index) => (
           <div
             className="flex items-center justify-between gap-3 text-xs"
             key={provider.providerId}
@@ -925,15 +971,9 @@ function CostQuality({ usage }: { usage: CliUsage }) {
               />
               <span className="truncate">{provider.providerDisplayName}</span>
             </span>
-            <span
-              className={cn(
-                "shrink-0",
-                provider.status === "ready"
-                  ? "text-emerald-500"
-                  : "text-muted-foreground"
-              )}
-            >
-              {formatProviderStatus(provider.status)}
+            <span className="shrink-0 text-muted-foreground">
+              {provider.modelCount}{" "}
+              {provider.modelCount === 1 ? "model" : "models"}
             </span>
           </div>
         ))}
@@ -972,7 +1012,7 @@ function SegmentedControl({
   );
 }
 
-function ProviderLegend({ providers }: { providers: CliProvider[] }) {
+function ProviderLegend({ providers }: { providers: ProviderUsageView[] }) {
   return (
     <div className="hidden items-center gap-3 xl:flex">
       {providers.slice(0, 3).map((provider, index) => (
@@ -1135,21 +1175,8 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function getVisibleProviders(providers: CliProvider[]): CliProvider[] {
-  return [...providers]
-    .filter(
-      (provider) =>
-        provider.totals.totalTokens > 0 || provider.cost.totalUsd > 0
-    )
-    .sort(
-      (left, right) =>
-        right.cost.totalUsd - left.cost.totalUsd ||
-        right.totals.totalTokens - left.totals.totalTokens
-    );
-}
-
 function buildDailyChartData(
-  daily: CliDaily[],
+  daily: ProviderDailyUsageView[],
   range: UsageRange,
   metric: ChartMetric
 ): DailyChartDatum[] {
@@ -1176,14 +1203,17 @@ function buildDailyChartData(
       row[providerId] = provider
         ? metric === "cost"
           ? provider.cost.totalUsd
-          : provider.tokens.totalTokens
+          : provider.totals.totalTokens
         : 0;
     }
     return row;
   });
 }
 
-function getChartDates(daily: CliDaily[], range: UsageRange): string[] {
+function getChartDates(
+  daily: Array<{ date: string }>,
+  range: UsageRange
+): string[] {
   if (range !== "all") {
     return getDateSequence(
       formatLocalDate(new Date()),
@@ -1225,7 +1255,10 @@ function differenceInCalendarDays(startDate: string, endDate: string): number {
   return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
 }
 
-function getProviderShare(provider: CliProvider, usage: CliUsage): number {
+function getProviderShare(
+  provider: ProviderUsageView,
+  usage: CliUsage
+): number {
   return getCostOrTokenShare(
     provider.cost.totalUsd,
     provider.totals.totalTokens,
@@ -1262,17 +1295,6 @@ function getProviderColor(providerId: string, index: number): string {
 
 function getGradientId(providerId: string): string {
   return `usage-${providerId.replace(/[^a-z0-9-]/gi, "-")}`;
-}
-
-function countReadyProviders(providers: CliProvider[]): number {
-  return providers.filter((provider) => provider.status === "ready").length;
-}
-
-function formatProviderStatus(status: CliProvider["status"]): string {
-  if (status === "not_found") {
-    return "Not found";
-  }
-  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function formatNumber(value: number): string {

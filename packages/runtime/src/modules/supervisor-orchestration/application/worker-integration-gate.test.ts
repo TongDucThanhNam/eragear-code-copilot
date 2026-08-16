@@ -135,6 +135,30 @@ describe("evaluateWorkerIntegrationGate", () => {
     );
   });
 
+  test("does not mistake the direct worker's committed changes for baseline drift", () => {
+    const run = createSupervisorRunFixture({
+      baseSnapshot: {
+        ...createSupervisorRunFixture().baseSnapshot,
+        dirtyPaths: ["src/feature.ts"],
+      },
+    });
+    const workspace = {
+      ...createWorkspace(),
+      kind: "direct_git" as const,
+      projectRoot: "/repo",
+      repositoryRoot: "/repo",
+    };
+    const decision = evaluateWorkerIntegrationGate({
+      run,
+      task: createTask(),
+      workspace,
+      patch: { ...createPatch(), workspace },
+      result: createResult(),
+      currentFingerprints: { "src/feature.ts": "b".repeat(64) },
+    });
+    expect(decision).toEqual({ decision: "allow", reasons: [] });
+  });
+
   test("rejects every deletion and destructive action", () => {
     const patch = createPatch({
       touched: ["src/delete.ts"],

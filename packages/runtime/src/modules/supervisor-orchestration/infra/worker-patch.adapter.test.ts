@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import type { PreparedWorkerWorkspace } from "../application/ports/worker-workspace.port";
 import { GitWorkerWorkspaceAdapter } from "./git-worker-workspace.adapter";
@@ -92,7 +99,7 @@ describe("GitWorkerWorkspaceAdapter patch artifacts", () => {
     );
   });
 
-  test("applies an integrity-checked patch without changing user HEAD", async () => {
+  test("creates an integrity-checked post-worker commit and apply is idempotent", async () => {
     const fixture = await createGitWorkspaceFixture("eragear-worker-apply-");
     cleanups.push(fixture.cleanup);
     const adapter = new GitWorkerWorkspaceAdapter({
@@ -119,10 +126,13 @@ describe("GitWorkerWorkspaceAdapter patch artifacts", () => {
     );
     await writeFile(path.join(workspace.projectRoot, "created.txt"), "new\n");
     const collected = await adapter.collect(workspace);
-    const headBefore = (await git(fixture.repo, ["rev-parse", "HEAD"])).trim();
+    const headBefore = workspace.baseHead;
     await adapter.apply({ workspace, artifact: collected.artifact });
     const headAfter = (await git(fixture.repo, ["rev-parse", "HEAD"])).trim();
-    expect(headAfter).toBe(headBefore);
+    expect(headAfter).not.toBe(headBefore);
+    expect(
+      (await git(fixture.repo, ["log", "-1", "--format=%s"])).trim()
+    ).toContain("supervisos: checkpoint after worker");
     expect(
       (
         await readFile(path.join(fixture.repo, "tracked.txt"), "utf8")
@@ -138,5 +148,65 @@ describe("GitWorkerWorkspaceAdapter patch artifacts", () => {
     await expect(
       adapter.apply({ workspace, artifact: collected.artifact })
     ).rejects.toThrow();
+  });
+
+  test("keeps nested project manifests relative while preserving repo-applicable patches", async () => {
+    const fixture = await createGitWorkspaceFixture(
+      "eragear-worker-nested-patch-"
+    );
+    cleanups.push(fixture.cleanup);
+    const nestedProject = path.join(fixture.repo, "lab");
+    await mkdir(nestedProject, { recursive: true });
+    await writeFile(
+      path.join(nestedProject, "tracked.txt"),
+      "nested\n",
+      "utf8"
+    );
+    await git(fixture.repo, ["add", "-A"]);
+    await git(fixture.repo, ["commit", "-m", "nested fixture"]);
+    const head = (await git(fixture.repo, ["rev-parse", "HEAD"])).trim();
+    const adapter = new GitWorkerWorkspaceAdapter({
+      storageRoot: () => Promise.resolve(fixture.storage),
+    });
+    const workspace = await adapter.prepare({
+      runId: "run-1",
+      taskId: "task-a",
+      attemptKey: "attempt-1",
+      projectRoot: nestedProject,
+      executionMode: "write",
+      filesAllowed: ["demos/new-demo/index.html"],
+      baseSnapshot: {
+        head,
+        dirtyPaths: [],
+        targetFingerprints: {},
+        capturedAt: "2026-07-11T00:00:00.000Z",
+      },
+    });
+    workspaces.push({ adapter, workspace });
+    expect(path.basename(workspace.projectRoot)).toBe("lab");
+    expect(workspace.repositoryRoot).toBe(fixture.repo);
+    await mkdir(path.join(workspace.projectRoot, "demos", "new-demo"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(workspace.projectRoot, "demos", "new-demo", "index.html"),
+      "<main>nested</main>\n",
+      "utf8"
+    );
+
+    const collected = await adapter.collect(workspace);
+    expect(collected.files.created).toEqual(["demos/new-demo/index.html"]);
+    expect(await readFile(collected.artifact.storageRef, "utf8")).toContain(
+      "lab/demos/new-demo/index.html"
+    );
+    await adapter.apply({ workspace, artifact: collected.artifact });
+    expect(
+      (
+        await readFile(
+          path.join(nestedProject, "demos", "new-demo", "index.html"),
+          "utf8"
+        )
+      ).replaceAll("\r\n", "\n")
+    ).toBe("<main>nested</main>\n");
   });
 });

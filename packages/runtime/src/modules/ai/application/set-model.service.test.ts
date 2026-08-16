@@ -326,6 +326,7 @@ describe("SetModelService", () => {
     const result = await service.execute("user-1", "chat-1", "model-120");
 
     expect(result.ok).toBe(true);
+    expect(result.configOptions?.[0]?.currentValue).toBe("model-120");
     expect(configCalls).toEqual([
       {
         configId: "primaryModel",

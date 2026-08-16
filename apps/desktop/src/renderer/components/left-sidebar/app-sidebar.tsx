@@ -2,6 +2,7 @@
 "use client";
 
 import { IconInnerShadowTop } from "@tabler/icons-react";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { Gauge } from "lucide-react";
 import type * as React from "react";
 import { useEffect, useMemo } from "react";
@@ -21,6 +22,9 @@ import { trpc } from "@/lib/trpc";
 import { useChatStatusStore } from "@/store/chat-status-store";
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const { data: me } = trpc.auth.getMe.useQuery();
   const sessionPageQuery = trpc.getSessionsPage.useInfiniteQuery(
     { limit: 500 },
@@ -108,19 +112,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarMenuButton
               asChild
               className="data-[slot=sidebar-menu-button]:p-1.5!"
+              isActive={pathname === "/"}
             >
-              <a href="/">
+              <Link to="/">
                 <IconInnerShadowTop className="size-5!" />
                 <span className="font-semibold text-base">Eragear Copilot</span>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <a href="/mission-control">
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === "/mission-control"}
+            >
+              <Link to="/mission-control">
                 <Gauge className="size-5" />
                 <span>Mission Control</span>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

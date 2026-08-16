@@ -14,7 +14,7 @@ const SESSION_FATAL_PATTERN =
 const TRANSPORT_FAILURE_PATTERN =
   /\b(econnreset|econnrefused|etimedout|epipe|network|socket|transport|connection (?:closed|reset|lost)|temporarily unavailable|timeout)\b/;
 const RESET_AT_PATTERN =
-  /(?:reset(?:s|At|_at)?|retry(?:At|_at)?)[^\d]*(\d{4}-\d{2}-\d{2}T[^\s,"}]+)/i;
+  /(?:reset(?:s|At|_at)?|retry(?:At|_at)?)[^\d]*(\d{4}-\d{2}-\d{2}(?:T|\s)\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i;
 
 export interface AcpCapacityFailureInput {
   error?: unknown;

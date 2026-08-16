@@ -68,11 +68,15 @@ export function createClientSafeSupervisorRunUpdate(
       role: task.role,
       executionMode: task.executionMode,
       dependencies: [...task.dependencies],
+      ...(task.preferredModelId
+        ? { preferredModelId: task.preferredModelId }
+        : {}),
       status: task.status,
       attempts: task.attempts.map((attempt) => ({
         attemptId: attempt.attemptId,
         chatId: attempt.chatId,
         agentId: attempt.agentId,
+        ...(attempt.modelId ? { modelId: attempt.modelId } : {}),
         status: attempt.status,
         ...(attempt.result
           ? { files: structuredClone(attempt.result.files) }
@@ -84,6 +88,9 @@ export function createClientSafeSupervisorRunUpdate(
           })) ?? [],
       })),
     })),
+    limits: {
+      maxAttemptsPerTask: run.limits.maxAttemptsPerTask,
+    },
     gates: run.gates.map((gate) => ({
       gateId: gate.gateId,
       taskId: gate.taskId,

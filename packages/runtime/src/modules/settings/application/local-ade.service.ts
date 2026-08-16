@@ -19,6 +19,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   stat,
@@ -2586,6 +2587,26 @@ async function walkFiles(params: {
   return results;
 }
 
+async function isExistingPathWithinRoot(
+  rootPath: string,
+  candidatePath: string
+): Promise<boolean> {
+  try {
+    const [canonicalRoot, canonicalCandidate] = await Promise.all([
+      realpath(rootPath),
+      realpath(candidatePath),
+    ]);
+    const relative = path.relative(canonicalRoot, canonicalCandidate);
+    return !(
+      relative === ".." ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function readMarkdownDescriptor(params: {
   filePath: string;
   kind: CapabilityKind;
@@ -2662,6 +2683,14 @@ async function discoverCapabilityFiles(params: {
     {
       kind: "skill",
       scope: "project",
+      rootPath: path.join(params.rootPath, ".agents", "skills"),
+      match: (filePath) => path.basename(filePath).toLowerCase() === "skill.md",
+      defaultName: (filePath) => path.basename(path.dirname(filePath)),
+      diagnostics: ["Loaded from the project agent skills directory."],
+    },
+    {
+      kind: "skill",
+      scope: "project",
       rootPath: path.join(params.rootPath, ".eragear", "skills"),
       match: (filePath) => path.basename(filePath).toLowerCase() === "skill.md",
       defaultName: (filePath) => path.basename(path.dirname(filePath)),
@@ -2697,13 +2726,6 @@ async function discoverCapabilityFiles(params: {
       defaultName: (filePath) => path.basename(filePath, ".md"),
     },
     {
-      kind: "skill",
-      scope: "user",
-      rootPath: path.join(params.homePath, ".eragear", "skills"),
-      match: (filePath) => path.basename(filePath).toLowerCase() === "skill.md",
-      defaultName: (filePath) => path.basename(path.dirname(filePath)),
-    },
-    {
       kind: "command",
       scope: "user",
       rootPath: path.join(params.homePath, ".eragear", "commands"),
@@ -2721,6 +2743,12 @@ async function discoverCapabilityFiles(params: {
 
   const capabilities: CapabilityDescriptor[] = [];
   for (const spec of specs) {
+    if (
+      spec.scope === "project" &&
+      !(await isExistingPathWithinRoot(params.rootPath, spec.rootPath))
+    ) {
+      continue;
+    }
     const files = await walkFiles({
       rootPath: spec.rootPath,
       match: spec.match,
@@ -2814,6 +2842,11 @@ async function discoverSkillFiles(params: {
   }> = [
     {
       scope: "project",
+      rootPath: path.join(params.rootPath, ".agents", "skills"),
+      diagnostics: ["Loaded from the project agent skills directory."],
+    },
+    {
+      scope: "project",
       rootPath: path.join(params.rootPath, ".eragear", "skills"),
     },
     {
@@ -2821,13 +2854,12 @@ async function discoverSkillFiles(params: {
       rootPath: path.join(params.rootPath, ".claude", "skills"),
       diagnostics: ["Loaded as a compatibility skill descriptor."],
     },
-    {
-      scope: "user",
-      rootPath: path.join(params.homePath, ".eragear", "skills"),
-    },
   ];
   const skills: LocalAdeSkillDescriptor[] = [];
   for (const spec of specs) {
+    if (!(await isExistingPathWithinRoot(params.rootPath, spec.rootPath))) {
+      continue;
+    }
     const files = await walkFiles({
       rootPath: spec.rootPath,
       match: (filePath) => path.basename(filePath).toLowerCase() === "skill.md",

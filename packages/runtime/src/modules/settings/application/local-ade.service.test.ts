@@ -4618,14 +4618,14 @@ test("audits project-root plugin workspace changes with checkpoint safety", asyn
 }, 20_000);
 
 test("discovers invokable skills and output styles with persisted disabled state", async () => {
-  await mkdir(path.join(tempRoot, ".eragear", "skills", "reviewer"), {
+  await mkdir(path.join(tempRoot, ".agents", "skills", "reviewer"), {
     recursive: true,
   });
   await mkdir(path.join(tempRoot, ".eragear", "output-styles"), {
     recursive: true,
   });
   await writeFile(
-    path.join(tempRoot, ".eragear", "skills", "reviewer", "SKILL.md"),
+    path.join(tempRoot, ".agents", "skills", "reviewer", "SKILL.md"),
     "---\nname: Reviewer Skill\ndescription: Review with project standards\n---\n# Reviewer Skill\nUse project review standards.\n",
     "utf8"
   );

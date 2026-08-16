@@ -56,7 +56,10 @@ export interface ServerLifecycleDependencies {
   sessionRepo: SessionRepositoryPort;
   sessionEventOutbox: SessionEventOutboxPort;
   sessionUseCases: SessionUseCases;
-  supervisorOrchestration: Pick<SupervisorOrchestrationUseCases, "recovery">;
+  supervisorOrchestration: Pick<
+    SupervisorOrchestrationUseCases,
+    "recovery" | "capacity"
+  >;
   localAde: Pick<
     UseCasePort<LocalAdeService>,
     "dispatchDuePluginBatchSchedules"
@@ -114,6 +117,7 @@ class DefaultServerLifecycle implements ServerLifecycle {
     this.backgroundRunner.register(
       createProviderQuotaResetDispatchTask({
         dispatcher: deps.bots,
+        supervisorCapacity: deps.supervisorOrchestration.capacity,
         getUserIds: () => [
           LOCAL_DESKTOP_USER_ID,
           ...deps.sessionRuntime.getAll().map((session) => session.userId),

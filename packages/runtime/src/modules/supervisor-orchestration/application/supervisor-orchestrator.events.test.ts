@@ -127,7 +127,12 @@ function createResult(taskId: string): SupervisorWorkerResult {
   };
 }
 
-function createHarness(run: SupervisorRunState) {
+function createHarness(
+  run: SupervisorRunState,
+  validatedTasks: SupervisorTaskRecord[] = [
+    createReadOnlyTask("task-a", "ready"),
+  ]
+) {
   const runs = new MemoryRuns(run);
   const dispatched: string[] = [];
   const workers = {
@@ -171,7 +176,7 @@ function createHarness(run: SupervisorRunState) {
       validateProposal(_context, proposal) {
         return {
           proposal: proposal as never,
-          tasks: [createReadOnlyTask("task-a", "ready")],
+          tasks: structuredClone(validatedTasks),
         };
       },
     },
@@ -205,6 +210,55 @@ function createHarness(run: SupervisorRunState) {
 }
 
 describe("SupervisorOrchestratorService worker events", () => {
+  test("normalizes trailing directory separators across tasks and the plan envelope", async () => {
+    const run = createSupervisorRunFixture({ status: "planning", tasks: [] });
+    const task = createReadOnlyTask("task-a", "ready");
+    task.filesAllowed = ["demos/supervisos-biosphere-terminal"];
+    const harness = createHarness(run, [task]);
+
+    const updated = await harness.service.recordManagerTurn({
+      runId: run.runId,
+      userId: run.userId,
+      turn: {
+        schemaVersion: 1,
+        kind: "plan",
+        summary: "Build one isolated demo",
+        risks: [],
+        tasks: [
+          {
+            taskId: "task-a",
+            title: "Build demo",
+            goal: "Build the scoped demo",
+            role: "implementation",
+            executionMode: "write",
+            dependencies: [],
+            scopeIntent: ["demos/supervisos-biosphere-terminal/"],
+            verificationRequirements: ["Run the scoped checks"],
+          },
+        ],
+        envelope: {
+          goal: run.originalIntent,
+          fileScopes: ["demos/supervisos-biosphere-terminal/"],
+          verificationCommands: ["bun test"],
+          successCriteria: ["The scoped demo passes"],
+          permissionScopes: ["write scoped demo files"],
+          destructiveActions: [],
+          delivery: {
+            createCommit: true,
+            targetBranch: run.baseSnapshot.branch ?? "master",
+            targetHead: run.baseSnapshot.head ?? "abc123",
+            allowDefaultBranch: false,
+          },
+        },
+      },
+    });
+
+    expect(updated.status).toBe("awaiting_approval");
+    expect(updated.plan?.envelope.fileScopes).toEqual([
+      "demos/supervisos-biosphere-terminal",
+    ]);
+  });
+
   test("fails closed instead of leaving planning stuck when a manager plan changes the goal", async () => {
     const run = createSupervisorRunFixture({
       status: "planning",
@@ -304,5 +358,37 @@ describe("SupervisorOrchestratorService worker events", () => {
     expect(completed.status).toBe("completed");
     expect(completed.finalVerification).toHaveLength(1);
     expect(completed.finalVerification[0]?.exitCode).toBe(0);
+  });
+
+  test("accepts a normal ACP handoff while Supervisos owns result evidence", async () => {
+    const task = createReadOnlyTask("task-a", "running");
+    const run = createSupervisorRunFixture({
+      status: "running",
+      tasks: [task],
+    });
+    const harness = createHarness(run);
+    const handoff = [
+      "Implemented the requested interaction.",
+      "Checked keyboard behavior and ran the assigned tests.",
+      "No remaining blocker.",
+    ].join("\n");
+
+    const completed = await harness.service.recordWorkerTerminal({
+      runId: run.runId,
+      userId: run.userId,
+      taskId: task.taskId,
+      attemptId: `attempt-${task.taskId}`,
+      action: "done",
+      reason: "ACP worker completed with a persisted assistant handoff.",
+      resultText: handoff,
+    });
+
+    expect(completed.status).toBe("completed");
+    expect(completed.tasks[0]?.attempts[0]?.result?.outcomeSummary).toBe(
+      handoff
+    );
+    expect(completed.tasks[0]?.attempts[0]?.result?.verification).toEqual([
+      expect.objectContaining({ command: "bun test", exitCode: 0 }),
+    ]);
   });
 });

@@ -136,20 +136,33 @@ export class QuotaCycleUsageService {
       matchingHistory,
       boundary
     );
-    const observed = await this.scanProviderWindow(
-      quota.providerId,
-      boundary.startMs,
-      boundary.endMs,
-      scanCache
-    );
-    const estimate = await this.buildEstimate({
-      providerId: quota.providerId,
-      window,
-      boundary,
-      observations,
-      observed,
-      scanCache,
-    });
+    const tracksToolCalls = window.usageKind === "tool_calls";
+    const observed = tracksToolCalls
+      ? {
+          ...emptyFilteredUsage(),
+          warnings: [
+            "This quota tracks MCP tool calls; model-token logs do not measure it.",
+          ],
+        }
+      : await this.scanProviderWindow(
+          quota.providerId,
+          boundary.startMs,
+          boundary.endMs,
+          scanCache
+        );
+    const estimate = tracksToolCalls
+      ? unavailableEstimate(observations.length, [
+          "This quota tracks MCP tool calls rather than model tokens.",
+          "Use the provider-reported MCP counters instead of a token-capacity estimate.",
+        ])
+      : await this.buildEstimate({
+          providerId: quota.providerId,
+          window,
+          boundary,
+          observations,
+          observed,
+          scanCache,
+        });
 
     return {
       windowId: window.id,

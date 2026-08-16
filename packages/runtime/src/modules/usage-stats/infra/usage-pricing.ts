@@ -80,6 +80,13 @@ const MODEL_PROVIDER_HINTS: [RegExp, string][] = [
 ];
 
 const MODEL_ALIASES: Record<string, string> = {
+  "gemini 3.1 pro (high)": "gemini-3.1-pro-preview",
+  "gemini 3.1 pro (low)": "gemini-3.1-pro-preview",
+  "gemini-3.1-pro": "gemini-3.1-pro-preview",
+  "gemini-3.1-pro-high": "gemini-3.1-pro-preview",
+  "gemini-3.1-pro-low": "gemini-3.1-pro-preview",
+  "gemini-pro-c": "gemini-3.1-pro-preview",
+  "gemini-pro-default": "gemini-3.1-pro-preview",
   "gpt-5-5": "gpt-5.5",
   "gpt-5-5-pro": "gpt-5.5-pro",
   "opus-4.5": "claude-opus-4-5",

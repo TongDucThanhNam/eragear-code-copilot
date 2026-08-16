@@ -175,7 +175,7 @@ export function initializeServiceModule({
     serviceRegistryDependencies,
     settingsUseCases.localAde
   );
-  const skillsUseCases = createSkillsUseCases(settingsUseCases.localAde);
+  const skillsUseCases = createSkillsUseCases(serviceRegistryDependencies);
   const hooksUseCases = createHooksUseCases(settingsUseCases.localAde);
   const memoryUseCases = createMemoryUseCases(settingsUseCases.localAde);
   const fileWatcherUseCases = createFileWatcherUseCases(
@@ -213,7 +213,8 @@ export function initializeServiceModule({
     aiUseCases,
     agentUseCases,
     credentialUseCases,
-    toolingUseCases
+    toolingUseCases,
+    quotaUseCases
   );
   const supervisorUseCases = createSupervisorUseCases(
     serviceRegistryDependencies,

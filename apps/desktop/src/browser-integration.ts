@@ -358,12 +358,12 @@ export class IntegratedBrowserController {
     window.webContents.on("page-title-updated", () => this.notify());
     window.webContents.on(
       "console-message",
-      (_event, level, message, line, sourceId) => {
+      ({ level, message, lineNumber, sourceId }) => {
         this.consoleMessages.push({
-          level: consoleLevel(level),
+          level,
           message,
           ...(sourceId ? { sourceId } : {}),
-          ...(line ? { line } : {}),
+          ...(lineNumber ? { line: lineNumber } : {}),
           timestamp: new Date().toISOString(),
         });
         this.consoleMessages = this.consoleMessages.slice(
@@ -612,19 +612,6 @@ function isPathInsideRoots(filePath: string, roots: string[]): boolean {
 function normalizeComparablePath(value: string): string {
   const resolved = path.resolve(value);
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-}
-
-function consoleLevel(level: number): IntegratedBrowserConsoleMessage["level"] {
-  if (level >= 3) {
-    return "error";
-  }
-  if (level === 2) {
-    return "warning";
-  }
-  if (level === 0) {
-    return "debug";
-  }
-  return "info";
 }
 
 function injectScriptTagScript(elementId: string, src: string): string {
