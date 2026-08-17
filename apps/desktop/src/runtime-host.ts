@@ -26,6 +26,7 @@ import type {
   RuntimeServiceServerMessage,
   RuntimeServiceSubscriptionEventMessage,
 } from "@eragear-code-copilot/shared";
+import { resolveDesktopRuntimeLaunch } from "./runtime-launch.js";
 
 const execFileAsync = promisify(execFile);
 const LOOPBACK_HOST = "127.0.0.1";
@@ -109,6 +110,9 @@ const DESKTOP_DEFAULT_ALLOWED_ENV_KEYS = [
 export interface DesktopRuntimeHostOptions {
   mode: DesktopRuntimeMode;
   repoRoot: string;
+  runtimeRoot?: string;
+  runtimeExecutable?: string;
+  runtimeStoragePath?: string;
   rendererUrl: string;
   runtimePort: number;
   localAuthToken: string;
@@ -551,20 +555,22 @@ export class DesktopRuntimeHost
     this.cliAvailability = await resolveAgentCliAvailability();
     this.logCliAvailability();
 
-    const runtimeRoot = path.join(this.options.repoRoot, "packages", "runtime");
-    const serviceEntrypoint = path.join(
+    const runtimeRoot =
+      this.options.runtimeRoot ??
+      path.join(this.options.repoRoot, "packages", "runtime");
+    const runtimeExecutable = this.options.runtimeExecutable?.trim();
+    const launch = resolveDesktopRuntimeLaunch({
+      role: "desktop-service",
       runtimeRoot,
-      "src",
-      "runtime",
-      "desktop-service.ts"
-    );
+      ...(runtimeExecutable ? { runtimeExecutable } : {}),
+    });
     try {
-      await access(serviceEntrypoint);
+      await access(launch.requiredFile);
     } catch (error) {
       this.childStatus = "error";
       this.healthState = "error";
       this.addMessage(
-        `Desktop runtime service entrypoint is unavailable at ${serviceEntrypoint}: ${
+        `Desktop runtime service entrypoint is unavailable at ${launch.requiredFile}: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
@@ -572,16 +578,21 @@ export class DesktopRuntimeHost
     }
 
     try {
+      const isPackagedRuntime = Boolean(runtimeExecutable);
       const serviceEnv: NodeJS.ProcessEnv = {
         ...process.env,
-        NODE_ENV: "development",
-        BUN_ENV: "development",
+        NODE_ENV: isPackagedRuntime ? "production" : "development",
+        BUN_ENV: isPackagedRuntime ? "production" : "development",
         ALLOW_INSECURE_DEV_DEFAULTS:
-          process.env.ALLOW_INSECURE_DEV_DEFAULTS ?? "true",
+          process.env.ALLOW_INSECURE_DEV_DEFAULTS ??
+          (isPackagedRuntime ? "false" : "true"),
         ERAGEAR_RUNTIME_TRANSPORT: "desktop-service",
         ERAGEAR_DESKTOP_SERVICE_TOKEN: this.options.localAuthToken,
         ERAGEAR_REPO_ROOT: this.options.repoRoot,
         ALLOWED_ENV_KEYS: buildDesktopAllowedEnvKeysEnv(runtimeRoot),
+        ...(this.options.runtimeStoragePath
+          ? { ERAGEAR_STORAGE_DIR: this.options.runtimeStoragePath }
+          : {}),
       };
       const agentCommandPoliciesEnv = buildDesktopAgentCommandPoliciesEnv({
         cliAvailability: this.cliAvailability,
@@ -591,7 +602,7 @@ export class DesktopRuntimeHost
         serviceEnv.ALLOWED_AGENT_COMMAND_POLICIES = agentCommandPoliciesEnv;
       }
 
-      const proc = spawn("bun", ["run", "src/runtime/desktop-service.ts"], {
+      const proc = spawn(launch.command, launch.args, {
         cwd: runtimeRoot,
         stdio: ["pipe", "pipe", "pipe"],
         env: serviceEnv,

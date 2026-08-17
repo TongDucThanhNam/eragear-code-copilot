@@ -14,6 +14,27 @@ The dev launcher starts the renderer from this package on a loopback Vite port,
 builds Electron main/preload, and launches Electron. If the requested renderer
 port is busy, the launcher selects the next free loopback port.
 
+## Package for Windows
+
+From the repository root:
+
+```powershell
+bun run package:win
+```
+
+This creates an assisted per-user NSIS installer under `apps/desktop/release`.
+The installer offers an installation-directory choice and creates Start Menu
+and desktop shortcuts. For a faster unpacked package during release testing:
+
+```powershell
+bun run --cwd apps/desktop package:win:dir
+```
+
+The packaging preparation step stages only the bundled Electron app and a
+compiled runtime sidecar. The SQLite worker and migration assets are shipped
+beside that sidecar under `resources/runtime`; the installed app does not need
+Bun or the source repository.
+
 Default `main-thread` runtime traffic does not use a browser-accessible local
 HTTP API. The renderer calls preload over `electron-ipc`; Electron main routes
 those calls to a Bun `desktop-service` process from `packages/runtime` over

@@ -1,0 +1,26 @@
+id: runtime-domain-no-outer-layer-imports
+snapshots:
+  const adapter = await import("../infrastructure/adapter");:
+    labels:
+    - source: import("../infrastructure/adapter")
+      style: primary
+      start: 22
+      end: 57
+  export { platformClock } from "#runtime/platform/clock";:
+    labels:
+    - source: export { platformClock } from "#runtime/platform/clock";
+      style: primary
+      start: 0
+      end: 56
+  import { SqliteRepository } from "../infra/sqlite.repository";:
+    labels:
+    - source: import { SqliteRepository } from "../infra/sqlite.repository";
+      style: primary
+      start: 0
+      end: 62
+  import { router } from "#runtime/transport/trpc/router";:
+    labels:
+    - source: import { router } from "#runtime/transport/trpc/router";
+      style: primary
+      start: 0
+      end: 56

@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ast-grep/ast-grep/main/schemas/typescript_rule.json
+
+id: runtime-application-no-transport-imports
+message: Runtime application code must not import from the transport layer.
+severity: error
+language: TypeScript
+files:
+  - packages/runtime/src/modules/**/application/**/*.ts
+rule:
+  any:
+    - pattern: import $$$BINDINGS from "$SOURCE"
+    - pattern: import "$SOURCE"
+    - pattern: export { $$$BINDINGS } from "$SOURCE"
+    - pattern: export type { $$$BINDINGS } from "$SOURCE"
+    - pattern: export * from "$SOURCE"
+    - pattern: export * as $NAME from "$SOURCE"
+    - pattern: import("$SOURCE")
+constraints:
+  SOURCE:
+    regex: '(?:^|/)transport(?:/|$)'
+note: Transport validates and maps inputs before calling application services; dependencies must not point back outward.

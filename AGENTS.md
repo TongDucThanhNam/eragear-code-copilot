@@ -71,6 +71,9 @@ bun run --cwd packages/api-contract check-types
 bun run build
 bunx biome check packages apps/desktop apps/native --error-on-warnings
 
+# Structural architecture rule tests + full scan
+bun run check:ast
+
 # Focused formatting / patch hygiene
 bunx biome check <paths> --write --error-on-warnings
 git diff --check <paths>

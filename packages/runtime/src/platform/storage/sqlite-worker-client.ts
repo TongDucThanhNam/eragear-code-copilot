@@ -114,9 +114,12 @@ const defaultSqliteWorkerFactory: SqliteWorkerFactory = (
   entryPath,
   initData
 ) => {
-  if (isStandaloneExecutable()) {
+  if (
+    isStandaloneExecutable() &&
+    entryPath === EMBEDDED_SQLITE_WORKER_ENTRYPOINT
+  ) {
     return new StandaloneSqliteWorker(
-      new Worker("src/bootstrap/sqlite-worker.entry.ts", {
+      new Worker(EMBEDDED_SQLITE_WORKER_ENTRYPOINT, {
         workerData: initData,
       } as WorkerOptions)
     );
@@ -161,11 +164,34 @@ function normalizeRoots(roots: string[]): string[] {
 }
 
 function isStandaloneExecutable(): boolean {
-  return process.argv.some((arg) => arg.includes("$bunfs"));
+  const bunRuntime = Reflect.get(globalThis, "Bun") as
+    | { isStandaloneExecutable?: boolean }
+    | undefined;
+  if (bunRuntime?.isStandaloneExecutable === true) {
+    return true;
+  }
+  if (!process.versions.bun) {
+    return false;
+  }
+
+  const executableName = path.basename(process.execPath).toLowerCase();
+  const isBunLauncher =
+    executableName === "bun" || executableName === "bun.exe";
+  return !isBunLauncher || process.argv.some((arg) => arg.includes("$bunfs"));
 }
 
 function resolveWorkerEntrypointPath(): string | URL {
   if (isStandaloneExecutable()) {
+    const runtimeDir = path.dirname(process.execPath);
+    const externalWorkerPaths = [
+      path.join(runtimeDir, "sqlite-worker.entry.js"),
+      path.join(runtimeDir, "bootstrap", "sqlite-worker.entry.js"),
+    ];
+    for (const externalWorkerPath of externalWorkerPaths) {
+      if (existsSync(externalWorkerPath)) {
+        return externalWorkerPath;
+      }
+    }
     return EMBEDDED_SQLITE_WORKER_ENTRYPOINT;
   }
 

@@ -1,0 +1,26 @@
+id: renderer-no-privileged-imports-typescript
+snapshots:
+  const electron = await import("electron");:
+    labels:
+    - source: import("electron")
+      style: primary
+      start: 23
+      end: 41
+  export type { PathLike } from "node:fs";:
+    labels:
+    - source: export type { PathLike } from "node:fs";
+      style: primary
+      start: 0
+      end: 40
+  import path from "node:path";:
+    labels:
+    - source: import path from "node:path";
+      style: primary
+      start: 0
+      end: 29
+  import { ipcRenderer } from "electron";:
+    labels:
+    - source: import { ipcRenderer } from "electron";
+      style: primary
+      start: 0
+      end: 39

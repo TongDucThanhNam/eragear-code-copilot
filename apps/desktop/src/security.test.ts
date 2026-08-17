@@ -24,7 +24,9 @@ describe("renderer security headers", () => {
       rendererUrl: "https://eragear.local",
     });
 
-    expect(csp).toContain("script-src 'self' https://eragear.local");
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain("https://eragear.local");
     expect(csp).not.toContain("'unsafe-eval'");
     expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
   });

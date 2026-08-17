@@ -1,0 +1,32 @@
+appId: com.eragear.copilot
+productName: Eragear Code Copilot
+electronVersion: 42.4.0
+asar: true
+npmRebuild: false
+directories:
+  buildResources: .
+  output: ../../release
+files:
+  - dist/**/*
+  - package.json
+extraResources:
+  - from: ../runtime
+    to: runtime
+    filter:
+      - "**/*"
+win:
+  executableName: Eragear
+  icon: icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+artifactName: Eragear-Code-Copilot-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Eragear Code Copilot
+  perMachine: false
+  deleteAppDataOnUninstall: false

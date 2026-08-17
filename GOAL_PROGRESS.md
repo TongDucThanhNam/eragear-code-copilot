@@ -4369,3 +4369,36 @@ were left running.
 - Verification passed: 25 focused quota and persistence tests, desktop and
   runtime typechecks, renderer production build, focused Biome, and patch
   hygiene. Remaining work: none.
+
+## 2026-08-17 Windows installer packaging
+
+- Added a production Windows packaging path with Electron Builder and an
+  assisted per-user NSIS installer. `bun run package:win` now builds Electron
+  main/preload, an Electron-mode renderer, a staged app with no monorepo
+  production dependencies, and
+  `apps/desktop/release/Eragear-Code-Copilot-Setup-0.0.0.exe`.
+- Packaged Electron resolves the renderer from `app.asar` with relative assets
+  and hash history. Production CSP no longer includes Vite development
+  allowances, while preload remains isolated behind contextBridge IPC.
+- Added a compiled `eragear-runtime.exe` sidecar that selects the existing
+  `desktop-service` or `daemon-service` runtime entrypoint. Production startup
+  derives strict command/env policies from detected local agent CLIs rather
+  than weakening the existing sandbox and permission boundaries.
+- Bundled the SQLite worker and migration assets beside the sidecar. The
+  packaged runtime finds this worker relative to its executable, preserving
+  SQLite worker-thread isolation without requiring Bun or repository source on
+  the destination computer.
+- Updated the packaged daemon launcher to use the same sidecar roles on Windows
+  Task Scheduler and Linux systemd paths. Development continues to launch the
+  TypeScript runtime through Bun.
+- Documented the root and desktop-package build commands in `README.md` and
+  `apps/desktop/README.md`. The unpacked validation command remains
+  `bun run --cwd apps/desktop package:win:dir`.
+- Verification passed: `bun run package:win`; desktop and runtime typechecks;
+  19 focused distribution, launch, daemon, security, packaged-policy, and
+  SQLite worker tests; focused Biome; and an installed-layout Electron smoke
+  with exit `0`, runtime ready, child process running, SQLite worker started,
+  renderer loaded from `file:///.../app.asar`, and graceful runtime shutdown.
+  The generated installer is 130,797,460 bytes with SHA-256
+  `251F9D729FAA1DB159F744F48C0D7C2AF50769FAB3A63EB460F25305CE1AFD5D`.
+  It is intentionally unsigned in the current local environment.

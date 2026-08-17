@@ -1,0 +1,20 @@
+id: runtime-application-no-transport-imports
+snapshots:
+  const transport = await import("../../transport/router");:
+    labels:
+    - source: import("../../transport/router")
+      style: primary
+      start: 24
+      end: 56
+  export { router } from "../../../transport/trpc/router";:
+    labels:
+    - source: export { router } from "../../../transport/trpc/router";
+      style: primary
+      start: 0
+      end: 56
+  import type { AppRouter } from "#runtime/transport/trpc/router";:
+    labels:
+    - source: import type { AppRouter } from "#runtime/transport/trpc/router";
+      style: primary
+      start: 0
+      end: 64

@@ -1,0 +1,10 @@
+id: runtime-domain-no-outer-layer-imports
+valid:
+  - import type { GoalId } from "../goal-id";
+  - import type { ClockPort } from "../application/ports/clock.port";
+  - const example = "../infra/repository";
+invalid:
+  - import { router } from "#runtime/transport/trpc/router";
+  - import { SqliteRepository } from "../infra/sqlite.repository";
+  - export { platformClock } from "#runtime/platform/clock";
+  - const adapter = await import("../infrastructure/adapter");

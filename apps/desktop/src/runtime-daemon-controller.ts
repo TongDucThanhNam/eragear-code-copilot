@@ -10,6 +10,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { resolveDesktopRuntimeLaunch } from "./runtime-launch.js";
 
 const execFileAsync = promisify(execFile);
 const PRIVATE_FILE_MODE = 0o600;
@@ -69,6 +70,8 @@ interface RuntimeDaemonCommandRunner {
 
 export interface UserRuntimeDaemonControllerOptions {
   repoRoot: string;
+  runtimeRoot?: string;
+  runtimeExecutable?: string;
   userDataPath: string;
   runtimeStoragePath: string;
   port: number;
@@ -95,17 +98,16 @@ export class UserRuntimeDaemonController {
   private readonly port: number;
   private readonly platform: NodeJS.Platform;
   private readonly bunExecutable: string;
+  private readonly runtimeExecutable: string | undefined;
   private readonly nodeEnv: DaemonNodeEnvironment;
   private readonly commands: RuntimeDaemonCommandRunner;
 
   constructor(options: UserRuntimeDaemonControllerOptions) {
     this.daemonDir = path.resolve(options.userDataPath, "runtime-daemon");
     this.runtimeStoragePath = path.resolve(options.runtimeStoragePath);
-    this.runtimeRoot = path.join(
-      path.resolve(options.repoRoot),
-      "packages",
-      "runtime"
-    );
+    this.runtimeRoot = options.runtimeRoot
+      ? path.resolve(options.runtimeRoot)
+      : path.join(path.resolve(options.repoRoot), "packages", "runtime");
     this.manifestPath = path.join(this.daemonDir, "endpoint.json");
     this.tokenPath = path.join(this.daemonDir, "token");
     this.lockPath = path.join(this.daemonDir, "runtime.lock");
@@ -113,6 +115,9 @@ export class UserRuntimeDaemonController {
     this.port = options.port;
     this.platform = options.platform ?? os.platform();
     this.bunExecutable = options.bunExecutable ?? "bun";
+    this.runtimeExecutable = options.runtimeExecutable?.trim()
+      ? path.resolve(options.runtimeExecutable)
+      : undefined;
     this.nodeEnv = options.nodeEnv ?? "production";
     this.commands = options.commandRunner ?? new SystemCommandRunner();
   }
@@ -275,29 +280,29 @@ export class UserRuntimeDaemonController {
   }
 
   private startDetachedFallback(): void {
-    const child = spawn(
-      this.bunExecutable,
-      ["run", "src/runtime/daemon-service.ts"],
-      {
-        cwd: this.runtimeRoot,
-        detached: true,
-        env: this.daemonEnvironment(),
-        stdio: "ignore",
-        windowsHide: true,
-      }
-    );
+    const launch = this.runtimeLaunch("daemon-service");
+    const child = spawn(launch.command, launch.args, {
+      cwd: this.runtimeRoot,
+      detached: true,
+      env: this.daemonEnvironment(),
+      stdio: "ignore",
+      windowsHide: true,
+    });
     child.unref();
   }
 
   private async installWindowsTask(): Promise<void> {
     const launcherPath = path.join(this.daemonDir, "start-runtime.ps1");
+    const launch = this.runtimeLaunch("daemon-service");
     const lines = [
       "$ErrorActionPreference = 'Stop'",
       ...Object.entries(this.daemonPersistentEnvironment()).map(
         ([key, value]) => `$env:${key} = '${escapePowerShell(value)}'`
       ),
       `Set-Location -LiteralPath '${escapePowerShell(this.runtimeRoot)}'`,
-      `& '${escapePowerShell(this.bunExecutable)}' run 'src/runtime/daemon-service.ts'`,
+      `& '${escapePowerShell(launch.command)}' ${launch.args
+        .map((arg) => `'${escapePowerShell(arg)}'`)
+        .join(" ")}`,
     ];
     await writePrivateFile(launcherPath, `${lines.join("\r\n")}\r\n`);
     const taskCommand = `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "${launcherPath}"`;
@@ -330,6 +335,7 @@ export class UserRuntimeDaemonController {
     const environmentLines = Object.entries(
       this.daemonPersistentEnvironment()
     ).map(([key, value]) => `Environment=${key}=${escapeSystemd(value)}`);
+    const launch = this.runtimeLaunch("daemon-service");
     const service = [
       "[Unit]",
       "Description=Eragear user runtime daemon",
@@ -339,7 +345,9 @@ export class UserRuntimeDaemonController {
       "Type=simple",
       `WorkingDirectory=${escapeSystemd(this.runtimeRoot)}`,
       ...environmentLines,
-      `ExecStart=${escapeSystemd(this.bunExecutable)} run src/runtime/daemon-service.ts`,
+      `ExecStart=${[launch.command, ...launch.args]
+        .map((part) => escapeSystemd(part))
+        .join(" ")}`,
       "Restart=on-failure",
       "RestartSec=5",
       "",
@@ -354,6 +362,20 @@ export class UserRuntimeDaemonController {
       "enable",
       "eragear-runtime.service",
     ]);
+  }
+
+  private runtimeLaunch(role: "daemon-service"): {
+    command: string;
+    args: string[];
+  } {
+    return resolveDesktopRuntimeLaunch({
+      bunExecutable: this.bunExecutable,
+      role,
+      runtimeRoot: this.runtimeRoot,
+      ...(this.runtimeExecutable
+        ? { runtimeExecutable: this.runtimeExecutable }
+        : {}),
+    });
   }
 
   private async isInstalled(): Promise<boolean> {

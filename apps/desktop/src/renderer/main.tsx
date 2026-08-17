@@ -5,7 +5,11 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
-import { createRouter, RouterProvider } from "@tanstack/react-router";
+import {
+  createHashHistory,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { createWSClient, wsLink } from "@trpc/client";
 import { useEffect, useMemo, useRef } from "react";
 import ReactDOM from "react-dom/client";
@@ -35,6 +39,9 @@ import { useServerConfigStore } from "./store/server-config-store";
 
 const router = createRouter({
   routeTree,
+  ...(window.location.protocol === "file:"
+    ? { history: createHashHistory() }
+    : {}),
   defaultPreload: "intent",
   defaultPendingComponent: () => <Loader />,
   context: {},

@@ -24,11 +24,14 @@ export function createRendererContentSecurityPolicy(input: {
   const wsOrigin = rendererWebSocketOrigin(input.rendererUrl);
   const scriptPolicy = input.appIsPackaged
     ? "'self'"
-    : "'self' 'unsafe-eval' 'unsafe-inline'";
+    : `'self' 'unsafe-eval' 'unsafe-inline' ${origin}`;
+  const connectPolicy = input.appIsPackaged
+    ? "'self'"
+    : `'self' ${origin} ${wsOrigin}`;
   return [
     "default-src 'self'",
-    `script-src ${scriptPolicy} ${origin}`,
-    `connect-src 'self' ${origin} ${wsOrigin}`,
+    `script-src ${scriptPolicy}`,
+    `connect-src ${connectPolicy}`,
     "frame-src 'self' http: https: file: data: blob:",
     "img-src 'self' data: blob:",
     "style-src 'self' 'unsafe-inline'",

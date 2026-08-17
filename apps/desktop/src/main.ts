@@ -29,6 +29,7 @@ import {
   type IntegratedBrowserHtmlFileInput,
   type IntegratedBrowserOpenInput,
 } from "./browser-integration.js";
+import { resolveDesktopDistribution } from "./desktop-distribution.js";
 import {
   applyDesktopRemoteConnectSettingsPatch,
   createRandomRemoteConnectToken,
@@ -82,8 +83,21 @@ const runtimePort = parsePort(
   process.env.ERAGEAR_DESKTOP_RUNTIME_PORT,
   DEFAULT_REMOTE_RUNTIME_PORT
 );
-const rendererUrl =
+const developmentRendererUrl =
   process.env.ERAGEAR_DESKTOP_RENDERER_URL ?? DEFAULT_RENDERER_URL;
+const repoRoot = resolveRepoRoot();
+const desktopDistribution = resolveDesktopDistribution({
+  appPath: app.getAppPath(),
+  developmentRendererUrl,
+  isPackaged: app.isPackaged,
+  platform: os.platform(),
+  repoRoot,
+  resourcesPath: process.resourcesPath,
+  ...(process.env.ERAGEAR_RUNTIME_EXECUTABLE
+    ? { runtimeExecutableOverride: process.env.ERAGEAR_RUNTIME_EXECUTABLE }
+    : {}),
+});
+const rendererUrl = desktopDistribution.rendererUrl;
 configureDevelopmentUserDataPath(rendererUrl);
 const desktopSettingsUserDataPath = app.getPath("userData");
 let desktopSettings: DesktopSettings = loadDesktopSettings({
@@ -97,7 +111,6 @@ const remoteConnectToken = desktopSettings.remoteConnect.accessToken.trim();
 const remoteConnectCloudflareAccess = resolveRemoteConnectCloudflareAccess(
   desktopSettings.remoteConnect
 );
-const repoRoot = resolveRepoRoot();
 const runtimeStoragePath = process.env.ERAGEAR_STORAGE_DIR?.trim()
   ? path.resolve(process.env.ERAGEAR_STORAGE_DIR)
   : path.join(app.getPath("appData"), "Eragear");
@@ -113,10 +126,14 @@ const userDaemonEnabled = shouldEnableUserRuntimeDaemon({
 });
 const userDaemon = new UserRuntimeDaemonController({
   repoRoot,
+  runtimeRoot: desktopDistribution.runtimeRoot,
   userDataPath: daemonUserDataPath,
   runtimeStoragePath,
   port: parsePort(process.env.ERAGEAR_USER_DAEMON_PORT, 43_119),
   nodeEnv: app.isPackaged ? "production" : "development",
+  ...(desktopDistribution.runtimeExecutable
+    ? { runtimeExecutable: desktopDistribution.runtimeExecutable }
+    : {}),
   ...(process.env.ERAGEAR_BUN_EXECUTABLE
     ? { bunExecutable: process.env.ERAGEAR_BUN_EXECUTABLE }
     : {}),
@@ -154,11 +171,16 @@ function initializeRuntimeHosts(
   runtimeHost = new DesktopRuntimeHost({
     mode: daemonConnection ? "client-only" : desktopMode,
     repoRoot,
+    runtimeRoot: desktopDistribution.runtimeRoot,
+    runtimeStoragePath,
     rendererUrl,
     runtimePort,
     localAuthToken,
     remoteRuntimeUrl: daemonConnection?.runtimeUrl ?? remoteRuntimeUrl,
     securityPosture,
+    ...(desktopDistribution.runtimeExecutable
+      ? { runtimeExecutable: desktopDistribution.runtimeExecutable }
+      : {}),
     ...(effectiveRemoteApiKey ? { remoteApiKey: effectiveRemoteApiKey } : {}),
     ...(remoteConnectToken ? { remoteConnectToken } : {}),
     ...(remoteConnectCloudflareAccess ? { remoteConnectCloudflareAccess } : {}),
@@ -620,6 +642,9 @@ app
   .whenReady()
   .then(async () => {
     console.log(`[desktop] Starting Eragear desktop on ${os.platform()}.`);
+    if (os.platform() === "win32") {
+      app.setAppUserModelId("com.eragear.copilot");
+    }
     Menu.setApplicationMenu(null);
     configureRendererSecurityHeaders();
     let daemonConnection: RuntimeDaemonConnection | undefined;

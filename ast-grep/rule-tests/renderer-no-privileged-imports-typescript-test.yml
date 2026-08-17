@@ -1,0 +1,9 @@
+id: renderer-no-privileged-imports-typescript
+valid:
+  - import type { DesktopBridge } from "./desktop-bridge";
+  - const moduleLabel = "node:path";
+invalid:
+  - import { ipcRenderer } from "electron";
+  - import path from "node:path";
+  - export type { PathLike } from "node:fs";
+  - const electron = await import("electron");

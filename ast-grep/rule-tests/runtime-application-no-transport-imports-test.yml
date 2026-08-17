@@ -1,0 +1,9 @@
+id: runtime-application-no-transport-imports
+valid:
+  - import type { Session } from "../domain/session";
+  - import type { LoggerPort } from "./ports/logger.port";
+  - const example = "../../transport/router";
+invalid:
+  - import type { AppRouter } from "#runtime/transport/trpc/router";
+  - export { router } from "../../../transport/trpc/router";
+  - const transport = await import("../../transport/router");

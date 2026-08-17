@@ -1,6 +1,7 @@
 {
   "name": "desktop",
   "version": "0.0.0",
+  "description": "Desktop-first AI coding assistant powered by Electron and ACP.",
   "private": true,
   "type": "module",
   "main": "dist/main.cjs",
@@ -82,25 +83,29 @@
     "build:main": "bun run ./scripts/build-main.ts",
     "check-types": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "electron:start": "electron .",
-    "build:renderer": "vite build",
+    "build:renderer": "vite build --mode electron",
+    "prepare:win-package": "bun run ./scripts/prepare-windows-package.ts",
+    "package:win:dir": "bun run build && bun run prepare:win-package && electron-builder --projectDir build/package --config ../../electron-builder.yml --win --x64 --dir",
+    "package:win": "bun run build && bun run prepare:win-package && electron-builder --projectDir build/package --config ../../electron-builder.yml --win nsis --x64",
     "serve": "vite preview",
     "start": "vite",
     "test:blockers": "bun test src/renderer/hooks/use-chat-normalize.test.ts src/renderer/hooks/use-chat-connection.machine.test.ts src/renderer/hooks/use-chat-history.test.ts src/renderer/hooks/use-chat-message-state.test.ts src/renderer/store/chat-stream-store.test.ts src/renderer/components/chat-ui/chat-bootstrap-phase.test.ts src/renderer/components/chat-ui/chat-input-submit-status.test.ts src/renderer/components/chat-ui/agentic-message-utils.test.ts src/renderer/components/chat-ui/chat-messages-virtualization.test.ts src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts"
   },
   "devDependencies": {
-    "@types/bun": "catalog:",
-    "@types/node": "^22.13.14",
-    "electron": "^42.4.0",
-    "typescript": "catalog:",
     "@eragear-code-copilot/config": "workspace:*",
     "@tanstack/react-router-devtools": "^1.141.1",
     "@tanstack/router-plugin": "^1.141.1",
+    "@types/bun": "catalog:",
+    "@types/node": "^22.13.14",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vite-pwa/assets-generator": "^1.0.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.3",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.0.15",
+    "typescript": "catalog:",
     "vite": "^6.2.2"
   }
 }

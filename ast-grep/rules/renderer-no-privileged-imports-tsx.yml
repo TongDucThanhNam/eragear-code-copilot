@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ast-grep/ast-grep/main/schemas/tsx_rule.json
+
+id: renderer-no-privileged-imports-tsx
+message: Renderer TSX must use the preload/contextBridge API instead of importing Electron or Node built-ins.
+severity: error
+language: Tsx
+files:
+  - apps/desktop/src/renderer/**/*.tsx
+rule:
+  any:
+    - pattern: import $$$BINDINGS from "$SOURCE"
+    - pattern: import "$SOURCE"
+    - pattern: export { $$$BINDINGS } from "$SOURCE"
+    - pattern: export type { $$$BINDINGS } from "$SOURCE"
+    - pattern: export * from "$SOURCE"
+    - pattern: export * as $NAME from "$SOURCE"
+    - pattern: import("$SOURCE")
+constraints:
+  SOURCE:
+    regex: '^(?:electron(?:/|$)|node:)'
+note: Privileged desktop operations belong behind preload IPC with context isolation enabled.

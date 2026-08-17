@@ -1,0 +1,7 @@
+id: renderer-no-privileged-imports-tsx
+valid:
+  - import { useMemo } from "react"; export const View = () => <div />;
+  - export const moduleLabel = "electron";
+invalid:
+  - import { ipcRenderer } from "electron"; export const View = () => <div />;
+  - import path from "node:path"; export const View = () => <div>{path.sep}</div>;

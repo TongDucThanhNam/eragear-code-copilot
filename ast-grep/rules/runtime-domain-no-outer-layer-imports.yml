@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ast-grep/ast-grep/main/schemas/typescript_rule.json
+
+id: runtime-domain-no-outer-layer-imports
+message: Runtime domain code must not import transport, infrastructure, or platform modules.
+severity: error
+language: TypeScript
+files:
+  - packages/runtime/src/modules/**/domain/**/*.ts
+rule:
+  any:
+    - pattern: import $$$BINDINGS from "$SOURCE"
+    - pattern: import "$SOURCE"
+    - pattern: export { $$$BINDINGS } from "$SOURCE"
+    - pattern: export type { $$$BINDINGS } from "$SOURCE"
+    - pattern: export * from "$SOURCE"
+    - pattern: export * as $NAME from "$SOURCE"
+    - pattern: import("$SOURCE")
+constraints:
+  SOURCE:
+    regex: '(?:^|/)(?:transport|infra|infrastructure|platform)(?:/|$)'
+note: Domain dependencies point inward; IO and policy implementations belong in infrastructure or platform adapters.

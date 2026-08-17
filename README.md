@@ -47,6 +47,31 @@ Run product-relevant development targets:
 bun run dev
 ```
 
+## Build the Windows Installer
+
+On Windows, install dependencies and build the NSIS installer from the
+repository root:
+
+```powershell
+bun install
+bun run package:win
+```
+
+The installer is written to
+`apps/desktop/release/Eragear-Code-Copilot-Setup-<version>.exe`. It includes
+Electron, the production renderer/main bundles, and the compiled runtime
+sidecar, so Bun is not required on the destination computer.
+
+For an unpacked build that can be launched without installing:
+
+```powershell
+bun run --cwd apps/desktop package:win:dir
+./apps/desktop/release/win-unpacked/Eragear.exe
+```
+
+Local development builds are unsigned unless Windows code-signing credentials
+are configured for Electron Builder.
+
 ## Verification
 
 ```bash

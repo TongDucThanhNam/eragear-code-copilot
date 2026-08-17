@@ -34,11 +34,12 @@ function resolveLocalProxyTarget(): string {
 }
 
 const localProxyTarget = resolveLocalProxyTarget();
-const isElectronRenderer = process.env.ERAGEAR_DESKTOP_RENDERER === "true";
 const plugin = (value: unknown): PluginOption => value as PluginOption;
 
-export default defineConfig({
-  plugins: [
+export default defineConfig(({ mode }) => {
+  const isElectronRenderer =
+    process.env.ERAGEAR_DESKTOP_RENDERER === "true" || mode === "electron";
+  const plugins = [
     plugin(tailwindcss()),
     plugin(
       tanstackRouter({
@@ -47,44 +48,53 @@ export default defineConfig({
       })
     ),
     plugin(react()),
-    plugin(
-      VitePWA({
-        registerType: "autoUpdate",
-        manifest: {
-          name: "eragear-code-copilot",
-          short_name: "eragear-code-copilot",
-          description: "eragear-code-copilot - PWA Application",
-          theme_color: "#0c0c0c",
-        },
-        pwaAssets: { disabled: false, config: true },
-        devOptions: { enabled: !isElectronRenderer },
-        workbox: {
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB
-        },
-      })
-    ),
-  ],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src/renderer"),
-    },
-  },
-  server: {
-    port: 3001,
-    proxy: {
-      "/api": {
-        target: localProxyTarget,
-        changeOrigin: true,
-      },
-      "/trpc": {
-        target: localProxyTarget,
-        changeOrigin: true,
-        ws: true,
+  ];
+  if (!isElectronRenderer) {
+    plugins.push(
+      plugin(
+        VitePWA({
+          registerType: "autoUpdate",
+          manifest: {
+            name: "eragear-code-copilot",
+            short_name: "eragear-code-copilot",
+            description: "eragear-code-copilot - PWA Application",
+            theme_color: "#0c0c0c",
+          },
+          pwaAssets: { disabled: false, config: true },
+          devOptions: { enabled: true },
+          workbox: {
+            maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          },
+        })
+      )
+    );
+  }
+
+  return {
+    base: isElectronRenderer ? "./" : "/",
+    plugins,
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src/renderer"),
       },
     },
-  },
-  build: {
-    outDir: "dist/renderer",
-    emptyOutDir: false,
-  },
+    server: {
+      port: 3001,
+      proxy: {
+        "/api": {
+          target: localProxyTarget,
+          changeOrigin: true,
+        },
+        "/trpc": {
+          target: localProxyTarget,
+          changeOrigin: true,
+          ws: true,
+        },
+      },
+    },
+    build: {
+      outDir: "dist/renderer",
+      emptyOutDir: false,
+    },
+  };
 });
