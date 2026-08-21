@@ -1,26 +1,20 @@
-import { spawn } from "node:child_process";
-import { copyFile, cp, mkdir } from "node:fs/promises";
+import { cp, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import { file, spawn, write } from "bun";
 
 async function runCommand(command: string, args: string[]): Promise<void> {
-  await new Promise<void>((resolveCommand, rejectCommand) => {
-    const proc = spawn(command, args, {
-      stdio: "inherit",
-      env: process.env,
-    });
-    proc.on("error", rejectCommand);
-    proc.on("exit", (code) => {
-      if (code === 0) {
-        resolveCommand();
-        return;
-      }
-      rejectCommand(
-        new Error(
-          `${command} ${args.join(" ")} failed with exit code ${String(code)}`
-        )
-      );
-    });
+  const subprocess = spawn([command, ...args], {
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+    env: process.env,
   });
+  const exitCode = await subprocess.exited;
+  if (exitCode !== 0) {
+    throw new Error(
+      `${command} ${args.join(" ")} failed with exit code ${String(exitCode)}`
+    );
+  }
 }
 
 const cwd = process.cwd();
@@ -34,6 +28,7 @@ const compileArgs = [
   "--minify",
   "./src/index.ts",
   "./src/bootstrap/sqlite-worker.entry.ts",
+  "./src/bootstrap/usage-stats-scan.worker.entry.ts",
   "--outfile",
   "dist/server",
 ];
@@ -42,9 +37,9 @@ if (debug) {
 }
 await runCommand("bun", compileArgs);
 await mkdir(distDir, { recursive: true });
-await copyFile(
-  resolve(cwd, "settings.example.json"),
-  resolve(distDir, "settings.json")
+await write(
+  resolve(distDir, "settings.json"),
+  file(resolve(cwd, "settings.example.json"))
 );
 await cp(resolve(cwd, "drizzle"), resolve(distDir, "drizzle"), {
   recursive: true,

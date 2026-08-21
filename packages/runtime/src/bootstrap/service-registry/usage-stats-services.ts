@@ -1,13 +1,15 @@
 import { QuotaCycleUsageService } from "#runtime/modules/quota";
 import {
   CachedUsageStatsScannerAdapter,
-  LocalCliUsageScannerAdapter,
   UsageStatsService,
+  UsageStatsSnapshotSqliteCache,
+  WorkerUsageStatsScannerAdapter,
 } from "#runtime/modules/usage-stats";
 import type {
   QuotaUseCases,
   UsageStatsUseCases,
 } from "#runtime/modules/use-cases";
+import { getStorageFileSync } from "#runtime/platform/storage/storage-path";
 import type { ServiceRegistrySlice } from "./dependencies";
 
 type UsageStatsServiceDependencies = ServiceRegistrySlice<
@@ -19,7 +21,12 @@ export function createUsageStatsUseCases(
   quotaProvider: QuotaUseCases["provider"]
 ): UsageStatsUseCases {
   const scanner = new CachedUsageStatsScannerAdapter(
-    new LocalCliUsageScannerAdapter()
+    new WorkerUsageStatsScannerAdapter(),
+    {
+      snapshotCache: new UsageStatsSnapshotSqliteCache({
+        filePath: () => getStorageFileSync("usage-stats-snapshots.sqlite"),
+      }),
+    }
   );
   return {
     usageStats: new UsageStatsService({

@@ -97,8 +97,11 @@ export function UsageStatsSettingsPanel() {
       staleTime: USAGE_QUERY_STALE_MS,
     }
   );
+  const summary = summaryQuery.data;
+  const cliUsage = summary?.cliUsage;
+  const isUsageIndexRefreshing = cliUsage?.refreshing === true;
   const quotaCycleQuery = trpc.quota.cycleUsage.useQuery(undefined, {
-    enabled: summaryQuery.isSuccess,
+    enabled: summaryQuery.isSuccess && !isUsageIndexRefreshing,
     gcTime: USAGE_QUERY_GC_MS,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -114,8 +117,6 @@ export function UsageStatsSettingsPanel() {
     },
   });
 
-  const summary = summaryQuery.data;
-  const cliUsage = summary?.cliUsage;
   const providerUsage = React.useMemo(
     () => (cliUsage ? buildProviderCentricUsage(cliUsage) : undefined),
     [cliUsage]
@@ -123,8 +124,25 @@ export function UsageStatsSettingsPanel() {
   const isBusy =
     summaryQuery.isFetching ||
     quotaCycleQuery.isFetching ||
-    updateTelemetry.isPending;
+    updateTelemetry.isPending ||
+    isUsageIndexRefreshing;
   const [isSlowLoading, setIsSlowLoading] = React.useState(false);
+  const requestedFreshSnapshot = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (!isUsageIndexRefreshing || !cliUsage) {
+      requestedFreshSnapshot.current = null;
+      return;
+    }
+    if (requestedFreshSnapshot.current === cliUsage.checkedAt) {
+      return;
+    }
+    requestedFreshSnapshot.current = cliUsage.checkedAt;
+    const timeout = window.setTimeout(() => {
+      void summaryQuery.refetch();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [cliUsage, isUsageIndexRefreshing, summaryQuery.refetch]);
 
   React.useEffect(() => {
     if (!summaryQuery.isLoading) {
@@ -143,7 +161,11 @@ export function UsageStatsSettingsPanel() {
         checkedAt={cliUsage?.checkedAt}
         daily={cliUsage?.daily ?? []}
         disabled={isBusy}
-        isRefreshing={summaryQuery.isFetching || quotaCycleQuery.isFetching}
+        isRefreshing={
+          summaryQuery.isFetching ||
+          quotaCycleQuery.isFetching ||
+          isUsageIndexRefreshing
+        }
         onRangeChange={setRange}
         onRefresh={() => {
           void Promise.all([summaryQuery.refetch(), quotaCycleQuery.refetch()]);
@@ -159,6 +181,12 @@ export function UsageStatsSettingsPanel() {
         />
       ) : summary && cliUsage && providerUsage ? (
         <div className="grid gap-8">
+          {isUsageIndexRefreshing ? (
+            <UsageNotice>
+              Showing the last successful usage snapshot while local provider
+              indexes refresh in the background.
+            </UsageNotice>
+          ) : null}
           <UsageOverview providerUsage={providerUsage} usage={cliUsage} />
           <UsageMetricStrip usage={cliUsage} />
           <QuotaEfficiencyComparison
@@ -1094,8 +1122,8 @@ function UsageLoadingState({ isSlow }: { isSlow: boolean }) {
       <div className="h-28 animate-pulse rounded-xl bg-muted/40" />
       {isSlow ? (
         <p className="text-center text-muted-foreground text-sm">
-          Usage statistics is still loading. Check the server connection, then
-          refresh.
+          The initial local usage index is still building. The runtime remains
+          responsive while large provider histories are processed.
         </p>
       ) : null}
     </div>

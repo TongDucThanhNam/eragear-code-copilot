@@ -232,6 +232,11 @@ export interface UsageStatsCliSummary {
   longestStreak: number;
   warnings: string[];
   checkedAt: number;
+  /**
+   * True when this response came from the durable fast-start snapshot while a
+   * fresh local-provider scan is already running in the background.
+   */
+  refreshing?: boolean;
 }
 
 export interface UsageStatsSummary {

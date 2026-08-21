@@ -1,16 +1,12 @@
 import { Database } from "bun:sqlite";
-import {
-  createReadStream,
-  type Dirent,
-  existsSync,
-  readdirSync,
-} from "node:fs";
-import { copyFile, mkdtemp, readdir, rename, rm } from "node:fs/promises";
+import { createReadStream, existsSync, readdirSync } from "node:fs";
+import { copyFile, mkdtemp, rename, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { file as bunFile, write as bunWrite } from "bun";
+import { file as bunFile, write as bunWrite, Glob } from "bun";
 import { getStorageFileSync } from "#runtime/platform/storage/storage-path";
+import { parseTolerantJsonLines } from "#runtime/shared/utils/json-lines.util";
 import type {
   UsageStatsCliDailyUsage,
   UsageStatsCliProviderId,
@@ -65,6 +61,8 @@ const MAX_JSON_RECORD_BYTES_ENV = "SLOPMETER_MAX_JSONL_RECORD_BYTES";
 const PROVIDER_SCAN_TIMEOUT_MS_ENV = "SLOPMETER_PROVIDER_SCAN_TIMEOUT_MS";
 const DEFAULT_FILE_PROCESS_CONCURRENCY = 16;
 const DEFAULT_MAX_JSON_RECORD_BYTES = 64 * 1024 * 1024;
+const JSONL_PARSE_BATCH_BYTES = 1024 * 1024;
+const JSONL_PARSE_BATCH_RECORDS = 256;
 const DEFAULT_PROVIDER_SCAN_TIMEOUT_MS: Record<
   UsageStatsCliProviderId,
   number
@@ -2684,24 +2682,16 @@ async function listFilesRecursive(
   modifiedSinceMs?: number
 ): Promise<string[]> {
   const files: string[] = [];
-  const stack = [rootDir];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    let entries: Dirent<string>[];
-    try {
-      entries = await readdir(current, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else if (entry.isFile() && fullPath.endsWith(extension)) {
+  try {
+    const glob = new Glob(`**/*${extension}`);
+    for await (const fullPath of glob.scan({
+      cwd: rootDir,
+      absolute: true,
+      dot: true,
+      followSymlinks: false,
+      onlyFiles: true,
+    })) {
+      if (fullPath.endsWith(extension)) {
         const source = bunFile(fullPath);
         if (
           modifiedSinceMs === undefined ||
@@ -2712,6 +2702,9 @@ async function listFilesRecursive(
         }
       }
     }
+  } catch {
+    // Preserve best-effort scanning when a provider directory disappears or
+    // contains an unreadable subtree during discovery.
   }
 
   return files.sort((a, b) => a.localeCompare(b));
@@ -2726,6 +2719,18 @@ async function* readJsonLines<T>(
   const input = createReadStream(file, { encoding: "utf8" });
   const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
   let lineNumber = 0;
+  let batchBytes = 0;
+  let batch: string[] = [];
+
+  const flushBatch = (): T[] => {
+    if (batch.length === 0) {
+      return [];
+    }
+    const values = parseTolerantJsonLines(`${batch.join("\n")}\n`) as T[];
+    batch = [];
+    batchBytes = 0;
+    return values;
+  };
 
   for await (const rawLine of lines) {
     lineNumber += 1;
@@ -2739,17 +2744,29 @@ async function* readJsonLines<T>(
     ) {
       continue;
     }
-    if (Buffer.byteLength(line, "utf8") > maxBytes) {
+    const lineBytes = Buffer.byteLength(line, "utf8");
+    if (lineBytes > maxBytes) {
       warnings.push(
         `Skipped oversized JSONL record in ${file}:${lineNumber}; ${MAX_JSON_RECORD_BYTES_ENV}=${maxBytes}`
       );
       continue;
     }
-    try {
-      yield JSON.parse(line) as T;
-    } catch {
-      // Preserve CLI log scanning tolerance for partial or malformed rows.
+
+    if (
+      batch.length > 0 &&
+      (batch.length >= JSONL_PARSE_BATCH_RECORDS ||
+        batchBytes + lineBytes > JSONL_PARSE_BATCH_BYTES)
+    ) {
+      for (const value of flushBatch()) {
+        yield value;
+      }
     }
+    batch.push(line);
+    batchBytes += lineBytes;
+  }
+
+  for (const value of flushBatch()) {
+    yield value;
   }
 }
 
