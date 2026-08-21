@@ -52,7 +52,7 @@ bun run dev
 bun run dev:desktop
 bun run dev:native
 
-# Desktop dev starts from port 3001 by default, auto-selects the next free
+# Desktop dev starts from port 3331 by default, auto-selects the next free
 # loopback port when busy, and can be nudged with ERAGEAR_DESKTOP_RENDERER_PORT.
 
 # Desktop smoke run

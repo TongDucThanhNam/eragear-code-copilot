@@ -1230,7 +1230,7 @@ const smokeSecurityPosture: RuntimeSecurityPosture = {
 const host = new DesktopRuntimeHost({
   mode: "main-thread",
   repoRoot,
-  rendererUrl: "http://127.0.0.1:3001",
+  rendererUrl: "http://127.0.0.1:3331",
   runtimePort: 443,
   localAuthToken: token,
   remoteRuntimeUrl: "",

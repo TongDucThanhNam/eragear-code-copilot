@@ -9,7 +9,7 @@ describe("resolveDesktopDistribution", () => {
     const repoRoot = path.resolve("workspace");
     const result = resolveDesktopDistribution({
       appPath: path.join(repoRoot, "apps", "desktop"),
-      developmentRendererUrl: "http://127.0.0.1:3001",
+      developmentRendererUrl: "http://127.0.0.1:3331",
       isPackaged: false,
       platform: "win32",
       repoRoot,
@@ -17,7 +17,7 @@ describe("resolveDesktopDistribution", () => {
     });
 
     expect(result).toEqual({
-      rendererUrl: "http://127.0.0.1:3001",
+      rendererUrl: "http://127.0.0.1:3331",
       runtimeRoot: path.join(repoRoot, "packages", "runtime"),
     });
   });
@@ -27,7 +27,7 @@ describe("resolveDesktopDistribution", () => {
     const appPath = path.join(resourcesPath, "app.asar");
     const result = resolveDesktopDistribution({
       appPath,
-      developmentRendererUrl: "http://127.0.0.1:3001",
+      developmentRendererUrl: "http://127.0.0.1:3331",
       isPackaged: true,
       platform: "win32",
       repoRoot: path.resolve("workspace"),
@@ -48,7 +48,7 @@ describe("resolveDesktopDistribution", () => {
     const override = path.resolve("custom", "runtime.exe");
     const result = resolveDesktopDistribution({
       appPath: path.resolve("install", "resources", "app.asar"),
-      developmentRendererUrl: "http://127.0.0.1:3001",
+      developmentRendererUrl: "http://127.0.0.1:3331",
       isPackaged: true,
       platform: "win32",
       repoRoot: path.resolve("workspace"),

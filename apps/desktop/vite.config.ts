@@ -79,7 +79,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      port: 3001,
+      port: 3331,
       proxy: {
         "/api": {
           target: localProxyTarget,

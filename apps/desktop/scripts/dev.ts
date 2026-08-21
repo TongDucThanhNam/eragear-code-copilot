@@ -7,7 +7,7 @@ const repoRoot = path.resolve(desktopRoot, "..", "..");
 
 const requestedRendererPort = parsePort(
   process.env.ERAGEAR_DESKTOP_RENDERER_PORT,
-  3001
+  3331
 );
 const rendererPort = String(await findAvailablePort(requestedRendererPort));
 const rendererUrl = `http://127.0.0.1:${rendererPort}`;

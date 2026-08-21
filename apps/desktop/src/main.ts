@@ -66,8 +66,8 @@ import {
 installProcessOutputErrorGuards();
 
 const DEFAULT_REMOTE_RUNTIME_PORT = 443;
-const DEFAULT_RENDERER_URL_PORT = 3001;
-const DEFAULT_RENDERER_URL = "http://127.0.0.1:3001";
+const DEFAULT_RENDERER_URL_PORT = 3331;
+const DEFAULT_RENDERER_URL = "http://127.0.0.1:3331";
 const TRAILING_SLASH_PATTERN = /\/$/;
 const DEVELOPMENT_RENDERER_URL_PATTERN =
   /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?/i;

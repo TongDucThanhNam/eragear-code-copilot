@@ -10,17 +10,17 @@ describe("server-url local dev proxy", () => {
     expect(
       resolveLocalDevBrowserProxyOrigin(
         "ws://localhost:3010",
-        "http://localhost:3001",
+        "http://localhost:3331",
         true
       )
-    ).toBe("ws://localhost:3001");
+    ).toBe("ws://localhost:3331");
   });
 
   test("does not proxy when target already matches browser origin port", () => {
     expect(
       resolveLocalDevBrowserProxyOrigin(
-        "ws://localhost:3001",
-        "http://localhost:3001",
+        "ws://localhost:3331",
+        "http://localhost:3331",
         true
       )
     ).toBeNull();
@@ -30,7 +30,7 @@ describe("server-url local dev proxy", () => {
     expect(
       resolveLocalDevBrowserProxyOrigin(
         "wss://demo.example.com",
-        "http://localhost:3001",
+        "http://localhost:3331",
         true
       )
     ).toBeNull();

@@ -2,7 +2,7 @@ export function rendererOrigin(rendererUrl: string): string {
   try {
     return new URL(rendererUrl).origin;
   } catch {
-    return "http://127.0.0.1:3001";
+    return "http://127.0.0.1:3331";
   }
 }
 
@@ -12,7 +12,7 @@ export function rendererWebSocketOrigin(rendererUrl: string): string {
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     return url.origin;
   } catch {
-    return "ws://127.0.0.1:3001";
+    return "ws://127.0.0.1:3331";
   }
 }
 
