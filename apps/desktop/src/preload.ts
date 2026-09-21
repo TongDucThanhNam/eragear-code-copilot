@@ -9,6 +9,8 @@ import type {
   IntegratedBrowserOpenInput,
   IntegratedBrowserState,
 } from "./browser-integration.js";
+import { createDesktopWindowControlsBridge } from "./desktop-window-controls-bridge.js";
+import type { ExternalAiConsultationProvider } from "./external-ai-consultation.js";
 
 contextBridge.exposeInMainWorld("eragearDesktop", {
   getBootstrap: () => ipcRenderer.invoke("eragear:getBootstrap"),
@@ -32,6 +34,8 @@ contextBridge.exposeInMainWorld("eragearDesktop", {
     ipcRenderer.invoke("eragear:dialog:openProjectFolder", input),
   openProjectExternally: (input: { projectPath: string; target: string }) =>
     ipcRenderer.invoke("eragear:project:openExternally", input),
+  openExternalAiConsultation: (provider: ExternalAiConsultationProvider) =>
+    ipcRenderer.invoke("eragear:consultation:openExternal", provider),
   browserControls: {
     captureContext: () => ipcRenderer.invoke("eragear:browser:captureContext"),
     close: () => ipcRenderer.invoke("eragear:browser:close"),
@@ -58,26 +62,7 @@ contextBridge.exposeInMainWorld("eragearDesktop", {
       };
     },
   },
-  windowControls: {
-    close: () => ipcRenderer.invoke("eragear:window:close"),
-    getState: () => ipcRenderer.invoke("eragear:window:getState"),
-    minimize: () => ipcRenderer.invoke("eragear:window:minimize"),
-    toggleMaximize: () => ipcRenderer.invoke("eragear:window:toggleMaximize"),
-    onStateChange: (
-      callback: (payload: {
-        isFullScreen: boolean;
-        isMaximized: boolean;
-      }) => void
-    ) => {
-      const listener = (_event: unknown, payload: unknown) => {
-        callback(payload as { isFullScreen: boolean; isMaximized: boolean });
-      };
-      ipcRenderer.on("eragear:windowStateChanged", listener);
-      return () => {
-        ipcRenderer.off("eragear:windowStateChanged", listener);
-      };
-    },
-  },
+  windowControls: createDesktopWindowControlsBridge(ipcRenderer),
   requestRuntime: (input: {
     auth?: RuntimeServiceAuth;
     operation: RuntimeServiceOperation;

@@ -59,7 +59,7 @@ function createCaller(userId = "user-1") {
       },
     },
   } as never);
-  return { caller, calls };
+  return { caller, calls, run };
 }
 
 describe("supervisorRunsRouter", () => {
@@ -152,5 +152,27 @@ describe("supervisorRunsRouter", () => {
         intent: "Cross project attempt",
       })
     ).rejects.toThrow("Project not found or does not belong to the user");
+  });
+
+  test("returns durable cancellation progress instead of claiming a terminal outcome", async () => {
+    const { caller, run } = createCaller();
+    run.status = "paused";
+    run.desiredState = "cancelled";
+    run.cancellation = {
+      status: "running",
+      pendingSessionIds: ["private-session"],
+      pendingWorkspaceIds: ["private-workspace"],
+    };
+
+    const update = await caller.cancel({ runId: run.runId });
+
+    expect(update.status).toBe("paused");
+    expect(update.cancellation).toEqual({
+      status: "running",
+      pendingSessionCount: 1,
+      pendingWorkspaceCount: 1,
+    });
+    expect(JSON.stringify(update)).not.toContain("private-session");
+    expect(JSON.stringify(update)).not.toContain("private-workspace");
   });
 });

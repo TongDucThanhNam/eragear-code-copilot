@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { CryptoHasher } from "bun";
 import { ENV } from "#runtime/config/environment";
 import { createLogger } from "../logging/structured-logger";
 
@@ -102,7 +102,7 @@ function hasDeprecatedApiKeyQuery(url?: string): boolean {
 }
 
 function hashToken(value: string): string {
-  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return CryptoHasher.hash("sha256", value, "hex").slice(0, 16);
 }
 
 function normalizeIpAddress(

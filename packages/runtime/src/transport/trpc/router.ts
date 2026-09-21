@@ -40,6 +40,7 @@ import { settingsRouter } from "./routers/settings";
 import { settingsSyncRouter } from "./routers/settings-sync";
 import { skillsRouter } from "./routers/skills";
 import { subagentsRouter } from "./routers/subagents";
+import { supervisorGoalsRouter } from "./routers/supervisor-goals";
 import { supervisorRunsRouter } from "./routers/supervisor-runs";
 import { taskAutoArchiveRouter } from "./routers/task-auto-archive";
 import { terminalRouter } from "./routers/terminal";
@@ -86,6 +87,7 @@ export const appRouter = t.mergeRouters(
     skills: skillsRouter,
     subagents: subagentsRouter,
     supervisorRuns: supervisorRunsRouter,
+    supervisorGoals: supervisorGoalsRouter,
     taskAutoArchive: taskAutoArchiveRouter,
     terminal: terminalRouter,
     trafficProxy: trafficProxyRouter,

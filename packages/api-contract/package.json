@@ -13,6 +13,9 @@
   },
   "devDependencies": {
     "@eragear-code-copilot/config": "workspace:*",
+    "@types/bun": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "typescript": "catalog:"
   }
 }

@@ -1,6 +1,441 @@
-# GOAL Progress - Electron ADE Overnight Sprint
+# GOAL Progress - Eragear Code Copilot
 
-## Supervisos Manager Mode v2 - 2026-08-10
+## 2026-08-21 Bun 1.4 runtime optimization
+
+- Raised the development/build runtime floor to Bun 1.4, updated Bun types and
+  CI pins, and enabled the isolated linker/global virtual store. Warm frozen
+  installs now validate the workspace without rebuilding the dependency tree.
+- Replaced `node-pty` with bounded `Bun.Terminal`, moved bounded infrastructure
+  commands to `Bun.spawn`, replaced PATH process/scans with `Bun.which`, and
+  moved ACP plan comparison to strict `Bun.deepEquals`.
+- Converted Bun-run dashboard, compile, runtime asset, and Windows staging
+  scripts to direct `Bun.build`, `Bun.file`, `Bun.write`, and `Bun.spawn` calls.
+  Electron main/preload/renderer and Expo code retain their own runtime APIs.
+- The second optimization pass moved all 48 production runtime SHA-1, SHA-256,
+  and HMAC call sites to byte-compatible `Bun.CryptoHasher`, added three bounded
+  `Bun.Glob` discovery paths, and batches tolerant Codex history parsing through
+  `Bun.JSONL.parseChunk`. Local measurements were 2.3x faster for small hashes,
+  2.2x faster for recursive discovery, and 1.5x faster for JSONL parsing.
+- Audited the remaining Bun 1.4 APIs. `Bun.serve`, cron, Markdown, WebView,
+  Image, broad project-tree globbing, broad file reads, UUIDv7 substitution,
+  and full-suite parallel tests were not adopted where they would violate
+  runtime boundaries, durability, security behavior, persisted identifier or
+  traversal semantics, or observed performance. Decisions and a reproducible
+  benchmark live in `docs/performance/bun-1.4-migration.md`.
+- Verification passed for 56 focused process, PTY, terminal, plan, Git,
+  Supervisor, Obsidian, and provider-readiness tests; runtime and workspace type
+  checks; frozen install; native UI-map generation; structural architecture
+  rules; runtime compilation; user-daemon smoke; Windows package staging and
+  compiled-sidecar startup; and the full workspace production build. Remaining
+  work: none for this phase. A native `Bun.serve` migration remains a separate
+  WebSocket/auth adapter project if future profiling justifies it.
+- Second-pass verification added 177 focused passing tests across hash
+  compatibility, JSONL tolerance, CLI usage discovery, external history,
+  Obsidian fallback, workflow journals, Goal Intake, Supervisos, settings,
+  credentials, skills, Git, auth, and blob behavior, plus a clean runtime type
+  check. Workspace type checks, all six structural architecture rules, runtime
+  compilation, and the full runtime/desktop production build also passed.
+- The Usage hot path now persists the last successful provider summary in a
+  dedicated `bun:sqlite` cache, returns it immediately after restart, and
+  refreshes authoritative CLI history in a serialized Bun Worker. The renderer
+  keeps cached data visible while refreshing and delays quota correlation until
+  the primary scan is fresh. Native bounded JSONL batching preserves malformed,
+  marker, and record-size safeguards, while the in-memory cache now honors its
+  full two-minute TTL.
+- On the measured 11.3 GiB 30-day history, repeat-open scanner latency fell from
+  4.4-14.6 seconds to 6.29 ms. Background scans measured 4.3-6.4 seconds after
+  batching, with 9.98 ms worst runtime-thread timer lag. Usage-focused tests,
+  runtime/desktop type checks, Biome, all six structural rules, the bundled
+  runtime worker, and compiled runtime build passed.
+
+## Goal Intake long reasoning and step-based interview UX - 2026-08-19
+
+Status: Goal Intake no longer fails a valid ACP reasoning turn after an
+arbitrary 30-second wall-clock deadline. Mission Control now presents discovery
+as a durable, numbered question-and-answer flow with one current action at a
+time and an explicit recovery path after a renderer or runtime restart.
+
+What changed:
+
+- Removed the hard-coded 30-second result deadline from the ACP Goal Intake
+  reasoner. It keeps non-busy polling for the persisted assistant result until
+  the turn succeeds or a real ACP, session, transport, repository, validation,
+  or cancellation error occurs. Safe manager mode, prompt-hash checks, output
+  bounds, and bounded-session cleanup remain fail closed.
+- Kept the frozen `pendingTurn`, prompt, and hash durable before ACP IO. A
+  restarted or disconnected UI now offers `Resume pending turn`; a real failed
+  turn offers `Retry current turn`. Both continue the same persisted turn and
+  do not resend the user's previous answer.
+- Added server-owned single-flight execution for each exact frozen turn. Answer
+  replay and Resume calls, including calls through separate service instances,
+  join one live Promise and cannot dispatch a second ACP session. Client
+  projections distinguish `active` from `resumable`, and exact turn binding is
+  revalidated before either a result or an error can mutate canonical state.
+- Mission Control polls the owned project once per second only while the server
+  reports active reasoning, then stops automatically. Renderer navigation or a
+  remount therefore cannot invent liveness, expose a duplicate Resume action,
+  or leave a completed active step visually spinning forever.
+- Replaced the transcript-like interview card with a four-phase
+  `Discover -> Consult -> Review -> Run` rail. Completed Supervisor question and
+  user answer pairs collapse into numbered steps, while only the current
+  question and one sticky answer dock remain expanded.
+- A local answer or resume request immediately becomes the active numbered
+  reasoning step. Only that genuinely active mutation shows a spinner; a
+  persisted orphaned turn never claims that it is still running.
+- Bound each answer draft and idempotency key to the exact question message or
+  Goal Contract revision/hash. Projection changes and successful resumes clear
+  stale drafts, preventing an old answer from being submitted to a new step.
+- Isolated pending actions and errors per Goal Intake so a long reasoning turn
+  for one Goal does not disable another Goal. Advisor controls are editable only
+  during the Consult phase and become read-only evidence elsewhere.
+- Made phase state accessible in text, made long hashes wrap on narrow windows,
+  removed raw intake/idempotency identifiers from the normal UI, and made
+  question/answer pairing fail closed across intervening message boundaries.
+
+Verification:
+
+- Combined Goal Intake reasoner/service/router and Mission Control step-flow
+  tests: **57 passed, 0 failed, 267 assertions**.
+- Desktop main/renderer and runtime type checks passed.
+- Targeted Biome, `git diff --check`, and all six structural `ast-grep` rules
+  passed.
+- Electron development smoke reached Vite, Electron main, the desktop-service
+  runtime channel, SQLite worker, and the workflow background runner, then the
+  smoke harness stopped its children with exit code 0. Windows Computer Use
+  could not perform the visual click-through because its native control pipe
+  was unavailable, so no live visual assertion is claimed for this pass.
+- External ACP prompt delivery is still not claimed as exactly-once across a
+  full process crash after send but before acknowledgement; this Goal Intake
+  adapter does not yet persist an ACP session/dispatch acknowledgement. Live
+  duplicates are prevented and canonical result application is effectively
+  once through exact-turn reconciliation.
+
+## Mission Control project ownership and truthful cancellation - 2026-08-18
+
+Status: Mission Control is now an explicitly project-scoped control surface.
+Each Goal Intake and managed run belongs to exactly one project, Electron window
+chrome is reachable on the frameless route, and cancellation is presented as a
+durable multi-step operation instead of optimistic terminal success.
+
+What changed:
+
+- Added an explicit Active project selector. Run queries, live subscriptions,
+  counts, Goal Intake cards, history, and actions are scoped to that exact
+  project. Other-project and unowned legacy records fail closed on this page.
+- Goal Discovery captures an immutable project snapshot when opened and shows
+  the locked project name and ID in the form. Intake cards repeat the owning
+  project, and changing the active project invalidates cross-project actions.
+- Reworked the large discovery dialog so only the form body scrolls; its
+  project-bearing header and Start/Cancel footer remain visible at desktop
+  heights.
+- Added a secure 48px frameless Electron titlebar to Mission Control with
+  minimize, maximize/restore, and close controls. The main-process handlers
+  accept requests only from the live main renderer, while preload exposes only
+  fixed validated operations. The controls remain reachable above Goal
+  Discovery without making the rest of the modal background interactive.
+- Cancellation now exposes `pending`, `running`, `failed`, and terminal truth
+  in the client-safe projection. Mission Control reports `cancelling` until
+  durable cleanup finishes, hides incompatible Resume/Replan actions, refetches
+  after failures, and offers Retry cancellation only for blocked cleanup.
+- Diagnosed the real stuck TIDEMARK run in the local SQLite state. Its ACP stop
+  had completed, but `WorkerSessionManager.stop` then demoted an already-terminal
+  attempt to `interrupted` while retaining its valid result, causing schema
+  validation to reject the cleanup transition. Stop now preserves terminal and
+  interrupted attempt facts both before and inside the atomic update.
+- The first real retry exposed a second idempotency seam: the prior stop had
+  already removed the persisted chat, so cleanup failed with `Chat not found`.
+  Cancellation now treats only a typed `session.lifecycle.stop` not-found whose
+  `chatId` exactly matches the persisted attempt as already cleaned. Different
+  chat IDs and all unrelated failures still fail closed.
+- Retrying a failed cancellation cancels the old blocker, rotates workflow
+  authority, and materializes cleanup only for resources still pending.
+  Repeated pending requests retain the same revision/authority and cannot
+  duplicate a live stop. Existing failed runs require no database repair.
+
+Verification:
+
+- Project/discovery/window-control presentation: **23 passed, 0 failed, 120
+  assertions** in the combined focused run; the broader project UX slice passed
+  **22 tests**.
+- Cancellation, worker-stop races, projection, router, and UI helpers: **49
+  passed, 0 failed, 223 assertions**.
+- Replayed the actual stuck TIDEMARK run through `DesktopRuntimeHost` against
+  the production SQLite store. Revision 34 rotated cancellation authority,
+  revision 35 materialized the replacement stop, revision 36 durably recorded
+  `workflow_effect_succeeded`, and revision 37 recorded
+  `workflow_cancellation_completed`. Read-only verification then showed
+  `phase=finished`, `outcome=cancelled`, succeeded cleanup, zero pending
+  resources, and no blocker. Four additional real cancel mutations remained at
+  revision 37 and created no duplicate effect.
+- `bun run audit:blockers`: **54 runtime, 47 shared, and 104 desktop tests**
+  passed, plus desktop type checks.
+- Runtime, API-contract, and desktop type checks; Electron main and renderer
+  builds; targeted Biome; `git diff --check`; and all six structural
+  `ast-grep` rules passed.
+- Electron development smoke reached renderer, runtime, SQLite worker, and the
+  workflow background dispatcher, then shut down cleanly. Windows Computer Use
+  visual automation was unavailable because its native pipe was absent, so no
+  live click-through is claimed for this pass.
+
+## Managed Goal Discovery and exact Goal Contracts - 2026-08-18
+
+Status: Mission Control no longer turns a one-textbox request directly into a
+planning run. It now starts a durable Goal Intake in which the Supervisor
+interviews the user, challenges assumptions and scope, optionally incorporates
+external ChatGPT/Gemini criticism, and produces an immutable Goal Contract for
+explicit approval. Only that exact approved contract can be converted into a
+managed Supervisor run.
+
+### Discovery, debate, and external consultation
+
+What changed:
+
+- Replaced the `Start a managed goal` composer with `Start goal discovery`.
+  The initial form captures a title, rough outcome, discovery depth, and
+  selected external advisors; exhaustive discovery and both advisors are the
+  defaults. Planning and worker dispatch do not begin from this form.
+- Added a separate durable `goal-intake` aggregate, typed tRPC surface, SQLite
+  CAS repository, SQLite-worker proxy, and migration `0021_goal_intakes.sql`.
+  Answers, pending reasoner turns, prompt hashes, interview rounds, contract
+  revisions, consultation requests/results, approval, and conversion binding
+  survive renderer or runtime restarts.
+- The read-only ACP Goal Intake reasoner asks bounded Socratic questions and
+  cannot emit a contract before the selected depth's minimum interview rounds.
+  It must enter an advertised safe manager mode before prompt IO; missing safe
+  capability, oversized prompts/results, hash drift, or malformed proposals
+  fail closed.
+- Goal Contracts are immutable, revisioned, and canonically hashed. They keep
+  the objective, locked strategic decisions, assumptions, non-goals, change
+  boundary, stable acceptance-criterion IDs and evidence modes, exact trusted
+  verification commands, explicit authority policy, and unresolved questions.
+- ChatGPT/Gemini consultation uses a frozen, hash-bound text packet. The packet
+  includes the exact contract plus a bounded sanitized structural project
+  summary (repo-relative code paths, symbols, imports/exports, and routes), but
+  excludes source excerpts, raw diagnostics, vault content, diffs,
+  environment data, credentials, and arbitrary filesystem paths. Export after
+  restart returns the exact persisted packet rather than recomputing it.
+- Imported advice is explicitly untrusted and must end with the exact
+  `RESULT <consultationId>` binding marker. An imported result satisfies the
+  advisor gate only when its provider, contract revision, and contract hash
+  match the active contract; older advice remains visible history but cannot
+  approve a newer draft. Raw advisor responses are never copied into worker
+  prompts or Supervisor-run constraints.
+- The secure manual bridge opens only fixed ChatGPT and Gemini URLs in the
+  system default browser, so the user's existing login can be reused. Eragear
+  does not inspect or automate that external page and never reads the
+  clipboard; it writes the selected frozen packet only after an explicit Copy
+  action. The packet and UI explicitly disclose that user-authored request,
+  interview, and contract text is included verbatim, may contain secrets, and
+  is not automatically scanned or redacted; the user must review and scrub it
+  before sending. Reliable control of an already-running external browser
+  profile remains out of scope without an explicit extension/native automation
+  bridge.
+
+### Contract-to-run execution semantics
+
+What changed:
+
+- Approval binds the exact active contract revision and SHA-256 hash. The
+  conversion path uses a deterministic source-run identity, validates exact
+  project/intake/revision/hash provenance, converges concurrent retries on one
+  run, and re-pumps a non-terminal run after a crash between creation and
+  scheduling.
+- The full approved contract persists on `SupervisorRun` and in client-safe
+  projections. Plan tasks carry `criterionIds` and declared `changeKinds`, and
+  the exact Plan hash binds both alongside scope and verification.
+- The deterministic planner rejects missing or unknown criterion coverage,
+  untrusted or unrelated machine checks, write scope outside the contract,
+  read/write declaration mismatches, and architecture/dependency/final
+  integration changes that are not visibly declared at an `ask` boundary.
+- Machine criteria require successful covering work, evidence references, and
+  every exact frozen verification command. User-evidence criteria create a
+  durable decision and require an explicit typed Accept or Waive resolution;
+  free-form answer text cannot silently accept them.
+- Goal-criterion satisfaction gates final-commit intent creation, handler
+  applicability before Git IO, and atomic result persistence. A stale effect or
+  an agent saying `done` cannot bypass evidence or semantic acceptance.
+- Mission Control shows the frozen contract revision, criterion coverage, and
+  declared change authority during exact Plan review, and exposes explicit
+  Accept/Waive controls for semantic criteria.
+
+### Verification
+
+Commands and results:
+
+- Goal Intake, conversion, router, and orchestration integration: **51 passed,
+  0 failed, 216 assertions**.
+- Typed Goal Contract schema/planner/hash/workflow/orchestrator checks:
+  **61 passed, 0 failed**.
+- Desktop discovery, consultation, recovery, and secure launcher checks:
+  **35 passed, 0 failed, 109 assertions**.
+- Broad Goal Intake, orchestration, workflow-kernel, persistence, restart, and
+  journal-backed E2E suite: **304 passed, 0 failed, 1,164 assertions**.
+- Runtime, API-contract, and desktop type checks: passed.
+- Targeted Biome checks and `git diff --check`: passed.
+- `bun run audit:blockers`: passed (**54 runtime, 47 shared, and 104 desktop
+  blocker tests**, plus desktop type checks).
+- Full `bun run build` (runtime assets plus Electron main/renderer): passed;
+  existing Bun-external and renderer chunk-size warnings remain non-fatal.
+- Five-second Electron development smoke: runtime, SQLite worker, workflow
+  background dispatcher, preload bridge, and renderer reached ready state and
+  exited with code 0; the forced timer shutdown produced only expected late
+  subscription-cleanup noise.
+- Structural `ast-grep` checks confirm that Mission Control uses only the
+  `supervisorGoals` discovery surface, criterion/change mappings are Plan-hash
+  inputs, all three finalization seams call the criterion gate, exact contract
+  commands reach runtime verification, and Goal Intake contains no silent
+  64,000-character truncation.
+
+## Durable Workflow Controller production cutover - 2026-08-18
+
+Source of truth: `GOAL.md` and
+`docs/adr/0001-durable-local-workflow-controller.md`.
+
+Status: the existing Supervisor execution path is cut over to the production
+Workflow Kernel. Public Supervisor/tRPC/Telegram APIs remain compatibility
+facades, but scheduling, ACP prompt dispatch, retry, verification, integration,
+cancellation cleanup, final commit, and restart recovery now execute from
+durable effect intents. This completes the kernel cutover; it does **not** yet
+complete the later Obsidian GoalRevision/PlanVersion contract slice.
+
+### Architecture and lifecycle facts
+
+What changed:
+
+- Reframed Supervisos as a durable local controller. `GOAL.md`, the ADR,
+  `PROMPT-EXECUTE-GOAL.md`, `AGENTS.md`, and the runtime architecture guide now
+  make SQLite execution truth, Obsidian desired state/projection, ACP an
+  execution protocol, and LLM reasoning replaceable.
+- Upgraded Supervisor runs to schema v3 with independent `desiredState`,
+  `phase`, `outcome`, blocking-decision, activity, WorkItem outcome,
+  `notBefore`, and active-attempt facts. Legacy status strings remain temporary
+  compatibility projections.
+- Added pure lifecycle projections and a durable-event reducer. Repository
+  writes fail closed when a v3 compatibility status contradicts facts; stale
+  status cannot reopen terminal work. Reducer success requires evidence and
+  terminal facts cannot retain active attempts.
+- Scheduling now evaluates current time explicitly, preserves `notBefore`, and
+  weights only actually dispatchable work. One saturated run cannot consume a
+  different project's dispatch slot.
+- Cancellation is two-phase and crash-recoverable: persist cancellation intent,
+  revoke pending effects for the old authority, durably stop/dispose workers
+  and workspaces, then record terminal outcomes. Startup continues an
+  interrupted cancellation instead of resuming its workers. The v2-to-v3
+  migration also recovers legacy runs that crashed after storing a
+  terminal-looking cancellation status but before stopping an active attempt.
+- Capacity waits and exact-resume failures are scoped to the affected WorkItem.
+  An executing reasoner or worker can wait without freezing unrelated approved
+  work; a genuine run-level decision still blocks the run.
+
+### Production workflow kernel and persistence
+
+What changed:
+
+- Added `RunReconciler` with typed plan, capacity, start/resume, uncertainty
+  inspection, verification, decision, wakeup, and integration intents. It
+  derives readiness/UI state from facts, respects parallelism, blocks
+  completion on pending integration, and requires machine evidence or explicit
+  acceptance/waiver.
+- Added `EffectExecutor` with claim leases, a durable `started` CAS before
+  handler IO, typed success/failure/uncertainty, and fail-closed unknown
+  handlers.
+- Added migrations `0018_workflow_journal.sql`,
+  `0019_workflow_effect_authority.sql`, and
+  `0020_workflow_effect_authority_idempotency.sql`; append-only
+  `workflow_events`; durable `workflow_effect_intents`; direct and
+  SQLite-worker adapters; and a legacy snapshot boundary for existing runs.
+- A single SQLite unit of work compare-and-swaps the Supervisor snapshot,
+  appends the next contiguous event, and materializes its effect intents.
+  Effect terminalization, the typed result event, the reduced snapshot, and
+  follow-up intents commit atomically. Canonical SHA-256 payloads,
+  authority-scoped idempotency, and lease/token CAS fail closed on conflicts.
+- The production composition uses `JournaledSupervisorRunRepository` and
+  `SupervisorWorkflowRuntimeService`. Startup and the background dispatcher
+  release safe pre-IO claims, mark every stale started effect uncertain,
+  project uncertainty into canonical facts, reconcile non-terminal runs, and
+  drain bounded due work. Live ticks also detect expired started effects.
+- Manager/worker plan, start, and resume prompts are frozen with their effect
+  authority and SHA-256 before ACP IO. Coordinators reject text/hash drift.
+  Workflow correlation is persisted with the local prompt. Any failure after
+  entering the send boundary becomes correlated uncertainty; a crash after
+  send but before acknowledgement records an uncertain attempt, schedules
+  evidence inspection, and never blindly resends the original task.
+- Capacity admission/resume, trusted verification, workspace integration,
+  agent stop, workspace disposal, and final commit are claimed effect handlers.
+  Handler failures create bounded retry generations or scoped durable
+  decisions instead of leaving facts permanently stuck.
+- Quota observation only persists a CapacityWait and publishes a reconciliation
+  signal. Stopping the affected ACP session is a separate authority-scoped
+  durable effect, and exact resume is suppressed until that stop is durably
+  successful. Failed or uncertain stops retain the exact session/attempt
+  binding and require a durable decision.
+- A shared per-run FIFO boundary serializes effect authority validation,
+  external IO, and atomic result persistence against pause, cancellation,
+  resume, plan changes, decision answers, and replans. Cancellation is accepted
+  either before an effect (so it performs no IO) or after that effect and its
+  result commit (so newly created resources are included in cleanup). Every
+  result CAS rechecks typed authority/applicability before projection.
+- Existing scheduler/global scheduler/client events consume derived facts,
+  while public Supervisor/tRPC/UI APIs remain compatibility facades. Legacy
+  recovery no longer directly resumes ACP sessions, and the orchestration
+  facade no longer performs inline dispatch, verification, integration, or
+  finalization.
+
+### Verification
+
+Commands and results:
+
+- Required-policy broad runtime suite from `packages/runtime`:
+  `bun test src/modules/supervisor-orchestration/domain src/modules/supervisor-orchestration/application src/modules/supervisor-orchestration/infra src/modules/supervisor-orchestration/init src/modules/workflow src/bootstrap/lifecycle.test.ts src/bootstrap/init/persistence-module.init.test.ts src/platform/storage/sqlite-worker-client.test.ts`:
+  **252 passed, 0 failed, 950 assertions** (including orchestration event
+  routing and the production race regressions).
+- Deterministic journal-backed E2E:
+  `bun run --cwd packages/runtime test:e2e:supervisor-orchestration`:
+  **2 passed**. It covers dependency scheduling, verification/integration/final
+  commit, and a sent-before-ack crash with persisted uncertainty and no resend.
+- Cancellation E2E:
+  `bun run --cwd packages/runtime test:e2e:supervisor-orchestration-cancel`:
+  **1 passed**; every fake worker is stopped and every temporary workspace is
+  disposed through durable cleanup effects.
+- `bun run --cwd packages/runtime check-types`: passed.
+- `bun run --cwd packages/api-contract check-types` and
+  `bun run --cwd apps/desktop check-types`: passed; public compatibility
+  projections remain type-safe.
+- `bunx biome check packages/runtime/src/modules/workflow packages/runtime/src/modules/supervisor-orchestration packages/runtime/src/bootstrap packages/runtime/src/platform/storage packages/runtime/src/platform/background --error-on-warnings`:
+  **224 files checked, no errors**.
+- `bun run check:ast`: **6 architecture rules passed**, including durable ACP
+  dispatch and atomic workflow-UoW enforcement.
+- `bun run audit:blockers`: passed (**54 runtime, 47 shared, and 104 desktop
+  blocker tests**, plus desktop type checks).
+- `bun run build`: passed for the runtime and Electron desktop production
+  bundles. Existing Bun-external and renderer chunk-size warnings remain
+  non-fatal.
+- `git diff --check`: passed; only expected LF/CRLF conversion warnings were
+  printed.
+- Final structural `ast-grep` audit confirms production construction of the
+  journal-backed repository and workflow runtime, no active legacy recovery
+  call, and no raw Supervisor-orchestration ACP send outside the dedicated
+  claimed-effect adapter.
+
+### Remaining product slices
+
+1. Add bounded Obsidian GoalRevision ingestion/projections and generated
+   PlanVersion/decision/run notes. Mission Control now owns an immutable typed
+   Goal Contract with criterion/evidence traceability, but Obsidian is not yet
+   the desired-state adapter for that contract.
+2. Consolidate the remaining compatibility module names and query facades into
+   the target `workflow`, `capacity`, `agent-runtime`, and `workspace` bounded
+   contexts after downstream consumers migrate. Do not reintroduce scheduling
+   or recovery authority into those facades.
+3. Add provider-specific quota-reset evidence adapters and the live-provider
+   kill/restart/quota soak. Deterministic capacity/restart tests are green, but
+   external subscription behavior remains provider-specific.
+4. Add safe intra-project parallel write integration only after disjoint
+   change-boundary and serialized-merge invariants have dedicated acceptance
+   coverage. Multi-project scheduling and one active writer per repository
+   remain the safe production policy.
+
+## Historical checkpoint: Supervisos Manager Mode v2 - 2026-08-10
 
 Source of truth: `GOAL.md`.
 

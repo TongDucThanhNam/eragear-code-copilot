@@ -26,6 +26,8 @@ export type ExternalProjectAppTarget =
   | "terminal"
   | "git-bash";
 
+export type ExternalAiConsultationProvider = "chatgpt" | "gemini";
+
 export interface OpenProjectExternallyResult {
   method: string;
   projectPath: string;
@@ -143,6 +145,9 @@ interface EragearDesktopBridge {
     projectPath: string;
     target: ExternalProjectAppTarget;
   }) => Promise<OpenProjectExternallyResult>;
+  openExternalAiConsultation?: (
+    provider: ExternalAiConsultationProvider
+  ) => Promise<void>;
   browserControls?: DesktopBrowserControlsBridge;
   windowControls?: DesktopWindowControlsBridge;
   requestRuntime?: (input: {

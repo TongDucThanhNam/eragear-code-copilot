@@ -28,6 +28,7 @@ import type {
   GitService,
   GitWorkflowService,
 } from "#runtime/modules/git";
+import type { GoalIntakeService } from "#runtime/modules/goal-intake";
 import type { GoalModeController } from "#runtime/modules/goal-mode";
 import type { HooksService } from "#runtime/modules/hooks";
 import type { MemoryService } from "#runtime/modules/memory";
@@ -104,6 +105,7 @@ import type {
   SupervisorRecoveryService,
   SupervisorRunEventsService,
   SupervisorWorkerPermissionService,
+  SupervisorWorkflowRuntimeService,
   TelegramLongPollingCoordinator,
   TelegramManagerBridgeService,
   WorkerIntegrationService,
@@ -267,6 +269,11 @@ export interface GoalModeUseCases {
   goalMode: UseCasePort<GoalModeController>;
 }
 
+/** Durable, pre-run Goal Contract discovery and consultation use-cases. */
+export interface GoalIntakeUseCases {
+  intake: UseCasePort<GoalIntakeService>;
+}
+
 /**
  * Provider quota use-cases.
  *
@@ -309,6 +316,7 @@ export interface SupervisorOrchestrationUseCases {
   workerSessions: UseCasePort<WorkerSessionManagerService>;
   orchestrator: UseCasePort<SupervisorOrchestratorService>;
   recovery: UseCasePort<SupervisorRecoveryService>;
+  workflowRuntime: UseCasePort<SupervisorWorkflowRuntimeService>;
   workerPermissions: UseCasePort<SupervisorWorkerPermissionService>;
   events: UseCasePort<SupervisorRunEventsService>;
   integration: UseCasePort<WorkerIntegrationService>;
@@ -518,6 +526,7 @@ export interface AppUseCases {
   ops: OpsUseCases;
   git: GitUseCases;
   goalMode: GoalModeUseCases;
+  goalIntake: GoalIntakeUseCases;
   quota: QuotaUseCases;
   supervisor: SupervisorUseCases;
   supervisorOrchestration: SupervisorOrchestrationUseCases;

@@ -305,6 +305,41 @@ export interface SupervisorRunClientUpdate {
   revision: number;
   projectId?: string;
   originatingChatId?: string;
+  sourceGoalContract?: {
+    intakeId: string;
+    revisionId: string;
+    revision?: number;
+    hash: string;
+    createdAt?: string;
+    contract?: {
+      title: string;
+      objective: string;
+      lockedStrategicDecisions: string[];
+      assumptions: string[];
+      nonGoals: string[];
+      changeBoundary: string[];
+      acceptanceCriteria: Array<{
+        criterionId: string;
+        statement: string;
+        evidence: "machine" | "user";
+      }>;
+      trustedVerificationCommands: string[];
+      authority: {
+        scopedCodeChange: "auto" | "ask";
+        architectureChange: "auto" | "ask";
+        dependencyChange: "auto" | "ask";
+        destructiveAction: "ask";
+        finalIntegration: "auto" | "ask";
+      };
+      unresolvedQuestions: string[];
+    };
+    criterionResolutions: Array<{
+      criterionId: string;
+      resolution: "user_accepted" | "waived";
+      decisionId: string;
+      resolvedAt: string;
+    }>;
+  };
   status:
     | "draft"
     | "planning"
@@ -318,12 +353,25 @@ export interface SupervisorRunClientUpdate {
     | "completed"
     | "failed"
     | "cancelled";
+  cancellation?: {
+    status: "pending" | "running" | "succeeded" | "failed";
+    pendingSessionCount: number;
+    pendingWorkspaceCount: number;
+    blockingDecisionId?: string;
+  };
   tasks: Array<{
     taskId: string;
     title: string;
     role: "research" | "implementation" | "test" | "review" | "integration";
     executionMode: "read_only" | "write";
     dependencies: string[];
+    criterionIds?: string[];
+    changeKinds?: Array<
+      | "scoped_code_change"
+      | "architecture_change"
+      | "dependency_change"
+      | "final_integration"
+    >;
     preferredModelId?: string;
     status:
       | "blocked"
@@ -425,6 +473,7 @@ export interface SupervisorRunClientUpdate {
     prompt: string;
     createdAt: string;
     answeredAt?: string;
+    criterionIds?: string[];
   }>;
   finalVerification: Array<{ command: string; exitCode: number | null }>;
   finalCommitSha?: string;

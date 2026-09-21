@@ -7,3 +7,7 @@ export { createSessionEventOutboxDispatchTask } from "./tasks/session-event-outb
 export { createSessionIdleCleanupTask } from "./tasks/session-idle-cleanup.task";
 export { createSqliteStorageMaintenanceTask } from "./tasks/sqlite-storage-maintenance.task";
 export { createTaskAutoArchiveTask } from "./tasks/task-auto-archive.task";
+export {
+  createWorkflowReconcileDispatchTask,
+  type WorkflowReconcileDispatchPort,
+} from "./tasks/workflow-reconcile-dispatch.task";

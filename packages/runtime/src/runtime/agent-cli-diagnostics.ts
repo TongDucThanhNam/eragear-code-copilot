@@ -1,13 +1,10 @@
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import path from "node:path";
-import { promisify } from "node:util";
 import type {
   AgentCliAvailability,
   AgentCliId,
 } from "@eragear-code-copilot/shared";
+import { which } from "bun";
+import { runBunSubprocess } from "#runtime/platform/process/bun-subprocess";
 
-const execFileAsync = promisify(execFile);
 const VERSION_TIMEOUT_MS = 2000;
 const LINE_SPLIT_PATTERN = /\r?\n/;
 
@@ -50,23 +47,10 @@ const AGENT_CLIS: AgentCliDefinition[] = [
 ];
 
 function resolveExecutable(command: string): string | null {
-  const pathEnv = process.env.PATH ?? "";
-  const pathEntries = pathEnv.split(path.delimiter).filter(Boolean);
-  const extensions =
-    process.platform === "win32"
-      ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";")
-      : [""];
-
-  for (const directory of pathEntries) {
-    for (const extension of extensions) {
-      const candidate = path.join(directory, `${command}${extension}`);
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-  }
-
-  return null;
+  return which(command, {
+    PATH: process.env.PATH ?? "",
+    cwd: process.cwd(),
+  });
 }
 
 function firstOutputLine(stdout: string, stderr: string): string | undefined {
@@ -81,7 +65,7 @@ async function readCliVersion(
   executablePath: string
 ): Promise<string | undefined> {
   try {
-    const result = await execFileAsync(executablePath, ["--version"], {
+    const result = await runBunSubprocess(executablePath, ["--version"], {
       timeout: VERSION_TIMEOUT_MS,
       windowsHide: true,
     });

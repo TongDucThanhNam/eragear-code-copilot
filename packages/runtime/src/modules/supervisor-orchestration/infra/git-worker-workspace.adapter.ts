@@ -1,5 +1,3 @@
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   mkdir,
   readFile,
@@ -9,7 +7,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
+import { CryptoHasher } from "bun";
+import { runBunSubprocess } from "#runtime/platform/process/bun-subprocess";
 import { getStorageDirPath } from "#runtime/platform/storage/storage-path";
 import type {
   CollectedWorkerPatch,
@@ -17,7 +16,6 @@ import type {
   WorkerWorkspacePort,
 } from "../application/ports/worker-workspace.port";
 
-const execFileAsync = promisify(execFile);
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 const LEADING_CURRENT_DIR = /^\.\//;
 const LINE_BREAK_PATTERN = /\r?\n/;
@@ -233,7 +231,7 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
       projectPrefix
     );
     const patchBytes = Buffer.from(patchText, "utf8");
-    const sha256 = createHash("sha256").update(patchBytes).digest("hex");
+    const sha256 = CryptoHasher.hash("sha256", patchBytes, "hex");
     const storageRoot = await this.storageRoot();
     const artifactDir = path.resolve(storageRoot, "supervisor-artifacts");
     const storageRef = path.resolve(artifactDir, `${sha256}.patch`);
@@ -343,7 +341,7 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
     files: CollectedWorkerPatch["files"]
   ): Promise<CollectedWorkerPatch> {
     const patchBytes = Buffer.from(patchText, "utf8");
-    const sha256 = createHash("sha256").update(patchBytes).digest("hex");
+    const sha256 = CryptoHasher.hash("sha256", patchBytes, "hex");
     const storageRoot = await this.storageRoot();
     const artifactDir = path.resolve(storageRoot, "supervisor-artifacts");
     const storageRef = path.resolve(artifactDir, `${sha256}.patch`);
@@ -375,7 +373,7 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
       throw new Error("Read-only workspaces do not apply patches");
     }
     const patchBytes = await readFile(input.artifact.storageRef);
-    const actualHash = createHash("sha256").update(patchBytes).digest("hex");
+    const actualHash = CryptoHasher.hash("sha256", patchBytes, "hex");
     if (
       actualHash !== input.artifact.sha256 ||
       patchBytes.byteLength !== input.artifact.byteLength
@@ -479,9 +477,8 @@ export class GitWorkerWorkspaceAdapter implements WorkerWorkspacePort {
 }
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, {
+  const { stdout } = await runBunSubprocess("git", args, {
     cwd,
-    encoding: "utf8",
     maxBuffer: MAX_GIT_OUTPUT_BYTES,
     windowsHide: true,
   });
@@ -644,7 +641,7 @@ async function isSupervisorOwnedDescendant(
 }
 
 function stableId(value: string): string {
-  return createHash("sha256").update(value).digest("hex").slice(0, 32);
+  return CryptoHasher.hash("sha256", value, "hex").slice(0, 32);
 }
 
 function assertPathInside(root: string, target: string): void {
@@ -665,13 +662,11 @@ async function fingerprintPath(target: string): Promise<string> {
   try {
     const info = await stat(target);
     if (info.isDirectory()) {
-      return createHash("sha256").update("directory").digest("hex");
+      return CryptoHasher.hash("sha256", "directory", "hex");
     }
-    return createHash("sha256")
-      .update(await readFile(target))
-      .digest("hex");
+    return CryptoHasher.hash("sha256", await readFile(target), "hex");
   } catch {
-    return createHash("sha256").update("missing").digest("hex");
+    return CryptoHasher.hash("sha256", "missing", "hex");
   }
 }
 

@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type * as acp from "@agentclientprotocol/sdk";
+import { CryptoHasher } from "bun";
 import type { SettingsRepositoryPort } from "#runtime/modules/settings";
 import { ValidationError } from "#runtime/shared/errors";
 import type {
@@ -128,7 +128,7 @@ function sanitizeRecord(value: unknown): Record<string, string> | undefined {
 }
 
 function hashSecretMaterial(value: string): string {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", value, "hex")}`;
 }
 
 function sortedMcpRecordHashes(
@@ -252,7 +252,7 @@ export function projectLocalMcpFingerprint(
     headerEnv: sortedMcpHeaderEnv(server.headerEnv),
     remoteControls: visibleProjectLocalMcpRemoteControls(server),
   });
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", payload, "hex")}`;
 }
 
 function hasTrustedProjectLocalFingerprint(

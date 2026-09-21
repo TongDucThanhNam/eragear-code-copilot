@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { CryptoHasher } from "bun";
 import type {
   ScheduledWorkDecisionResult,
   ScheduledWorkPriorEvidence,
@@ -1996,7 +1997,7 @@ function resolveSingleLegacyProviderId(
 }
 
 function hashScheduledPrompt(prompt: string): string {
-  return createHash("sha256").update(prompt, "utf8").digest("hex");
+  return CryptoHasher.hash("sha256", prompt, "hex");
 }
 
 function toScheduledPriorEvidence(run: BotRun): ScheduledWorkPriorEvidence {

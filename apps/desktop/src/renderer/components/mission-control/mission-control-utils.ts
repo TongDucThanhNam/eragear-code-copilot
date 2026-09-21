@@ -5,8 +5,89 @@ const TERMINAL_RUN_STATUSES = new Set<SupervisorRunClientUpdate["status"]>([
   "failed",
   "cancelled",
 ]);
+const ACTIVE_GOAL_INTAKE_REFETCH_MS = 1000;
 
 export type MissionControlRunView = "active" | "history";
+
+export interface SupervisorCancellationPresentation {
+  badgeLabel: "cancelling" | "cancellation blocked";
+  actionLabel: "Continue cancellation" | "Retry cancellation";
+  canRetry: boolean;
+  requiresAttention: boolean;
+  message: string;
+}
+
+export function getGoalIntakeRefetchInterval(
+  intakes:
+    | readonly {
+        reasoningState: "idle" | "active" | "resumable";
+      }[]
+    | undefined
+): number | false {
+  return intakes?.some((intake) => intake.reasoningState === "active")
+    ? ACTIVE_GOAL_INTAKE_REFETCH_MS
+    : false;
+}
+
+export function getSupervisorCancellationNotice(
+  run: Pick<SupervisorRunClientUpdate, "status" | "cancellation">
+): { kind: "success" | "error" | "info"; message: string } {
+  if (run.status === "cancelled") {
+    return { kind: "success", message: "Supervisor run cancelled" };
+  }
+  if (run.cancellation?.status === "failed") {
+    return {
+      kind: "error",
+      message: "Cancellation cleanup failed. Retry cancellation.",
+    };
+  }
+  return {
+    kind: "info",
+    message: "Cancellation requested. Durable cleanup is still running.",
+  };
+}
+
+export function getSupervisorCancellationPresentation(
+  run: Pick<SupervisorRunClientUpdate, "status" | "cancellation">
+): SupervisorCancellationPresentation | undefined {
+  if (run.status === "cancelled" || !run.cancellation) {
+    return undefined;
+  }
+  const pending = [
+    run.cancellation.pendingSessionCount > 0
+      ? `${run.cancellation.pendingSessionCount} session${run.cancellation.pendingSessionCount === 1 ? "" : "s"}`
+      : "",
+    run.cancellation.pendingWorkspaceCount > 0
+      ? `${run.cancellation.pendingWorkspaceCount} workspace${run.cancellation.pendingWorkspaceCount === 1 ? "" : "s"}`
+      : "",
+  ].filter(Boolean);
+  const pendingLabel = pending.length > 0 ? pending.join(" and ") : "cleanup";
+  if (run.cancellation.status === "failed") {
+    return {
+      badgeLabel: "cancellation blocked",
+      actionLabel: "Retry cancellation",
+      canRetry: true,
+      requiresAttention: true,
+      message: `Cancellation cleanup failed with ${pendingLabel} still pending. Retry to create a new durable cleanup attempt.`,
+    };
+  }
+  return {
+    badgeLabel: "cancelling",
+    actionLabel: "Continue cancellation",
+    canRetry: true,
+    requiresAttention: false,
+    message: `Cancellation is durable. Supervisos is finishing ${pendingLabel} before this goal moves to History. Repeating the request is safe.`,
+  };
+}
+
+export function selectMissionControlProjectItems<
+  T extends { projectId?: string },
+>(items: readonly T[] | undefined, projectId: string | null): T[] {
+  if (!projectId) {
+    return [];
+  }
+  return (items ?? []).filter((item) => item.projectId === projectId);
+}
 
 export function isTerminalSupervisorRun(
   run: Pick<SupervisorRunClientUpdate, "status">

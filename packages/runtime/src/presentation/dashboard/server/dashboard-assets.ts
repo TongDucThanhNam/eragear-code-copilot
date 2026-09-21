@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
+import { CryptoHasher } from "bun";
 import clientScriptPath from "../../../../public/dashboard/client.asset" with {
   type: "file",
 };
@@ -71,7 +71,7 @@ export function getDashboardAssetVersion(): string {
     return dashboardAssetVersion;
   }
 
-  const hash = createHash("sha256");
+  const hash = new CryptoHasher("sha256");
   let hasContent = false;
   for (const asset of Object.values(DASHBOARD_ASSETS)) {
     try {

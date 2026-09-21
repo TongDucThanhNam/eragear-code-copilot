@@ -1,14 +1,9 @@
-import {
-  createHash,
-  createHmac,
-  randomBytes,
-  randomInt,
-  timingSafeEqual,
-} from "node:crypto";
+import { randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type {
   SupervisorManagerInboxItem,
   SupervisorRunClientUpdate,
 } from "@eragear-code-copilot/shared";
+import { CryptoHasher } from "bun";
 
 const TELEGRAM_BOT_TOKEN_PATTERN = /^\d+:[A-Za-z0-9_-]{20,}$/;
 
@@ -604,7 +599,10 @@ function createCallbackToken(
   const planIdentity = candidate.run.plan
     ? `${candidate.run.plan.version}:${candidate.run.plan.hash}`
     : "-";
-  return createHmac("sha256", Buffer.from(config.decisionKey, "base64url"))
+  return new CryptoHasher(
+    "sha256",
+    Buffer.from(config.decisionKey, "base64url")
+  )
     .update(
       [
         config.chatId,
@@ -619,7 +617,7 @@ function createCallbackToken(
 }
 
 function hashPairingCode(code: string): string {
-  return createHash("sha256").update(code).digest("hex");
+  return CryptoHasher.hash("sha256", code, "hex");
 }
 
 function safeEqual(left: string, right: string): boolean {

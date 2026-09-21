@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { CryptoHasher } from "bun";
 import type { SupervisorCapacityFailureKind } from "../domain/supervisor-run.schemas";
 
 const MAX_DIAGNOSTIC_CHARS = 2000;
@@ -165,6 +165,6 @@ function parseTimestamp(value: unknown): string | undefined {
 }
 
 function deterministicJitterMs(seed: string): number {
-  const digest = createHash("sha256").update(seed).digest();
+  const digest = CryptoHasher.hash("sha256", seed);
   return digest.readUInt32BE(0) % 30_001;
 }

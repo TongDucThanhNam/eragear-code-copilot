@@ -3,6 +3,11 @@ import {
   AgentSqliteRepository,
   AgentSqliteWorkerRepository,
 } from "#runtime/modules/agent/di";
+import type { GoalIntakeRepositoryPort } from "#runtime/modules/goal-intake";
+import {
+  GoalIntakeSqliteRepository,
+  GoalIntakeSqliteWorkerRepository,
+} from "#runtime/modules/goal-intake/di";
 import type { ProjectRepositoryPort } from "#runtime/modules/project";
 import {
   ProjectSqliteRepository,
@@ -28,6 +33,14 @@ import {
   UsageStatsSqliteRepository,
   UsageStatsSqliteWorkerRepository,
 } from "#runtime/modules/usage-stats/di";
+import type {
+  SupervisorWorkflowUnitOfWorkPort,
+  WorkflowJournalPort,
+} from "#runtime/modules/workflow";
+import {
+  WorkflowJournalSqliteAdapter,
+  WorkflowJournalSqliteWorkerAdapter,
+} from "#runtime/modules/workflow/di";
 
 export interface PersistenceModule {
   sessionRepo: SessionRepositoryPort;
@@ -36,6 +49,8 @@ export interface PersistenceModule {
   settingsRepo: SettingsRepositoryPort;
   usageStatsRepo: UsageStatsRepositoryPort;
   supervisorRunRepo: SupervisorRunRepositoryPort;
+  goalIntakeRepo: GoalIntakeRepositoryPort;
+  workflowJournal: WorkflowJournalPort & SupervisorWorkflowUnitOfWorkPort;
 }
 
 export interface PersistenceModuleInitParams {
@@ -85,5 +100,11 @@ export function initializePersistenceModule(
     supervisorRunRepo: sqliteWorkerEnabled
       ? new SupervisorRunSqliteWorkerRepository()
       : new SupervisorRunSqliteRepository(),
+    goalIntakeRepo: sqliteWorkerEnabled
+      ? new GoalIntakeSqliteWorkerRepository()
+      : new GoalIntakeSqliteRepository(),
+    workflowJournal: sqliteWorkerEnabled
+      ? new WorkflowJournalSqliteWorkerAdapter()
+      : new WorkflowJournalSqliteAdapter(),
   };
 }

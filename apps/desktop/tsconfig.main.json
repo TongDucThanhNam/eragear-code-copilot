@@ -5,7 +5,7 @@
     "moduleResolution": "NodeNext",
     "target": "ES2022",
     "lib": ["ES2022", "DOM"],
-    "types": ["node", "bun-types"],
+    "types": ["node", "bun"],
     "noEmit": true,
     "strict": true
   },

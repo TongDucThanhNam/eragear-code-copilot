@@ -37,6 +37,41 @@ describe("supervisor plan hash and envelope", () => {
         },
       })
     ).toBeFalse();
+    expect(
+      computeSupervisorPlanHash({
+        ...input,
+        tasks: tasks.map((task) => ({
+          ...task,
+          status: "running" as const,
+          activity: "agent_turn" as const,
+          verification: {
+            verificationId: "verification-runtime-only",
+            status: "running" as const,
+            evidenceRefs: [],
+          },
+        })),
+      })
+    ).toBe(hash);
+    expect(
+      supervisorPlanHashMatches(hash, {
+        ...input,
+        tasks: tasks.map((task, index) =>
+          index === 0
+            ? { ...task, criterionIds: ["criterion-added-after-approval"] }
+            : task
+        ),
+      })
+    ).toBeFalse();
+    expect(
+      supervisorPlanHashMatches(hash, {
+        ...input,
+        tasks: tasks.map((task, index) =>
+          index === 0
+            ? { ...task, changeKinds: ["architecture_change" as const] }
+            : task
+        ),
+      })
+    ).toBeFalse();
   });
 
   test("allows only replans that narrow the approved envelope", () => {

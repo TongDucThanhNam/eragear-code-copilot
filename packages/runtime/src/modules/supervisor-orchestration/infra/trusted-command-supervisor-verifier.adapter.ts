@@ -1,9 +1,7 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { runBunSubprocess } from "#runtime/platform/process/bun-subprocess";
 import type { SupervisorFinalVerifierPort } from "../application/ports/supervisor-orchestrator.port";
 import type { SupervisorVerificationEvidence } from "../domain/supervisor-run.schemas";
 
-const execFileAsync = promisify(execFile);
 const SHELL_OPERATOR_RE = /[;&|<>`\r\n]/u;
 const WHITESPACE_RE = /\s/u;
 const MAX_OUTPUT_CHARS = 8000;
@@ -27,9 +25,8 @@ export class TrustedCommandSupervisorVerifierAdapter
         throw new Error("Trusted verification command has no executable");
       }
       try {
-        const result = await execFileAsync(executable, args, {
+        const result = await runBunSubprocess(executable, args, {
           cwd: input.projectRoot,
-          encoding: "utf8",
           maxBuffer: 2 * 1024 * 1024,
           timeout: this.timeoutMs,
           windowsHide: true,

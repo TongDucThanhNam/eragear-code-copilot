@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { CryptoHasher } from "bun";
 import type {
   SettingsRepositoryPort,
   UpdateSettingsService,
@@ -270,9 +271,7 @@ export class SettingsSyncService {
 }
 
 export function hashSettings(settings: Settings): string {
-  return createHash("sha256")
-    .update(JSON.stringify(sortJson(settings)))
-    .digest("hex");
+  return CryptoHasher.hash("sha256", JSON.stringify(sortJson(settings)), "hex");
 }
 
 function sortJson(value: unknown): unknown {

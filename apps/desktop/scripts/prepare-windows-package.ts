@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
+import { file, spawn, write } from "bun";
 
 interface DesktopPackageMetadata {
   description?: string;
@@ -13,26 +13,20 @@ async function runCommand(
   args: string[],
   cwd: string
 ): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: process.env,
-      stdio: "inherit",
-      windowsHide: true,
-    });
-    child.once("error", reject);
-    child.once("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(
-        new Error(
-          `${command} ${args.join(" ")} failed with exit code ${String(code)}`
-        )
-      );
-    });
+  const subprocess = spawn([command, ...args], {
+    cwd,
+    env: process.env,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+    windowsHide: true,
   });
+  const exitCode = await subprocess.exited;
+  if (exitCode !== 0) {
+    throw new Error(
+      `${command} ${args.join(" ")} failed with exit code ${String(exitCode)}`
+    );
+  }
 }
 
 const desktopRoot = path.resolve(import.meta.dir, "..");
@@ -49,7 +43,7 @@ const runtimeWorkerEntrypoint = path.join(
   "sqlite-worker.entry.js"
 );
 const desktopPackage = JSON.parse(
-  await readFile(path.join(desktopRoot, "package.json"), "utf8")
+  await file(path.join(desktopRoot, "package.json")).text()
 ) as DesktopPackageMetadata;
 
 await rm(stagedAppRoot, { recursive: true, force: true });
@@ -62,7 +56,7 @@ await cp(desktopDist, path.join(stagedAppRoot, "dist"), {
 });
 await cp(desktopIcon, path.join(stagedAppRoot, "icon.png"), { force: true });
 
-await writeFile(
+await write(
   path.join(stagedAppRoot, "package.json"),
   `${JSON.stringify(
     {
@@ -79,8 +73,7 @@ await writeFile(
     },
     null,
     2
-  )}\n`,
-  "utf8"
+  )}\n`
 );
 
 await runCommand(

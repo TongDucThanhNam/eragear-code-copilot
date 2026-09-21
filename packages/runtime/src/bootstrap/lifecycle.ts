@@ -15,6 +15,10 @@ import type {
   TaskAutoArchiveUseCases,
   UseCasePort,
 } from "#runtime/modules/use-cases";
+import {
+  KNOWN_WORKFLOW_EFFECT_TYPES,
+  type WorkflowJournalPort,
+} from "#runtime/modules/workflow";
 import { LOCAL_DESKTOP_USER_ID } from "#runtime/platform/auth/local-desktop-user";
 import type { BackgroundRunnerState } from "#runtime/shared/types/background.types";
 import type { AuthRuntime } from "../platform/auth/auth";
@@ -27,6 +31,7 @@ import {
   createSessionIdleCleanupTask,
   createSqliteStorageMaintenanceTask,
   createTaskAutoArchiveTask,
+  createWorkflowReconcileDispatchTask,
 } from "../platform/background";
 import { createLogger } from "../platform/logging/structured-logger";
 import { executeServerShutdown } from "./lifecycle-shutdown";
@@ -55,10 +60,11 @@ export interface ServerLifecycleDependencies {
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
   sessionEventOutbox: SessionEventOutboxPort;
+  workflowJournal: WorkflowJournalPort;
   sessionUseCases: SessionUseCases;
   supervisorOrchestration: Pick<
     SupervisorOrchestrationUseCases,
-    "recovery" | "capacity"
+    "workflowRuntime" | "capacity"
   >;
   localAde: Pick<
     UseCasePort<LocalAdeService>,
@@ -76,6 +82,29 @@ export interface ServerLifecycleDependencies {
   ) => void;
 }
 
+type WorkflowRestartJournal = Pick<
+  WorkflowJournalPort,
+  "markStaleStartedDispatchesUncertain" | "releasePendingEffectClaims"
+>;
+
+export async function reconcileWorkflowJournalAfterRestart(
+  journal: WorkflowRestartJournal,
+  nowMs: number
+) {
+  const releasedEffects = await journal.releasePendingEffectClaims({ nowMs });
+  const uncertainEffects = await journal.markStaleStartedDispatchesUncertain({
+    effectTypes: [...KNOWN_WORKFLOW_EFFECT_TYPES],
+    nowMs,
+    includeUnexpired: true,
+    error: {
+      kind: "runtime_restart",
+      message:
+        "The runtime restarted after this workflow effect started; reconcile external state and durable evidence before continuing.",
+    },
+  });
+  return { releasedEffects, uncertainEffects };
+}
+
 class DefaultServerLifecycle implements ServerLifecycle {
   private readonly deps: ServerLifecycleDependencies;
   private readonly backgroundRunner = new BackgroundRunner();
@@ -84,6 +113,11 @@ class DefaultServerLifecycle implements ServerLifecycle {
 
   constructor(deps: ServerLifecycleDependencies) {
     this.deps = deps;
+    this.backgroundRunner.register(
+      createWorkflowReconcileDispatchTask({
+        runtime: deps.supervisorOrchestration.workflowRuntime,
+      })
+    );
     this.backgroundRunner.register(
       createSessionIdleCleanupTask({
         sessionRuntime: deps.sessionRuntime,
@@ -154,7 +188,28 @@ class DefaultServerLifecycle implements ServerLifecycle {
         ...this.deps.sessionRuntime.getAll().map((session) => session.userId),
       ],
     });
-    await this.deps.supervisorOrchestration.recovery.reconcile();
+    const { releasedEffects, uncertainEffects } =
+      await reconcileWorkflowJournalAfterRestart(
+        this.deps.workflowJournal,
+        Date.now()
+      );
+    if (releasedEffects.length > 0) {
+      logger.info("Released pending workflow effect claims after restart", {
+        effectCount: releasedEffects.length,
+      });
+    }
+    if (uncertainEffects.length > 0) {
+      logger.warn("Workflow effects require post-restart reconciliation", {
+        effectCount: uncertainEffects.length,
+        effectIds: uncertainEffects
+          .slice(0, 20)
+          .map((effect) => effect.effectId),
+      });
+    }
+    await this.deps.supervisorOrchestration.workflowRuntime.recoverStartup({
+      releasedEffects,
+      uncertainEffects,
+    });
   }
 
   startBackground(): void {

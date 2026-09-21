@@ -54,6 +54,18 @@ import migration0016 from "../../../drizzle/0016_supervisor_agent_profiles.sql" 
 import migration0017 from "../../../drizzle/0017_supervisor_run_v2_statuses.sql" with {
   type: "file",
 };
+import migration0018 from "../../../drizzle/0018_workflow_journal.sql" with {
+  type: "file",
+};
+import migration0019 from "../../../drizzle/0019_workflow_effect_authority.sql" with {
+  type: "file",
+};
+import migration0020 from "../../../drizzle/0020_workflow_effect_authority_idempotency.sql" with {
+  type: "file",
+};
+import migration0021 from "../../../drizzle/0021_goal_intakes.sql" with {
+  type: "file",
+};
 import journalAsset from "../../../drizzle/meta/_journal.json" with {
   type: "file",
 };
@@ -124,6 +136,22 @@ const EMBEDDED_MIGRATION_FILES = [
   {
     relativePath: "0017_supervisor_run_v2_statuses.sql",
     sourcePath: migration0017,
+  },
+  {
+    relativePath: "0018_workflow_journal.sql",
+    sourcePath: migration0018,
+  },
+  {
+    relativePath: "0019_workflow_effect_authority.sql",
+    sourcePath: migration0019,
+  },
+  {
+    relativePath: "0020_workflow_effect_authority_idempotency.sql",
+    sourcePath: migration0020,
+  },
+  {
+    relativePath: "0021_goal_intakes.sql",
+    sourcePath: migration0021,
   },
   {
     relativePath: path.join("meta", "0006_snapshot.json"),

@@ -1,4 +1,4 @@
-import { and, desc, eq, notInArray } from "drizzle-orm";
+import { and, desc, eq, lt, notInArray, or } from "drizzle-orm";
 import {
   getSqliteOrm,
   sqliteSchema,
@@ -8,10 +8,12 @@ import type {
   SupervisorRunListInput,
   SupervisorRunRepositoryPort,
 } from "../application/ports/supervisor-run-repository.port";
+import { assertSupervisorCompatibilityStatuses } from "../domain/supervisor-run.projections";
 import {
   SUPERVISOR_RUN_SCHEMA_VERSION,
   type SupervisorRunState,
   SupervisorRunStateSchema,
+  upgradeSupervisorRunV2Document,
 } from "../domain/supervisor-run.schemas";
 import { SupervisorRunRevisionConflictError } from "../domain/supervisor-run.transitions";
 
@@ -39,6 +41,7 @@ export class SupervisorRunSqliteRepository
 
   create(run: SupervisorRunState): Promise<SupervisorRunState> {
     const parsed = SupervisorRunStateSchema.parse(run);
+    assertSupervisorCompatibilityStatuses(parsed);
     if (parsed.revision !== 0) {
       throw new SupervisorRunRevisionConflictError(
         parsed.runId,
@@ -94,17 +97,16 @@ export class SupervisorRunSqliteRepository
       );
     }
     if (!input.includeTerminal) {
-      conditions.push(
-        notInArray(sqliteSchema.supervisorRuns.status, TERMINAL_RUN_STATUSES)
-      );
+      conditions.push(nonTerminalOrLegacyRunCondition());
     }
-    return orm
+    const runs = orm
       .select()
       .from(sqliteSchema.supervisorRuns)
       .where(and(...conditions))
       .orderBy(desc(sqliteSchema.supervisorRuns.updatedAt))
       .all()
       .map(fromRow);
+    return input.includeTerminal ? runs : runs.filter((run) => !run.outcome);
   }
 
   async listNonTerminal(): Promise<SupervisorRunState[]> {
@@ -112,12 +114,11 @@ export class SupervisorRunSqliteRepository
     return orm
       .select()
       .from(sqliteSchema.supervisorRuns)
-      .where(
-        notInArray(sqliteSchema.supervisorRuns.status, TERMINAL_RUN_STATUSES)
-      )
+      .where(nonTerminalOrLegacyRunCondition())
       .orderBy(desc(sqliteSchema.supervisorRuns.updatedAt))
       .all()
-      .map(fromRow);
+      .map(fromRow)
+      .filter((run) => !run.outcome);
   }
 
   save(
@@ -125,6 +126,7 @@ export class SupervisorRunSqliteRepository
     expectedRevision: number
   ): Promise<SupervisorRunState> {
     const parsed = SupervisorRunStateSchema.parse(run);
+    assertSupervisorCompatibilityStatuses(parsed);
     if (parsed.revision !== expectedRevision + 1) {
       throw new SupervisorRunRevisionConflictError(
         parsed.runId,
@@ -197,6 +199,18 @@ export function migrateSupervisorRunDocument(
   ) {
     return migrateV1SupervisorRun(candidate as Record<string, unknown>);
   }
+  if (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    "schemaVersion" in candidate &&
+    candidate.schemaVersion === 2
+  ) {
+    const legacy = candidate as Record<string, unknown>;
+    return SupervisorRunStateSchema.parse({
+      ...upgradeSupervisorRunV2Document(legacy),
+      migratedFromVersion: legacy.migratedFromVersion ?? 2,
+    });
+  }
   return SupervisorRunStateSchema.parse(candidate);
 }
 
@@ -255,7 +269,7 @@ function migrateV1SupervisorRun(
   }
   const migrated = {
     ...legacy,
-    schemaVersion: SUPERVISOR_RUN_SCHEMA_VERSION,
+    schemaVersion: 2,
     status: terminal ? legacy.status : "needs_user",
     priority: "normal",
     agentAllowlist: Array.isArray(legacy.eligibleAgentIds)
@@ -300,20 +314,31 @@ function fromRow(row: SupervisorRunRow): SupervisorRunState {
   }
   const run = migrateSupervisorRunDocument(value);
   const migratedLegacyRow =
-    (row.schemaVersion === 0 || row.schemaVersion === 1) &&
-    run.migratedFromVersion === 1;
+    row.schemaVersion < SUPERVISOR_RUN_SCHEMA_VERSION &&
+    run.schemaVersion === SUPERVISOR_RUN_SCHEMA_VERSION;
+  const migrationMayChangeStatus =
+    row.schemaVersion < SUPERVISOR_RUN_SCHEMA_VERSION;
   if (
     run.runId !== row.runId ||
     run.userId !== row.userId ||
     run.revision !== row.revision ||
-    (!migratedLegacyRow && run.status !== row.status) ||
-    (row.schemaVersion !== 0 &&
-      run.schemaVersion !== row.schemaVersion &&
-      !migratedLegacyRow)
+    (!migrationMayChangeStatus && run.status !== row.status) ||
+    (!migratedLegacyRow && run.schemaVersion !== row.schemaVersion)
   ) {
     throw new Error(`Supervisor run row integrity mismatch for ${row.runId}`);
   }
   return run;
+}
+
+function nonTerminalOrLegacyRunCondition() {
+  const condition = or(
+    notInArray(sqliteSchema.supervisorRuns.status, TERMINAL_RUN_STATUSES),
+    lt(sqliteSchema.supervisorRuns.schemaVersion, SUPERVISOR_RUN_SCHEMA_VERSION)
+  );
+  if (!condition) {
+    throw new Error("Failed to build the Supervisor recovery query");
+  }
+  return condition;
 }
 
 function toRow(run: SupervisorRunState) {

@@ -29,15 +29,53 @@ function createEventBusStub() {
 }
 
 describe("initializeSupervisorOrchestrationEvents", () => {
-  test("resumes capacity waits only after the refreshed provider has quota", async () => {
-    const resumeCalls: unknown[] = [];
+  test("pumps the durable workflow when capacity suspension facts are persisted", async () => {
+    const pumped: unknown[] = [];
     const { dispatch, eventBus } = createEventBusStub();
     initializeSupervisorOrchestrationEvents({
       eventBus,
-      capacity: {
-        resumeDue(input) {
-          resumeCalls.push(input);
-          return Promise.resolve({ resumed: 1, failedClosed: 0 });
+      workflowRuntime: {
+        tick: () => Promise.resolve({}),
+        pumpRun(input) {
+          pumped.push(input);
+          return Promise.resolve({});
+        },
+      },
+      workerSessions: {} as WorkerSessionManagerPort,
+      workerResults: { latestAssistantText: () => Promise.resolve(null) },
+      orchestrator: {
+        recordWorkerTerminal: () => Promise.resolve({} as never),
+      },
+      logger: { warn: () => undefined } as never,
+    });
+
+    await dispatch({
+      type: "supervisor_capacity_suspended",
+      userId: "user-1",
+      runId: "run-1",
+      owner: "task",
+      taskId: "task-1",
+      attemptId: "attempt-1",
+      agentId: "agent-1",
+      kind: "quota_exhausted",
+      retryAt: "2026-08-13T09:31:50.752Z",
+    });
+
+    expect(pumped).toEqual([{ runId: "run-1", userId: "user-1" }]);
+  });
+
+  test("resumes capacity waits only after the refreshed provider has quota", async () => {
+    let tickCalls = 0;
+    const { dispatch, eventBus } = createEventBusStub();
+    initializeSupervisorOrchestrationEvents({
+      eventBus,
+      workflowRuntime: {
+        tick() {
+          tickCalls += 1;
+          return Promise.resolve({});
+        },
+        pumpRun() {
+          return Promise.resolve({});
         },
       },
       workerSessions: {} as WorkerSessionManagerPort,
@@ -81,13 +119,7 @@ describe("initializeSupervisorOrchestrationEvents", () => {
       minPercentRemaining: 100,
     });
 
-    expect(resumeCalls).toEqual([
-      {
-        userId: "user-1",
-        capacityGroup: "zai",
-        forceDue: true,
-      },
-    ]);
+    expect(tickCalls).toBe(1);
   });
 
   test("routes an unexpected ACP stop to the bound manager before workers", async () => {

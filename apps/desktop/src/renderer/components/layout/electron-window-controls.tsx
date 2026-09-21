@@ -67,10 +67,12 @@ export const ElectronWindowControls = memo(function ElectronWindowControls({
   return (
     <div
       className={cn(
-        "-mr-3 flex h-12 shrink-0 items-center border-l",
+        "pointer-events-auto -mr-3 flex h-12 shrink-0 items-center border-l",
         className
       )}
+      data-eragear-window-controls="true"
       data-eragear-window-no-drag="true"
+      onPointerDown={(event) => event.stopPropagation()}
     >
       <Tooltip>
         <TooltipTrigger asChild>

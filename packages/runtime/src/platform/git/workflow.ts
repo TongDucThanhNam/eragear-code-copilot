@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { access, mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
+import { CryptoHasher } from "bun";
 import type {
   GitPullRequest,
   GitRepositoryPort,
@@ -16,11 +14,11 @@ import type {
   GitWorktree,
 } from "#runtime/modules/git";
 import { createLogger } from "#runtime/platform/logging/structured-logger";
+import { runBunSubprocess } from "#runtime/platform/process/bun-subprocess";
 import { getStorageDirPath } from "#runtime/platform/storage/storage-path";
 import { ValidationError } from "#runtime/shared/errors";
 import { toError } from "#runtime/shared/utils/error.util";
 
-const execFileAsync = promisify(execFile);
 const logger = createLogger("Storage");
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const DEFAULT_COMMIT_MESSAGE = "Update from Eragear";
@@ -47,9 +45,8 @@ type CommandExecutor = (
 type StorageRootResolver = () => Promise<string>;
 
 const defaultCommandExecutor: CommandExecutor = async (command, args, cwd) =>
-  await execFileAsync(command, args, {
+  await runBunSubprocess(command, args, {
     cwd,
-    encoding: "utf8",
     maxBuffer: MAX_BUFFER_BYTES,
     windowsHide: true,
   });
@@ -553,7 +550,7 @@ function sanitizeWorktreeId(value: string): string {
 }
 
 function stableWorktreeId(value: string): string {
-  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return CryptoHasher.hash("sha256", value, "hex").slice(0, 16);
 }
 
 function assertPathInside(root: string, target: string): void {

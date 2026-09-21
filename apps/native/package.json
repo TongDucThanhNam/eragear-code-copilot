@@ -70,9 +70,11 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.0",
     "@babel/preset-env": "^7.29.0",
     "@babel/preset-react": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
+    "@babel/traverse": "^7.29.0",
     "@eragear-code-copilot/config": "workspace:*",
     "@react-native/js-polyfills": "^0.83.2",
     "@types/node": "^24.10.0",

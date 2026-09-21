@@ -267,6 +267,109 @@ export const supervisorRuns = sqliteTable(
   })
 );
 
+export const goalIntakes = sqliteTable(
+  "goal_intakes",
+  {
+    intakeId: text("intake_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    projectId: text("project_id").notNull(),
+    projectRoot: text("project_root").notNull(),
+    status: text("status").notNull(),
+    revision: integer("revision").notNull(),
+    schemaVersion: integer("schema_version").notNull(),
+    stateJson: text("state_json").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    userUpdatedAtIdx: index("idx_goal_intakes_user_updated_at").on(
+      table.userId,
+      table.updatedAt
+    ),
+    userProjectUpdatedAtIdx: index(
+      "idx_goal_intakes_user_project_updated_at"
+    ).on(table.userId, table.projectId, table.updatedAt),
+    userStatusUpdatedAtIdx: index("idx_goal_intakes_user_status_updated_at").on(
+      table.userId,
+      table.status,
+      table.updatedAt
+    ),
+  })
+);
+
+export const workflowEvents = sqliteTable(
+  "workflow_events",
+  {
+    eventId: text("event_id").primaryKey(),
+    runId: text("run_id").notNull(),
+    revision: integer("revision").notNull(),
+    eventType: text("event_type").notNull(),
+    payloadVersion: integer("payload_version").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    occurredAtMs: integer("occurred_at_ms").notNull(),
+  },
+  (table) => ({
+    runRevisionUnique: uniqueIndex("idx_workflow_events_run_revision").on(
+      table.runId,
+      table.revision
+    ),
+    runOccurredAtIdx: index("idx_workflow_events_run_occurred_at").on(
+      table.runId,
+      table.occurredAtMs
+    ),
+  })
+);
+
+export const workflowEffectIntents = sqliteTable(
+  "workflow_effect_intents",
+  {
+    effectId: text("effect_id").primaryKey(),
+    runId: text("run_id").notNull(),
+    authorityId: text("authority_id").notNull(),
+    sourceEventId: text("source_event_id").notNull(),
+    effectType: text("effect_type").notNull(),
+    payloadVersion: integer("payload_version").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    promptHash: text("prompt_hash"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: text("status").notNull().default("pending"),
+    notBeforeMs: integer("not_before_ms").notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    claimToken: text("claim_token"),
+    claimedAtMs: integer("claimed_at_ms"),
+    leaseExpiresAtMs: integer("lease_expires_at_ms"),
+    attemptId: text("attempt_id"),
+    sessionId: text("session_id"),
+    workspaceId: text("workspace_id"),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+    startedAtMs: integer("started_at_ms"),
+    finishedAtMs: integer("finished_at_ms"),
+    lastErrorJson: text("last_error_json"),
+    resultEventId: text("result_event_id"),
+  },
+  (table) => ({
+    runIdempotencyUnique: uniqueIndex(
+      "idx_workflow_effect_intents_run_idempotency"
+    ).on(table.runId, table.authorityId, table.idempotencyKey),
+    dueIdx: index("idx_workflow_effect_intents_due").on(
+      table.status,
+      table.notBeforeMs,
+      table.leaseExpiresAtMs,
+      table.createdAtMs
+    ),
+    runStatusIdx: index("idx_workflow_effect_intents_run_status").on(
+      table.runId,
+      table.status,
+      table.createdAtMs
+    ),
+    runAuthorityStatusIdx: index(
+      "idx_workflow_effect_intents_run_authority_status"
+    ).on(table.runId, table.authorityId, table.status, table.createdAtMs),
+  })
+);
+
 export const goalModeStates = sqliteTable("goal_mode_states", {
   goalId: text("goal_id").primaryKey(),
   userId: text("user_id").notNull(),

@@ -1,7 +1,6 @@
 import type { EventBusPort } from "#runtime/shared/ports/event-bus.port";
 import type { LoggerPort } from "#runtime/shared/ports/logger.port";
 import { subscribeDomainEvents } from "#runtime/shared/utils/domain-event-subscription.util";
-import type { AcpCapacityCoordinator } from "../application/acp-capacity-coordinator.service";
 import type {
   AcpManagerResultReaderPort,
   AcpManagerSessionCoordinator,
@@ -14,11 +13,13 @@ export function initializeSupervisorOrchestrationEvents(params: {
   workerSessions: WorkerSessionManagerPort;
   manager?: Pick<
     AcpManagerSessionCoordinator,
-    "claimCompletedTurn" | "claimStoppedTurn" | "resumePending"
+    "claimCompletedTurn" | "claimStoppedTurn"
   >;
   workerResults: AcpManagerResultReaderPort;
-  capacity?: Pick<AcpCapacityCoordinator, "resumeDue">;
-  globalScheduler?: { tick(maxDispatches?: number): Promise<string[]> };
+  workflowRuntime?: {
+    tick(): Promise<unknown>;
+    pumpRun(input: { runId: string; userId: string }): Promise<unknown>;
+  };
   orchestrator: Pick<SupervisorOrchestratorService, "recordWorkerTerminal"> &
     Partial<Pick<SupervisorOrchestratorService, "recordManagerTurn">>;
   logger: LoggerPort;
@@ -29,6 +30,7 @@ export function initializeSupervisorOrchestrationEvents(params: {
       "prompt_turn_completed",
       "agent_session_stopped",
       "supervisor_turn_terminal",
+      "supervisor_capacity_suspended",
       "supervisor_capacity_resumed",
       "provider_quota_refreshed",
     ],
@@ -71,29 +73,22 @@ export function initializeSupervisorOrchestrationEvents(params: {
           event.windows.length > 0 &&
           !event.windows.some(isQuotaWindowExhausted)
         ) {
-          await params.capacity?.resumeDue({
-            userId: event.userId,
-            capacityGroup: event.providerId,
-            forceDue: true,
-          });
+          await params.workflowRuntime?.tick();
         }
         return;
       }
+      if (event.type === "supervisor_capacity_suspended") {
+        await params.workflowRuntime?.pumpRun({
+          runId: event.runId,
+          userId: event.userId,
+        });
+        return;
+      }
       if (event.type === "supervisor_capacity_resumed") {
-        if (event.owner === "manager") {
-          await params.manager?.resumePending({
-            runId: event.runId,
-            userId: event.userId,
-          });
-        } else if (event.taskId && event.attemptId) {
-          await params.workerSessions.resumePendingCapacity({
-            runId: event.runId,
-            userId: event.userId,
-            taskId: event.taskId,
-            attemptId: event.attemptId,
-          });
-        }
-        await params.globalScheduler?.tick();
+        await params.workflowRuntime?.pumpRun({
+          runId: event.runId,
+          userId: event.userId,
+        });
         return;
       }
       if (event.type === "supervisor_turn_terminal") {

@@ -1,4 +1,4 @@
-import { isDeepStrictEqual } from "node:util";
+import { deepEquals } from "bun";
 import { createLogger } from "#runtime/platform/logging/structured-logger";
 import {
   buildPlanToolPart,
@@ -162,7 +162,7 @@ export async function handlePlanUpdate(
   const normalizedPlan = normalizePlanForComparison(plan);
   const previousPlan = normalizePlanForComparison(session?.plan);
   const effectivePlan = normalizedPlan ?? plan;
-  const shouldBroadcast = !isDeepStrictEqual(previousPlan, normalizedPlan);
+  const shouldBroadcast = !deepEquals(previousPlan, normalizedPlan, true);
 
   if (session) {
     session.plan = effectivePlan;

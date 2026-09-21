@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ast-grep/ast-grep/main/schemas/typescript_rule.json
+
+id: workflow-runtime-requires-atomic-uow
+message: The workflow runtime must persist state transitions through the atomic workflow unit of work.
+severity: error
+language: TypeScript
+files:
+  - packages/runtime/src/modules/supervisor-orchestration/application/supervisor-workflow-runtime.service.ts
+rule:
+  pattern: this.runs.save($$$ARGS)
+note: Snapshot, durable event, and effect/result state must commit atomically; direct run-repository saves recreate crash gaps.

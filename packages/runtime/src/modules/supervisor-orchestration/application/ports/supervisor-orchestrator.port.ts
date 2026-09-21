@@ -1,4 +1,5 @@
 import type {
+  SupervisorGoalContractSnapshot,
   SupervisorRunLimits,
   SupervisorRunPriority,
   SupervisorRunState,
@@ -30,6 +31,15 @@ export interface CreateSupervisorRunDraftInput {
   userId: string;
   projectId: string;
   projectRoot: string;
+  /** Internal provenance for a run materialized from an approved Goal Intake. */
+  sourceGoalContract?: {
+    intakeId: string;
+    revisionId: string;
+    revision: number;
+    hash: string;
+    createdAt: string;
+    contract: SupervisorGoalContractSnapshot;
+  };
   intent?: string;
   /** Deprecated internal compatibility field; transport never accepts it. */
   originalIntent?: string;

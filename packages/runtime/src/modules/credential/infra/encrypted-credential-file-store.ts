@@ -1,12 +1,12 @@
 import {
   createCipheriv,
   createDecipheriv,
-  createHash,
   randomBytes,
   randomUUID,
 } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { CryptoHasher } from "bun";
 import { z } from "zod";
 import { getNodeErrnoCode } from "#runtime/shared/utils/node-error.util";
 import type {
@@ -180,7 +180,7 @@ export class EncryptedCredentialFileStore implements CredentialStorePort {
   }
 
   private deriveKey(): Buffer {
-    return createHash("sha256")
+    return new CryptoHasher("sha256")
       .update(this.secretProvider(), "utf8")
       .update(KEY_DERIVATION_CONTEXT, "utf8")
       .digest();

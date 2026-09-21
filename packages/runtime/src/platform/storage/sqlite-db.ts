@@ -4,6 +4,7 @@ import {
   agents,
   appMeta,
   appSettings,
+  goalIntakes,
   goalModeStates,
   projects,
   sessionEventOutbox,
@@ -13,6 +14,8 @@ import {
   usageStatsRecords,
   usageTelemetrySettings,
   userSettings,
+  workflowEffectIntents,
+  workflowEvents,
 } from "./sqlite-schema";
 import {
   closeSqliteDb,
@@ -33,7 +36,10 @@ const sqliteSchema = {
   usageStatsRecords,
   usageTelemetrySettings,
   supervisorRuns,
+  goalIntakes,
   goalModeStates,
+  workflowEvents,
+  workflowEffectIntents,
 };
 
 type SqliteOrmDb = BunSQLiteDatabase<typeof sqliteSchema>;

@@ -23,6 +23,9 @@ preload/contextBridge IPC.
 
 ## Development
 
+Development requires Bun 1.4 or newer. Production Windows packages embed the
+compiled Bun runtime and do not require a separate Bun installation.
+
 Install dependencies:
 
 ```bash

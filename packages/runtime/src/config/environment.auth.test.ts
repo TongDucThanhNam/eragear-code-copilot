@@ -21,7 +21,7 @@ describe("resolveAuthTrustedOrigins", () => {
 
     expect(origins).toContain("http://localhost:3010");
     expect(origins).toContain("http://localhost:3000");
-    expect(origins).toContain("http://localhost:3001");
+    expect(origins).toContain("http://localhost:3331");
     expect(origins).toContain("http://localhost:5173");
     expect(origins).toContain("eragear-code-copilot://");
     expect(origins).toContain("exp://");

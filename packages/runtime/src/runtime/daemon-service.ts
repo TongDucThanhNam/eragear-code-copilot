@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   closeSync,
@@ -11,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { spawnSync } from "bun";
 import { LOCAL_DESKTOP_USER_ID } from "#runtime/platform/auth/local-desktop-user";
 
 interface BootstrapApiKeyFile {
@@ -108,11 +108,21 @@ function restrictFileToCurrentUser(filePath: string): void {
   }
   const domain = process.env.USERDOMAIN?.trim();
   const principal = domain ? `${domain}\\${username}` : username;
-  execFileSync(
-    "icacls.exe",
-    [filePath, "/inheritance:r", "/grant:r", `${principal}:(R,W)`],
-    { stdio: "ignore", windowsHide: true }
+  const result = spawnSync(
+    [
+      "icacls.exe",
+      filePath,
+      "/inheritance:r",
+      "/grant:r",
+      `${principal}:(R,W)`,
+    ],
+    { stdout: "ignore", stderr: "ignore", windowsHide: true }
   );
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Unable to restrict daemon credential file to ${principal}; icacls exited with code ${result.exitCode}`
+    );
+  }
 }
 
 async function main(): Promise<void> {

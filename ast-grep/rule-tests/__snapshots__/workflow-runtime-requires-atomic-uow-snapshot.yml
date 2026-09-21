@@ -1,0 +1,8 @@
+id: workflow-runtime-requires-atomic-uow
+snapshots:
+  await this.runs.save(next, current.revision);:
+    labels:
+    - source: this.runs.save(next, current.revision)
+      style: primary
+      start: 6
+      end: 44

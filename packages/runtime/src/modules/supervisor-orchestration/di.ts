@@ -1,4 +1,5 @@
 export { AcpManagerOnlySupervisorPlannerAdapter } from "./infra/acp-manager-only-supervisor-planner.adapter";
+export { AiSupervisorEffectPromptDispatchAdapter } from "./infra/ai-supervisor-effect-prompt-dispatch.adapter";
 export { ConfiguredAgentCatalogAdapter } from "./infra/configured-agent-catalog.adapter";
 export { CredentialTelegramManagerSecretStoreAdapter } from "./infra/credential-telegram-manager-secret-store.adapter";
 export { GitScopedFinalCommitAdapter } from "./infra/git-scoped-final-commit.adapter";
@@ -7,6 +8,10 @@ export {
   GitWorkerWorkspaceAdapter,
   WorkerWorkspacePolicyError,
 } from "./infra/git-worker-workspace.adapter";
+export {
+  createRunEvent,
+  JournaledSupervisorRunRepository,
+} from "./infra/journaled-supervisor-run.repository";
 export { NotifyingSupervisorRunRepository } from "./infra/notifying-supervisor-run.repository";
 export { SessionRepositoryAcpManagerResultReaderAdapter } from "./infra/session-repository-acp-manager-result-reader.adapter";
 export { SupervisorRunSqliteRepository } from "./infra/supervisor-run.repository.sqlite";

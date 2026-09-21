@@ -1,8 +1,7 @@
-import { execFile } from "node:child_process";
 import { appendFile, readdir, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import { runBunSubprocess } from "#runtime/platform/process/bun-subprocess";
 import type { LoggerPort } from "#runtime/shared/ports/logger.port";
 import type {
   SupervisorAuditPort,
@@ -13,7 +12,6 @@ import type {
   SupervisorMemoryResult,
 } from "../application/ports/supervisor-memory.port";
 
-const execFileAsync = promisify(execFile);
 const OBSIDIAN_MAX_BUFFER_BYTES = 1024 * 1024;
 const LOG_TEXT_PART_MAX_CHARS = 800;
 const SEARCH_SNIPPET_MAX_CHARS = 800;
@@ -438,8 +436,7 @@ async function runObsidianCommand(
   args: string[],
   timeoutMs: number
 ): Promise<{ stdout: string; stderr: string }> {
-  const { stdout, stderr } = await execFileAsync(command, args, {
-    encoding: "utf8",
+  const { stdout, stderr } = await runBunSubprocess(command, args, {
     maxBuffer: OBSIDIAN_MAX_BUFFER_BYTES,
     timeout: timeoutMs,
   });

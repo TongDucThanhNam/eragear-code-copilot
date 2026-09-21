@@ -77,6 +77,46 @@ Session read side:
 
 ## Runtime Components
 
+### Supervisos production workflow
+
+`GOAL.md` and
+`docs/adr/0001-durable-local-workflow-controller.md` define the active design.
+The existing Supervisor orchestration services and public API are compatibility
+facades; production execution authority belongs to the durable Workflow Kernel:
+
+```text
+durable event -> pure reducer -> canonical facts -> RunReconciler
+              -> durable effect intent -> EffectExecutor -> result event
+```
+
+Run desired state, phase, and outcome are independent. WorkItem dependencies,
+outcome, wake time, active attempt, and blocking decision are facts. Legacy
+statuses are derived projections. Supervisor reasoning produces typed
+proposals and does not own workflow state or perform external effects.
+
+ACP prompt delivery is not assumed exactly-once. Prompt/resume effects that may
+have executed before persistence become `uncertain` and require reconciliation
+against session, transcript, workspace, Git, and verification evidence before
+continuation or resend.
+
+Production composition must use `JournaledSupervisorRunRepository` and
+`SupervisorWorkflowRuntimeService`. Every external orchestration effect is
+durably materialized and claimed before IO, and its typed result event is
+committed atomically with the reduced Supervisor snapshot. Startup and the
+background workflow task reconcile stale effects and non-terminal runs. New
+code must not restore direct scheduling, ACP dispatch, verification,
+integration, cleanup, or finalization authority to compatibility services.
+
+The composition root also shares one `SupervisorWorkflowRunBoundary` between
+the compatibility controls and workflow runtime. Authority-changing controls
+must serialize with effect validation, IO, and durable completion, then invoke
+the workflow pump only after releasing the boundary. Provider quota observers
+may persist CapacityWait facts, but they must not stop or resume ACP sessions
+directly; those operations are durable effects.
+
+SQLite is execution truth. Obsidian, Desktop, mobile, and Telegram are desired
+state/input/projection adapters and do not contain orchestration policy.
+
 ### Bootstrap
 
 Phase 2 runtime boundary:

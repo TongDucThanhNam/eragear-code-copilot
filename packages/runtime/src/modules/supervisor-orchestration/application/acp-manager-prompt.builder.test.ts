@@ -19,7 +19,7 @@ describe("buildAcpManagerPrompt", () => {
       "task.role must be exactly one of research, implementation, test, review, or integration"
     );
     expect(prompt).toContain(
-      "task.dependencies, task.scopeIntent, and task.verificationRequirements must each be JSON arrays of strings"
+      "task.dependencies, task.criterionIds, task.changeKinds, task.scopeIntent, and task.verificationRequirements must each be JSON arrays of strings"
     );
     expect(prompt).toContain("optional preferredModelId");
     expect(prompt).toContain("copy that id exactly without an effort suffix");

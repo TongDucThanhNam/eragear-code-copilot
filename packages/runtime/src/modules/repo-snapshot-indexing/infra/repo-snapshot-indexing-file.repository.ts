@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { CryptoHasher } from "bun";
 import { z } from "zod";
 import {
   type RepoSnapshotIndexingSettings,
@@ -238,34 +238,34 @@ function createManifest(input: {
 }
 
 function createSnapshotHash(index: RepoSnapshotIndexSnapshot): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        indexedAt: index.indexedAt,
-        indexedFiles: index.indexedFiles,
-        totalBytes: index.totalBytes,
-        files: index.files.map((file) => [
-          file.path,
-          file.sizeBytes,
-          file.modifiedAt,
-          file.semanticHash,
-          file.embeddingHash,
-        ]),
-        symbols: index.symbols.map((symbol) => [
-          symbol.path,
-          symbol.name,
-          symbol.kind,
-          symbol.line,
-        ]),
-        tasks: index.tasks.map((task) => [
-          task.path,
-          task.marker,
-          task.line,
-          task.text,
-        ]),
-      })
-    )
-    .digest("hex");
+  return CryptoHasher.hash(
+    "sha256",
+    JSON.stringify({
+      indexedAt: index.indexedAt,
+      indexedFiles: index.indexedFiles,
+      totalBytes: index.totalBytes,
+      files: index.files.map((file) => [
+        file.path,
+        file.sizeBytes,
+        file.modifiedAt,
+        file.semanticHash,
+        file.embeddingHash,
+      ]),
+      symbols: index.symbols.map((symbol) => [
+        symbol.path,
+        symbol.name,
+        symbol.kind,
+        symbol.line,
+      ]),
+      tasks: index.tasks.map((task) => [
+        task.path,
+        task.marker,
+        task.line,
+        task.text,
+      ]),
+    }),
+    "hex"
+  );
 }
 
 function toStorageState(
@@ -317,9 +317,11 @@ function projectSnapshotPaths(projectRoot: string): {
 }
 
 function settingsKey(scope: RepoSnapshotIndexingSettingsScope): string {
-  const rootHash = createHash("sha256")
-    .update(path.resolve(scope.projectRoot))
-    .digest("hex");
+  const rootHash = CryptoHasher.hash(
+    "sha256",
+    path.resolve(scope.projectRoot),
+    "hex"
+  );
   return `${scope.userId}:${rootHash.slice(0, 24)}`;
 }
 

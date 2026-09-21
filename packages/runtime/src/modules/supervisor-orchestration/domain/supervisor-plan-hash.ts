@@ -1,4 +1,5 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
+import { CryptoHasher } from "bun";
 import type {
   SupervisorExecutionEnvelope,
   SupervisorTaskRecord,
@@ -14,9 +15,14 @@ export interface SupervisorPlanHashInput {
 export function computeSupervisorPlanHash(
   input: SupervisorPlanHashInput
 ): string {
-  return createHash("sha256")
-    .update(canonicalJson(input), "utf8")
-    .digest("hex");
+  return CryptoHasher.hash(
+    "sha256",
+    canonicalJson({
+      ...input,
+      tasks: input.tasks.map(toPlanTaskContract),
+    }),
+    "hex"
+  );
 }
 
 export function supervisorPlanHashMatches(
@@ -74,6 +80,27 @@ function canonicalJson(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function toPlanTaskContract(task: SupervisorTaskRecord) {
+  return {
+    taskId: task.taskId,
+    title: task.title,
+    goal: task.goal,
+    role: task.role,
+    executionMode: task.executionMode,
+    dependencies: task.dependencies,
+    criterionIds: task.criterionIds,
+    changeKinds: task.changeKinds,
+    filesAllowed: task.filesAllowed,
+    verificationCommands: task.verificationCommands,
+    ...(task.preferredAgentId
+      ? { preferredAgentId: task.preferredAgentId }
+      : {}),
+    ...(task.preferredModelId
+      ? { preferredModelId: task.preferredModelId }
+      : {}),
+  };
 }
 
 function isSubset(candidate: string[], envelope: string[]): boolean {

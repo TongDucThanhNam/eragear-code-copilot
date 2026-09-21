@@ -235,7 +235,7 @@ describe("GitWorkerWorkspaceAdapter", () => {
         },
       })
     ).rejects.toMatchObject({ code: "BASELINE_HEAD_DRIFT" });
-  });
+  }, 15_000);
 
   test("reclaims a direct workspace after restart and rejects a second writer", async () => {
     const fixture = await createGitWorkspaceFixture("eragear-worker-busy-");

@@ -74,6 +74,8 @@ function createProposal(
         role: "research",
         executionMode: "read_only",
         dependencies: [],
+        criterionIds: [],
+        changeKinds: [],
         candidateAgentId: "agent-code",
         scopeIntent: ["packages/runtime/src/modules/session/index.ts"],
         verificationRequirements: ["Relevant interfaces are identified"],
@@ -85,6 +87,8 @@ function createProposal(
         role: "implementation",
         executionMode: "write",
         dependencies: ["research"],
+        criterionIds: [],
+        changeKinds: ["scoped_code_change"],
         preferredModelId: "minimax-coding-plan/MiniMax-M3",
         scopeIntent: ["packages/runtime/src/modules/example/feature.ts"],
         verificationRequirements: ["Runtime typecheck passes"],
@@ -278,12 +282,208 @@ describe("SupervisorPlannerService", () => {
       ).replan(createContext(), completed)
     ).rejects.toThrow("removed completed task");
   });
+
+  test("binds every typed Goal Contract criterion and authority declaration into work items", () => {
+    const proposal = createProposal();
+    proposal.tasks[0] = {
+      ...getResearchTask(proposal),
+      criterionIds: ["criterion-user"],
+    };
+    proposal.tasks[1] = {
+      ...getImplementationTask(proposal),
+      criterionIds: ["criterion-machine"],
+      changeKinds: ["scoped_code_change", "final_integration"],
+    };
+    const service = new SupervisorPlannerService(
+      new StubPlanner(proposal),
+      policy
+    );
+
+    const result = service.validateProposal(
+      createContext({
+        goalContract: createGoalContract({
+          trustedVerificationCommands: ["bun test"],
+        }),
+      }),
+      proposal
+    );
+
+    expect(result.tasks[0]?.criterionIds).toEqual(["criterion-user"]);
+    expect(result.tasks[1]?.criterionIds).toEqual(["criterion-machine"]);
+    expect(result.tasks[1]?.changeKinds).toEqual([
+      "scoped_code_change",
+      "final_integration",
+    ]);
+    expect(result.tasks[1]?.verificationCommands).toEqual(["bun test"]);
+    expect(result.tasks[1]?.verificationCommands).not.toContain(
+      "bun run --cwd packages/runtime check-types"
+    );
+  });
+
+  test("rejects missing or unknown criterion coverage and undeclared ask boundaries", () => {
+    const service = new SupervisorPlannerService(
+      new StubPlanner(createProposal()),
+      policy
+    );
+    const valid = createProposal();
+    valid.tasks[0] = {
+      ...getResearchTask(valid),
+      criterionIds: ["criterion-user"],
+    };
+    valid.tasks[1] = {
+      ...getImplementationTask(valid),
+      criterionIds: ["criterion-machine"],
+      changeKinds: ["scoped_code_change", "final_integration"],
+    };
+    const context = createContext({ goalContract: createGoalContract() });
+
+    expect(() =>
+      service.validateProposal(context, {
+        ...valid,
+        tasks: valid.tasks.map((task) => ({ ...task, criterionIds: [] })),
+      })
+    ).toThrow("not covered");
+    expect(() =>
+      service.validateProposal(context, {
+        ...valid,
+        tasks: valid.tasks.map((task, index) =>
+          index === 0 ? { ...task, criterionIds: ["unknown"] } : task
+        ),
+      })
+    ).toThrow("unknown Goal Contract criterion");
+    expect(() =>
+      service.validateProposal(context, {
+        ...valid,
+        tasks: valid.tasks.map((task) => ({
+          ...task,
+          changeKinds: task.changeKinds.filter(
+            (kind) => kind !== "final_integration"
+          ),
+        })),
+      })
+    ).toThrow("final integration approval");
+    expect(() =>
+      service.validateProposal(
+        createContext({
+          goalContract: createGoalContract({
+            trustedVerificationCommands: [],
+          }),
+        }),
+        valid
+      )
+    ).toThrow("no covering task with trusted verification");
+  });
+
+  test("rejects Goal Contract verification commands outside runtime trust", () => {
+    const proposal = createProposal();
+    proposal.tasks[0] = {
+      ...getResearchTask(proposal),
+      criterionIds: ["criterion-user"],
+    };
+    proposal.tasks[1] = {
+      ...getImplementationTask(proposal),
+      criterionIds: ["criterion-machine"],
+      changeKinds: ["scoped_code_change", "final_integration"],
+    };
+    const service = new SupervisorPlannerService(
+      new StubPlanner(proposal),
+      policy
+    );
+    expect(() =>
+      service.validateProposal(
+        createContext({
+          goalContract: createGoalContract({
+            trustedVerificationCommands: ["untrusted --command"],
+          }),
+        }),
+        proposal
+      )
+    ).toThrow("not runtime-trusted");
+  });
+
+  test("rejects write scope outside a parseable frozen Goal Contract boundary", () => {
+    const proposal = createProposal();
+    proposal.tasks[0] = {
+      ...getResearchTask(proposal),
+      criterionIds: ["criterion-user"],
+    };
+    proposal.tasks[1] = {
+      ...getImplementationTask(proposal),
+      criterionIds: ["criterion-machine"],
+      changeKinds: ["scoped_code_change", "final_integration"],
+      scopeIntent: ["apps/desktop/src/main.ts"],
+    };
+    const service = new SupervisorPlannerService(
+      new StubPlanner(proposal),
+      policy
+    );
+
+    expect(() =>
+      service.validateProposal(
+        createContext({ goalContract: createGoalContract() }),
+        proposal
+      )
+    ).toThrow("expands beyond the frozen Goal Contract change boundary");
+    expect(() =>
+      service.validateProposal(
+        createContext({
+          goalContract: createGoalContract({
+            changeBoundary: ["packages/runtime/**/ambiguous"],
+          }),
+        }),
+        proposal
+      )
+    ).toThrow("Unsupported Goal Contract change boundary");
+  });
 });
+
+function createGoalContract(
+  overrides: Partial<NonNullable<SupervisorPlannerContext["goalContract"]>> = {}
+): NonNullable<SupervisorPlannerContext["goalContract"]> {
+  return {
+    title: "Typed Goal",
+    objective: "Ship only with criterion evidence",
+    lockedStrategicDecisions: [],
+    assumptions: [],
+    nonGoals: [],
+    changeBoundary: ["packages/runtime"],
+    acceptanceCriteria: [
+      {
+        criterionId: "criterion-machine",
+        statement: "Runtime typecheck passes",
+        evidence: "machine",
+      },
+      {
+        criterionId: "criterion-user",
+        statement: "The behavior is semantically acceptable",
+        evidence: "user",
+      },
+    ],
+    trustedVerificationCommands: ["bun run --cwd packages/runtime check-types"],
+    authority: {
+      scopedCodeChange: "auto",
+      architectureChange: "ask",
+      dependencyChange: "ask",
+      destructiveAction: "ask",
+      finalIntegration: "ask",
+    },
+    unresolvedQuestions: [],
+    ...overrides,
+  };
+}
 
 function getImplementationTask(proposal: SupervisorPlannerProposal) {
   const task = proposal.tasks[1];
   if (!task) {
     throw new Error("Planner fixture must include an implementation task");
+  }
+  return task;
+}
+
+function getResearchTask(proposal: SupervisorPlannerProposal) {
+  const task = proposal.tasks[0];
+  if (!task) {
+    throw new Error("Planner fixture must include a research task");
   }
   return task;
 }

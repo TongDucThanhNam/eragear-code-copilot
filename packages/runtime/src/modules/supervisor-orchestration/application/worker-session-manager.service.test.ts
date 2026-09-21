@@ -1,8 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import type { SupervisorRunState as RunState } from "../domain/supervisor-run.schemas";
+import { WorkflowEffectUncertainError } from "#runtime/modules/workflow";
+import { NotFoundError } from "#runtime/shared/errors";
+import {
+  type SupervisorRunState as RunState,
+  SupervisorRunStateSchema,
+} from "../domain/supervisor-run.schemas";
 import { createSupervisorRunFixture } from "../domain/supervisor-run.test-fixture";
 import { SupervisorRunRevisionConflictError } from "../domain/supervisor-run.transitions";
+import {
+  prepareSupervisorPrompt,
+  type SupervisorEffectPromptDispatchPort,
+} from "./ports/supervisor-effect-prompt-dispatch.port";
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
+import {
+  buildWorkerPrompt,
+  buildWorkerResumePrompt,
+} from "./worker-prompt.builder";
 import {
   type WorkerSessionManagerDeps,
   WorkerSessionManagerService,
@@ -59,6 +72,7 @@ function createWorkerRun(overrides: Partial<RunState> = {}): RunState {
     tasks: run.tasks.map((task) => ({
       ...task,
       dependencies: [],
+      activity: "dispatching" as const,
       status: "queued" as const,
       preferredAgentId: task.preferredAgentId ?? "agent-code",
     })),
@@ -93,6 +107,9 @@ function createHarness(
       options?: Array<{ value: string }>;
     }>;
     preferredEffort?: string;
+    dispatchError?: unknown;
+    stopError?: unknown;
+    capacity?: WorkerSessionManagerDeps["capacity"];
   } = {}
 ) {
   const runs = new MemoryRunRepository(options.run ?? createWorkerRun());
@@ -103,7 +120,8 @@ function createHarness(
     envMode?: "local" | "worktree";
     worktreePath?: string;
   }> = [];
-  const sent: Array<{ chatId: string; text: string; source: string }> = [];
+  const sent: Parameters<SupervisorEffectPromptDispatchPort["execute"]>[0][] =
+    [];
   const stopped: string[] = [];
   const selectedModels: string[] = [];
   const selectedModes: string[] = [];
@@ -128,15 +146,21 @@ function createHarness(
         });
       },
     },
-    sendMessage: {
+    effectPromptDispatch: {
       execute(input) {
         sent.push(input);
+        if (options.dispatchError !== undefined) {
+          return Promise.reject(options.dispatchError);
+        }
         return Promise.resolve({ turnId: `turn-${sent.length}` });
       },
     },
     stopSession: {
       execute(_userId, chatId) {
         stopped.push(chatId);
+        if (options.stopError !== undefined) {
+          return Promise.reject(options.stopError);
+        }
         return Promise.resolve({ ok: true });
       },
     },
@@ -167,11 +191,52 @@ function createHarness(
       },
     },
     preferredEffort: options.preferredEffort,
+    capacity: options.capacity,
     now: () => "2026-07-11T00:00:00.000Z",
     createId(prefix) {
       id += 1;
       return `${prefix}-${id}`;
     },
+  };
+  const preparePrompt = async (
+    taskId: string,
+    effectId: string,
+    kind: "dispatch" | "resume" | "pending_capacity"
+  ) => {
+    const run = await runs.get("run-1", "user-1");
+    if (!run) {
+      throw new Error("Expected worker run");
+    }
+    const task = run.tasks.find((candidate) => candidate.taskId === taskId);
+    if (!task) {
+      throw new Error(`Expected worker task ${taskId}`);
+    }
+    const attempt = task.attempts.at(-1);
+    const shouldResume =
+      kind === "resume" || (kind === "pending_capacity" && attempt?.turnId);
+    const text = shouldResume
+      ? buildWorkerResumePrompt(task)
+      : buildWorkerPrompt({
+          run,
+          task,
+          dependencySummaries: task.dependencies.map((dependencyId) => {
+            const dependency = run.tasks.find(
+              (candidate) => candidate.taskId === dependencyId
+            );
+            const summary = [...(dependency?.attempts ?? [])]
+              .reverse()
+              .find((candidate) => candidate.result)?.result?.outcomeSummary;
+            if (!summary) {
+              throw new Error(`Expected result for dependency ${dependencyId}`);
+            }
+            return { taskId: dependencyId, summary };
+          }),
+        });
+    return prepareSupervisorPrompt({
+      effectId,
+      authorityId: "authority-worker-test",
+      text,
+    });
   };
   return {
     runs,
@@ -181,6 +246,12 @@ function createHarness(
     selectedModels,
     selectedModes,
     selectedEfforts,
+    prepareDispatchPrompt: (taskId: string, effectId: string) =>
+      preparePrompt(taskId, effectId, "dispatch"),
+    prepareResumePrompt: (taskId: string, effectId: string) =>
+      preparePrompt(taskId, effectId, "resume"),
+    preparePendingCapacityPrompt: (taskId: string, effectId: string) =>
+      preparePrompt(taskId, effectId, "pending_capacity"),
     service: new WorkerSessionManagerService(deps),
   };
 }
@@ -217,12 +288,20 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: "task-a",
       idempotencyKey: "run-1:task-a:1",
+      preparedPrompt: await harness.prepareDispatchPrompt(
+        "task-a",
+        "effect-builder-a"
+      ),
     });
     await harness.service.dispatch({
       runId: "run-1",
       userId: "user-1",
       taskId: "task-b",
       idempotencyKey: "run-1:task-b:1",
+      preparedPrompt: await harness.prepareDispatchPrompt(
+        "task-b",
+        "effect-builder-b"
+      ),
     });
 
     expect(harness.selectedModes).toEqual(["builder", "builder"]);
@@ -237,12 +316,20 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: "task-a",
       idempotencyKey: "run-1:task-a:1",
+      preparedPrompt: await harness.prepareDispatchPrompt(
+        "task-a",
+        "effect-session-a"
+      ),
     });
     const second = await harness.service.dispatch({
       runId: "run-1",
       userId: "user-1",
       taskId: "task-b",
       idempotencyKey: "run-1:task-b:1",
+      preparedPrompt: await harness.prepareDispatchPrompt(
+        "task-b",
+        "effect-session-b"
+      ),
       workspace: {
         workspaceId: "workspace-task-b",
         kind: "direct_git",
@@ -283,6 +370,10 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: "task-a",
       idempotencyKey: "run-1:task-a:1",
+      preparedPrompt: await harness.prepareDispatchPrompt(
+        "task-a",
+        "effect-deduplicate"
+      ),
     };
     const first = await harness.service.dispatch(input);
     const duplicate = await harness.service.dispatch(input);
@@ -299,6 +390,10 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: "task-a",
       idempotencyKey: "run-1:task-a:1",
+      preparedPrompt: await harness.prepareDispatchPrompt(
+        "task-a",
+        "effect-release"
+      ),
     });
     const before = await harness.runs.get("run-1", "user-1");
 
@@ -314,6 +409,105 @@ describe("WorkerSessionManagerService", () => {
     expect(after).toEqual(before);
   });
 
+  test("treats a missing persisted chat as stopped without discarding terminal result evidence", async () => {
+    const run = createWorkerRun();
+    const task = run.tasks[0];
+    if (!task) {
+      throw new Error("Expected worker task");
+    }
+    task.status = "completed";
+    task.outcome = "succeeded";
+    task.attempts = [
+      {
+        attemptId: "attempt-terminal",
+        chatId: "chat-terminal",
+        agentId: "agent-code",
+        status: "terminal",
+        idempotencyKey: "run-1:task-a:terminal",
+        startedAt: "2026-07-11T00:00:00.000Z",
+        finishedAt: "2026-07-11T00:00:01.000Z",
+        result: {
+          semanticStatus: "succeeded",
+          reason: "complete",
+          outcomeSummary: "Completed before cancellation cleanup arrived",
+          files: { touched: [], created: [], deleted: [], renamed: [] },
+          verification: [],
+          toolFailureSummary: [],
+          unresolvedPermissions: [],
+          agentId: "agent-code",
+          chatId: "chat-terminal",
+          startedAt: "2026-07-11T00:00:00.000Z",
+          finishedAt: "2026-07-11T00:00:01.000Z",
+        },
+      },
+    ];
+    const persisted = SupervisorRunStateSchema.parse(run);
+    const harness = createHarness({
+      run: persisted,
+      stopError: new NotFoundError("Chat not found", {
+        module: "session",
+        op: "session.lifecycle.stop",
+        details: { chatId: "chat-terminal" },
+      }),
+    });
+    const before = await harness.runs.get("run-1", "user-1");
+
+    await harness.service.stop({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: "task-a",
+      attemptId: "attempt-terminal",
+    });
+
+    const after = await harness.runs.get("run-1", "user-1");
+    expect(harness.stopped).toEqual(["chat-terminal"]);
+    expect(after).toEqual(before);
+    expect(after?.tasks[0]?.attempts[0]).toMatchObject({
+      status: "terminal",
+      result: {
+        semanticStatus: "succeeded",
+        outcomeSummary: "Completed before cancellation cleanup arrived",
+      },
+    });
+  });
+
+  test("does not swallow a session not-found for a different persisted chat", async () => {
+    const run = createWorkerRun();
+    const task = run.tasks[0];
+    if (!task) {
+      throw new Error("Expected worker task");
+    }
+    task.attempts = [
+      {
+        attemptId: "attempt-running",
+        chatId: "chat-expected",
+        agentId: "agent-code",
+        status: "running",
+        idempotencyKey: "run-1:task-a:running",
+        startedAt: "2026-07-11T00:00:00.000Z",
+      },
+    ];
+    const error = new NotFoundError("Chat not found", {
+      module: "session",
+      op: "session.lifecycle.stop",
+      details: { chatId: "chat-different" },
+    });
+    const harness = createHarness({ run, stopError: error });
+
+    await expect(
+      harness.service.stop({
+        runId: "run-1",
+        userId: "user-1",
+        taskId: "task-a",
+        attemptId: "attempt-running",
+      })
+    ).rejects.toBe(error);
+
+    const after = await harness.runs.get("run-1", "user-1");
+    expect(after?.tasks[0]?.attempts[0]?.status).toBe("running");
+    expect(harness.stopped).toEqual(["chat-expected"]);
+  });
+
   test("marks a reserved attempt interrupted and fails the task when creation fails", async () => {
     const harness = createHarness({ createFails: true });
     await expect(
@@ -322,6 +516,10 @@ describe("WorkerSessionManagerService", () => {
         userId: "user-1",
         taskId: "task-a",
         idempotencyKey: "run-1:task-a:1",
+        preparedPrompt: await harness.prepareDispatchPrompt(
+          "task-a",
+          "effect-create-failure"
+        ),
       })
     ).rejects.toThrow("create failed");
     const run = await harness.runs.get("run-1", "user-1");
@@ -337,6 +535,10 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: "task-a",
       idempotencyKey: "run-1:task-a:1",
+      preparedPrompt: await harness.prepareDispatchPrompt(
+        "task-a",
+        "effect-binding"
+      ),
     });
     expect(
       await harness.service.findBinding({
@@ -369,6 +571,10 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: "task-a",
       idempotencyKey: "run-1:task-a:1",
+      preparedPrompt: await compatible.prepareDispatchPrompt(
+        "task-a",
+        "effect-compatible-model"
+      ),
     });
     expect(compatible.selectedModels).toEqual(["glm-zai"]);
 
@@ -391,6 +597,10 @@ describe("WorkerSessionManagerService", () => {
         userId: "user-1",
         taskId: "task-a",
         idempotencyKey: "run-1:task-a:1",
+        preparedPrompt: await mismatch.prepareDispatchPrompt(
+          "task-a",
+          "effect-model-mismatch"
+        ),
       })
     ).rejects.toThrow(
       "Scheduled worker model claude is incompatible with provider zai-coding-plan"
@@ -428,6 +638,10 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: task.taskId,
       idempotencyKey: "run-1:task-a:1",
+      preparedPrompt: await harness.prepareDispatchPrompt(
+        task.taskId,
+        "effect-manager-model"
+      ),
     });
 
     expect(harness.selectedModels).toEqual(["minimax-coding-plan/MiniMax-M3"]);
@@ -469,6 +683,10 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: task.taskId,
       attemptId: "attempt-quota",
+      preparedPrompt: await harness.preparePendingCapacityPrompt(
+        task.taskId,
+        "effect-capacity-first-turn"
+      ),
     });
 
     expect(harness.created).toHaveLength(0);
@@ -516,6 +734,10 @@ describe("WorkerSessionManagerService", () => {
       userId: "user-1",
       taskId: task.taskId,
       attemptId: "attempt-quota",
+      preparedPrompt: await harness.preparePendingCapacityPrompt(
+        task.taskId,
+        "effect-capacity-resume"
+      ),
     });
 
     expect(harness.sent).toHaveLength(1);
@@ -556,11 +778,16 @@ describe("WorkerSessionManagerService", () => {
       },
     });
 
+    const preparedPrompt = await harness.prepareResumePrompt(
+      task.taskId,
+      "effect-exact-resume"
+    );
     await harness.service.resume({
       runId: "run-1",
       userId: "user-1",
       taskId: task.taskId,
       attemptId: "attempt-recovery",
+      preparedPrompt,
     });
 
     expect(harness.created).toHaveLength(0);
@@ -569,7 +796,144 @@ describe("WorkerSessionManagerService", () => {
     expect(harness.sent[0]?.source).toBe("orchestrator");
     expect(harness.sent[0]?.text).toContain("Continue the current task");
     expect(harness.sent[0]?.text).not.toContain("compact JSON object");
+    expect(harness.sent[0]?.workflow).toEqual({
+      effectId: "effect-exact-resume",
+      authorityId: "authority-worker-test",
+      runId: "run-1",
+      owner: "worker",
+      workItemId: task.taskId,
+      attemptId: "attempt-recovery",
+      promptHash: preparedPrompt.promptHash,
+    });
     const run = await harness.runs.get("run-1", "user-1");
     expect(run?.tasks[0]?.attempts[0]?.turnId).toBe("turn-1");
+  });
+
+  test("surfaces an uncertain ACK without reclassifying a capacity resume", async () => {
+    const base = createWorkerRun();
+    const task = base.tasks[0];
+    if (!task) {
+      throw new Error("Expected worker fixture task");
+    }
+    const uncertain = new WorkflowEffectUncertainError({
+      code: "ACP_PROMPT_ACK_UNCERTAIN",
+      effectId: "effect-capacity-uncertain",
+    });
+    let capacityCalls = 0;
+    const harness = createHarness({
+      run: {
+        ...base,
+        status: "running",
+        tasks: [
+          {
+            ...task,
+            status: "running",
+            attempts: [
+              {
+                attemptId: "attempt-capacity-uncertain",
+                chatId: "chat-capacity-uncertain",
+                agentId: task.preferredAgentId ?? "agent-code",
+                agentSessionId: "acp-session-capacity-uncertain",
+                status: "running",
+                turnId: "turn-before-uncertain-ack",
+                idempotencyKey: "run-1:task-a:1",
+                startedAt: "2026-07-11T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      },
+      dispatchError: uncertain,
+      capacity: {
+        suspendWorker: () => {
+          capacityCalls += 1;
+          return Promise.resolve({ suspended: true, run: base });
+        },
+      },
+    });
+    const preparedPrompt = await harness.preparePendingCapacityPrompt(
+      task.taskId,
+      "effect-capacity-uncertain"
+    );
+
+    await expect(
+      harness.service.resumePendingCapacity({
+        runId: "run-1",
+        userId: "user-1",
+        taskId: task.taskId,
+        attemptId: "attempt-capacity-uncertain",
+        preparedPrompt,
+      })
+    ).rejects.toBe(uncertain);
+    expect(capacityCalls).toBe(0);
+    expect(harness.sent[0]?.workflow).toEqual({
+      effectId: "effect-capacity-uncertain",
+      authorityId: "authority-worker-test",
+      runId: "run-1",
+      owner: "worker",
+      workItemId: task.taskId,
+      attemptId: "attempt-capacity-uncertain",
+      promptHash: preparedPrompt.promptHash,
+    });
+    const run = await harness.runs.get("run-1", "user-1");
+    expect(run?.tasks[0]?.attempts[0]?.turnId).toBe(
+      "turn-before-uncertain-ack"
+    );
+  });
+
+  test("keeps prepared-prompt validation failures outside the uncertain ACK boundary", async () => {
+    const base = createWorkerRun();
+    const task = base.tasks[0];
+    if (!task) {
+      throw new Error("Expected worker fixture task");
+    }
+    const harness = createHarness({
+      run: {
+        ...base,
+        status: "running",
+        tasks: [
+          {
+            ...task,
+            status: "running",
+            attempts: [
+              {
+                attemptId: "attempt-invalid-prompt",
+                chatId: "chat-invalid-prompt",
+                agentId: task.preferredAgentId ?? "agent-code",
+                agentSessionId: "acp-session-invalid-prompt",
+                status: "running",
+                turnId: "turn-before-invalid-prompt",
+                idempotencyKey: "run-1:task-a:1",
+                startedAt: "2026-07-11T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const preparedPrompt = await harness.prepareResumePrompt(
+      task.taskId,
+      "effect-invalid-prompt"
+    );
+
+    try {
+      await harness.service.resume({
+        runId: "run-1",
+        userId: "user-1",
+        taskId: task.taskId,
+        attemptId: "attempt-invalid-prompt",
+        preparedPrompt: {
+          ...preparedPrompt,
+          text: `${preparedPrompt.text}\nmutation after preparation`,
+        },
+      });
+      throw new Error("Expected prepared prompt validation to fail");
+    } catch (error) {
+      expect(error).not.toBeInstanceOf(WorkflowEffectUncertainError);
+      expect(String(error)).toContain(
+        "Prepared Supervisor prompt does not match its canonical snapshot"
+      );
+    }
+    expect(harness.sent).toHaveLength(0);
   });
 });

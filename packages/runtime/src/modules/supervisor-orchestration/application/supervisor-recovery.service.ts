@@ -19,7 +19,6 @@ import type { SupervisorOrchestratorService } from "./supervisor-orchestrator.se
 export class SupervisorRecoveryService {
   private readonly runs: SupervisorRunRepositoryPort;
   private readonly sessions: SupervisorRecoverySessionPort;
-  private readonly workers: Pick<WorkerSessionManagerPort, "resume">;
   private readonly workspaces: Pick<WorkerWorkspacePort, "claim" | "dispose">;
   private readonly manager?: Pick<
     AcpManagerSessionCoordinator,
@@ -27,25 +26,24 @@ export class SupervisorRecoveryService {
   >;
   private readonly orchestrator: Pick<
     SupervisorOrchestratorService,
-    "schedule" | "recordWorkerResult" | "recordManagerTurn"
+    "cancel" | "schedule" | "recordWorkerResult" | "recordManagerTurn"
   >;
   private readonly now: () => string;
 
   constructor(
     runs: SupervisorRunRepositoryPort,
     sessions: SupervisorRecoverySessionPort,
-    workers: Pick<WorkerSessionManagerPort, "resume">,
+    _workers: Pick<WorkerSessionManagerPort, "resume">,
     workspaces: Pick<WorkerWorkspacePort, "claim" | "dispose">,
     orchestrator: Pick<
       SupervisorOrchestratorService,
-      "schedule" | "recordWorkerResult" | "recordManagerTurn"
+      "cancel" | "schedule" | "recordWorkerResult" | "recordManagerTurn"
     >,
     manager?: Pick<AcpManagerSessionCoordinator, "recoverCompletedTurn">,
     now: () => string = () => new Date().toISOString()
   ) {
     this.runs = runs;
     this.sessions = sessions;
-    this.workers = workers;
     this.workspaces = workspaces;
     this.orchestrator = orchestrator;
     this.manager = manager;
@@ -63,6 +61,10 @@ export class SupervisorRecoveryService {
     };
     for (const run of await this.runs.listNonTerminal()) {
       summary.runs += 1;
+      if (run.desiredState === "cancelled" && !run.outcome) {
+        await this.orchestrator.cancel(run.runId, run.userId);
+        continue;
+      }
       if (run.status === "paused") {
         await this.claimActiveWorkspaces(run);
         summary.paused += 1;
@@ -126,18 +128,8 @@ export class SupervisorRecoveryService {
           continue;
         }
         if (state.resumable) {
-          try {
-            await this.workers.resume({
-              runId: initial.runId,
-              userId: initial.userId,
-              taskId: task.taskId,
-              attemptId: latest.attemptId,
-            });
-            summary.resumed += 1;
-            continue;
-          } catch {
-            // A failed resume is reconciled as interrupted below.
-          }
+          summary.resumed += 1;
+          continue;
         }
         interrupted.add(latest.attemptId);
         await this.disposeAttempt(latest, summary);

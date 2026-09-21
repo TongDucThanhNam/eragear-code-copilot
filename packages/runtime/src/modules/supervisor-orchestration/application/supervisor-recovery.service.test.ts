@@ -4,7 +4,10 @@ import type {
   SupervisorTaskRecord,
 } from "../domain/supervisor-run.schemas";
 import { createSupervisorRunFixture } from "../domain/supervisor-run.test-fixture";
-import { SupervisorRunRevisionConflictError } from "../domain/supervisor-run.transitions";
+import {
+  SupervisorRunRevisionConflictError,
+  transitionSupervisorRun,
+} from "../domain/supervisor-run.transitions";
 import type { SupervisorRecoverySessionState } from "./ports/supervisor-recovery.port";
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
 import { SupervisorRecoveryService } from "./supervisor-recovery.service";
@@ -97,6 +100,7 @@ function createHarness(
   const disposed: string[] = [];
   const claimed: string[] = [];
   const scheduled: string[] = [];
+  const cancelled: string[] = [];
   const managerTurns: string[] = [];
   const service = new SupervisorRecoveryService(
     runs,
@@ -121,6 +125,10 @@ function createHarness(
       },
     },
     {
+      cancel(runId, userId) {
+        cancelled.push(runId);
+        return runs.get(runId, userId).then((value) => value as never);
+      },
       schedule(runId) {
         scheduled.push(runId);
         return runs.get(runId, run.userId).then((value) => value as never);
@@ -161,6 +169,7 @@ function createHarness(
     claimed,
     disposed,
     scheduled,
+    cancelled,
     managerTurns,
   };
 }
@@ -216,6 +225,35 @@ describe("SupervisorRecoveryService", () => {
     );
   });
 
+  test("continues an in-flight cancellation before paused recovery", async () => {
+    const active = createSupervisorRunFixture({
+      status: "running",
+      tasks: [activeTask()],
+    });
+    const cancelling = transitionSupervisorRun(active, {
+      expectedRevision: active.revision,
+      now: "2026-07-11T00:01:00.000Z",
+      mutate(draft) {
+        draft.desiredState = "cancelled";
+      },
+    });
+    const harness = createHarness(cancelling, {
+      status: "stopped",
+      resumable: true,
+      promptActive: false,
+    });
+
+    const summary = await harness.service.reconcile();
+
+    expect(cancelling.status).toBe("paused");
+    expect(cancelling.outcome).toBeUndefined();
+    expect(summary.paused).toBe(0);
+    expect(harness.cancelled).toEqual([cancelling.runId]);
+    expect(harness.claimed).toEqual([]);
+    expect(harness.resumed).toEqual([]);
+    expect(harness.scheduled).toEqual([]);
+  });
+
   test("reclaims a capacity-waiting writer before quota resume", async () => {
     const task = activeTask(1, "waiting_capacity");
     const attempt = task.attempts[0];
@@ -257,7 +295,7 @@ describe("SupervisorRecoveryService", () => {
     );
   });
 
-  test("keeps live workers and resumes stopped capable sessions", async () => {
+  test("keeps live workers and delegates resumable sessions to durable scheduling", async () => {
     const liveRun = createSupervisorRunFixture({
       status: "running",
       tasks: [activeTask()],
@@ -281,7 +319,8 @@ describe("SupervisorRecoveryService", () => {
       promptActive: false,
     });
     expect((await stopped.service.reconcile()).resumed).toBe(1);
-    expect(stopped.resumed).toEqual(["attempt-1"]);
+    expect(stopped.resumed).toEqual([]);
+    expect(stopped.scheduled).toEqual([stoppedRun.runId]);
     expect(stopped.claimed).toEqual(["workspace-1"]);
 
     const idleRun = createSupervisorRunFixture({
@@ -294,7 +333,8 @@ describe("SupervisorRecoveryService", () => {
       promptActive: false,
     });
     expect((await idle.service.reconcile()).resumed).toBe(1);
-    expect(idle.resumed).toEqual(["attempt-1"]);
+    expect(idle.resumed).toEqual([]);
+    expect(idle.scheduled).toEqual([idleRun.runId]);
   });
 
   test("fails a recovered writer closed when its direct workspace cannot be reclaimed", async () => {

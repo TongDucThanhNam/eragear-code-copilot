@@ -1,7 +1,9 @@
 import { z } from "zod";
 import {
   SUPERVISOR_RUN_LIMIT_CAPS,
+  SupervisorGoalContractSnapshotSchema,
   SupervisorRunLimitsSchema,
+  SupervisorTaskChangeKindSchema,
   SupervisorTaskExecutionModeSchema,
   SupervisorTaskRoleSchema,
 } from "../../domain/supervisor-run.schemas";
@@ -18,6 +20,8 @@ export const SupervisorPlannerTaskProposalSchema = z
     dependencies: z
       .array(PlannerIdentifierSchema)
       .max(SUPERVISOR_RUN_LIMIT_CAPS.maxTasks),
+    criterionIds: z.array(PlannerIdentifierSchema).max(128).default([]),
+    changeKinds: z.array(SupervisorTaskChangeKindSchema).max(4).default([]),
     candidateAgentId: PlannerIdentifierSchema.optional(),
     preferredModelId: z.string().trim().min(1).max(512).optional(),
     scopeIntent: z.array(z.string().trim().min(1).max(1024)).max(4096),
@@ -57,6 +61,7 @@ export const SupervisorPlannerContextSchema = z
     projectRoot: z.string().trim().min(1).max(4096),
     limits: SupervisorRunLimitsSchema,
     agents: z.array(SupervisorPlannerAgentSchema).min(1).max(128),
+    goalContract: SupervisorGoalContractSnapshotSchema.optional(),
     projectIndexSummary: z.string().max(16_000).optional(),
     scopeResolutionSummary: z.string().max(16_000).optional(),
     completedTaskSummaries: z

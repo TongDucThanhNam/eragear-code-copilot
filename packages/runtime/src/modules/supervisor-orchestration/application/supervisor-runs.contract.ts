@@ -72,6 +72,7 @@ export const AnswerSupervisorDecisionInputSchema = z
     runId: RunIdSchema,
     decisionId: z.string().trim().min(1).max(160),
     answer: z.string().trim().min(1).max(8000),
+    criterionResolution: z.enum(["accept", "waive"]).optional(),
     expectedRevision: z.number().int().nonnegative(),
   })
   .strict();

@@ -4,6 +4,7 @@ import type { SupervisorRunState } from "../domain/supervisor-run.schemas";
 import { createSupervisorRunFixture } from "../domain/supervisor-run.test-fixture";
 import { AcpCapacityCoordinator } from "./acp-capacity-coordinator.service";
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
+import { SupervisorSchedulerService } from "./supervisor-scheduler.service";
 
 class MemoryRuns implements SupervisorRunRepositoryPort {
   private run: SupervisorRunState;
@@ -67,18 +68,30 @@ function runningFixture(): SupervisorRunState {
   });
 }
 
+function runningFixtureWithIndependentTask(): SupervisorRunState {
+  const run = runningFixture();
+  const independent = createSupervisorRunFixture().tasks[0];
+  if (!independent) {
+    throw new Error("fixture task missing");
+  }
+  run.tasks.push({
+    ...independent,
+    taskId: "task-independent",
+    title: "Independent work",
+    goal: "Continue independently",
+    dependencies: [],
+  });
+  return run;
+}
+
 describe("AcpCapacityCoordinator", () => {
-  test("suspends without consuming the attempt and exact-resumes the same binding", async () => {
+  test("persists suspension without stopping outside the workflow and exact-resumes the same binding", async () => {
     const repo = new MemoryRuns(runningFixture());
     const calls: string[] = [];
     const events: string[] = [];
     const coordinator = new AcpCapacityCoordinator({
       runs: repo,
       sessions: {
-        stop: (_userId, chatId) => {
-          calls.push(`stop:${chatId}`);
-          return Promise.resolve();
-        },
         resumeExact: (_userId, chatId) => {
           calls.push(`exact:${chatId}`);
           return Promise.resolve();
@@ -125,24 +138,20 @@ describe("AcpCapacityCoordinator", () => {
       kind: "capacity_resumed",
       createdAt: "2026-08-10T10:00:30.000Z",
     });
-    expect(calls).toEqual(["stop:chat-1", "exact:chat-1"]);
+    expect(calls).toEqual(["exact:chat-1"]);
     expect(events).toEqual([
       "supervisor_capacity_suspended",
       "supervisor_capacity_resumed",
     ]);
   });
 
-  test("polls the active ACP model quota and suspends an exhausted worker once", async () => {
+  test("polls quota, suspends once, and leaves durable resumption to the workflow runtime", async () => {
     const repo = new MemoryRuns(runningFixture());
     const calls: string[] = [];
     let quotaCalls = 0;
     const coordinator = new AcpCapacityCoordinator({
       runs: repo,
       sessions: {
-        stop: (_userId, chatId) => {
-          calls.push(`stop:${chatId}`);
-          return Promise.resolve();
-        },
         resumeExact: (_userId, chatId) => {
           calls.push(`exact:${chatId}`);
           return Promise.resolve();
@@ -215,11 +224,44 @@ describe("AcpCapacityCoordinator", () => {
       suspendedManagers: 0,
     });
     expect(quotaCalls).toBe(2);
-    expect(calls).toEqual(["stop:chat-1", "exact:chat-1"]);
+    expect(calls).toEqual([]);
     const final = await repo.get("run-1", "user-1");
-    expect(final?.status).toBe("running");
-    expect(final?.capacityWaits).toHaveLength(0);
-    expect(final?.tasks[0]?.attempts[0]?.status).toBe("running");
+    expect(final?.status).toBe("waiting_capacity");
+    expect(final?.capacityWaits).toHaveLength(1);
+    expect(final?.tasks[0]?.attempts[0]?.status).toBe("waiting_capacity");
+  });
+
+  test("keeps independent work dispatchable while a worker waits for capacity", async () => {
+    const repo = new MemoryRuns(runningFixtureWithIndependentTask());
+    const coordinator = new AcpCapacityCoordinator({
+      runs: repo,
+      sessions: {
+        resumeExact: () => Promise.resolve(),
+      },
+      eventBus: {
+        subscribe: () => () => undefined,
+        publish: () => Promise.resolve(),
+      },
+      now: () => "2026-08-10T10:00:00.000Z",
+      createId: (prefix) => `${prefix}-1`,
+    });
+
+    const suspended = await coordinator.suspendWorker({
+      runId: "run-1",
+      userId: "user-1",
+      taskId: "task-a",
+      attemptId: "attempt-1",
+      failure: { error: new Error("quota exhausted") },
+    });
+
+    expect(suspended.run.blockingDecisionId).toBeUndefined();
+    expect(suspended.run.tasks[0]).toMatchObject({
+      status: "waiting_capacity",
+      activity: "capacity_wait",
+    });
+    expect(
+      new SupervisorSchedulerService().evaluate(suspended.run).dispatchTaskIds
+    ).toEqual(["task-independent"]);
   });
 
   test("keeps the sticky manager turn and exact-resumes it after quota", async () => {
@@ -244,10 +286,6 @@ describe("AcpCapacityCoordinator", () => {
     const coordinator = new AcpCapacityCoordinator({
       runs: repo,
       sessions: {
-        stop: (_userId, chatId) => {
-          calls.push(`stop:${chatId}`);
-          return Promise.resolve();
-        },
         resumeExact: (_userId, chatId) => {
           calls.push(`exact:${chatId}`);
           return Promise.resolve();
@@ -286,15 +324,79 @@ describe("AcpCapacityCoordinator", () => {
       status: "running",
       activeTurn: { turnId: "manager-turn-1", kind: "replan" },
     });
-    expect(calls).toEqual(["stop:manager-chat-1", "exact:manager-chat-1"]);
+    expect(calls).toEqual(["exact:manager-chat-1"]);
   });
 
-  test("exact-resume failure creates a durable user decision", async () => {
-    const repo = new MemoryRuns(runningFixture());
+  test("does not let an executing manager capacity wait block approved work", async () => {
+    const run = runningFixtureWithIndependentTask();
+    run.managerSession = {
+      agentId: "manager-1",
+      chatId: "manager-chat-1",
+      agentSessionId: "manager-acp-session-1",
+      status: "running",
+      exactResumeRequired: true,
+      activeTurn: {
+        turnId: "manager-turn-1",
+        kind: "replan",
+        startedAt: "2026-08-10T10:00:00.000Z",
+      },
+    };
+    const repo = new MemoryRuns(run);
     const coordinator = new AcpCapacityCoordinator({
       runs: repo,
       sessions: {
-        stop: () => Promise.resolve(),
+        resumeExact: () => Promise.resolve(),
+      },
+      eventBus: {
+        subscribe: () => () => undefined,
+        publish: () => Promise.resolve(),
+      },
+      now: () => "2026-08-10T10:00:00.000Z",
+      createId: (prefix) => `${prefix}-1`,
+    });
+
+    const suspended = await coordinator.suspendManager({
+      runId: "run-1",
+      userId: "user-1",
+      failure: { error: new Error("quota exhausted") },
+    });
+
+    expect(suspended.run.phase).toBe("executing");
+    expect(suspended.run.status).toBe("running");
+    expect(suspended.run.blockingDecisionId).toBeUndefined();
+    expect(
+      new SupervisorSchedulerService().evaluate(suspended.run).dispatchTaskIds
+    ).toEqual(["task-independent"]);
+
+    await coordinator.resumeDue({ forceDue: true });
+    const needsDecision = await coordinator.suspendManager({
+      runId: "run-1",
+      userId: "user-1",
+      failure: { assistantFailure: "401 authentication required" },
+    });
+    expect(needsDecision.run.decisions.at(-1)?.kind).toBe(
+      "classifier_uncertain"
+    );
+    expect(needsDecision.run.blockingDecisionId).toBeUndefined();
+    expect(
+      new SupervisorSchedulerService().evaluate(needsDecision.run)
+        .dispatchTaskIds
+    ).toEqual(["task-independent"]);
+  });
+
+  test("exact-resume failure creates a durable user decision", async () => {
+    const run = runningFixtureWithIndependentTask();
+    run.decisions.push({
+      decisionId: "existing-resume-decision",
+      kind: "exact_resume_failed",
+      status: "open",
+      prompt: "Existing exact-resume failure",
+      createdAt: "2026-08-10T09:00:00.000Z",
+    });
+    const repo = new MemoryRuns(run);
+    const coordinator = new AcpCapacityCoordinator({
+      runs: repo,
+      sessions: {
         resumeExact: () => Promise.reject(new Error("exact load failed")),
       },
       eventBus: {
@@ -315,7 +417,16 @@ describe("AcpCapacityCoordinator", () => {
       await coordinator.resumeDue({ now: "2026-08-10T10:02:00.000Z" })
     ).toEqual({ resumed: 0, failedClosed: 1 });
     const final = await repo.get("run-1", "user-1");
-    expect(final?.status).toBe("needs_user");
+    expect(final?.status).toBe("running");
     expect(final?.decisions[0]?.kind).toBe("exact_resume_failed");
+    expect(final?.tasks[0]?.blockingDecisionId).toBe(
+      "existing-resume-decision"
+    );
+    expect(final?.blockingDecisionId).toBeUndefined();
+    expect(
+      final
+        ? new SupervisorSchedulerService().evaluate(final).dispatchTaskIds
+        : []
+    ).toEqual(["task-independent"]);
   });
 });

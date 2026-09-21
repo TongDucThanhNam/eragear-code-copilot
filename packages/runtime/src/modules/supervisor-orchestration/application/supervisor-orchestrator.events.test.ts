@@ -232,6 +232,8 @@ describe("SupervisorOrchestratorService worker events", () => {
             role: "implementation",
             executionMode: "write",
             dependencies: [],
+            criterionIds: [],
+            changeKinds: ["scoped_code_change"],
             scopeIntent: ["demos/supervisos-biosphere-terminal/"],
             verificationRequirements: ["Run the scoped checks"],
           },
@@ -281,6 +283,8 @@ describe("SupervisorOrchestratorService worker events", () => {
             role: "research",
             executionMode: "read_only",
             dependencies: [],
+            criterionIds: [],
+            changeKinds: [],
             scopeIntent: ["packages/runtime/src/index.ts"],
             verificationRequirements: ["bun test"],
           },
@@ -317,7 +321,7 @@ describe("SupervisorOrchestratorService worker events", () => {
     );
   });
 
-  test("records one result, completes the task, and unblocks one dependent dispatch", async () => {
+  test("records one result and leaves verification to the durable workflow", async () => {
     const first = createReadOnlyTask("task-a", "running");
     const second = createReadOnlyTask("task-b", "blocked", ["task-a"]);
     const run = createSupervisorRunFixture({
@@ -333,15 +337,16 @@ describe("SupervisorOrchestratorService worker events", () => {
       result: createResult(first.taskId),
     };
     const updated = await harness.service.recordWorkerResult(input);
-    expect(updated.tasks[0]?.status).toBe("completed");
-    expect(updated.tasks[1]?.status).toBe("queued");
-    expect(harness.dispatched).toEqual(["task-b"]);
+    expect(updated.tasks[0]?.status).toBe("reviewing");
+    expect(updated.tasks[0]?.verification?.status).toBe("not_started");
+    expect(updated.tasks[1]?.status).toBe("blocked");
+    expect(harness.dispatched).toEqual([]);
 
     await harness.service.recordWorkerResult(input);
-    expect(harness.dispatched).toEqual(["task-b"]);
+    expect(harness.dispatched).toEqual([]);
   });
 
-  test("completes only after aggregate verification evidence passes", async () => {
+  test("does not complete before durable verification evidence is recorded", async () => {
     const task = createReadOnlyTask("task-a", "running");
     const run = createSupervisorRunFixture({
       status: "running",
@@ -355,9 +360,10 @@ describe("SupervisorOrchestratorService worker events", () => {
       attemptId: `attempt-${task.taskId}`,
       result: createResult(task.taskId),
     });
-    expect(completed.status).toBe("completed");
-    expect(completed.finalVerification).toHaveLength(1);
-    expect(completed.finalVerification[0]?.exitCode).toBe(0);
+    expect(completed.status).toBe("running");
+    expect(completed.tasks[0]?.status).toBe("reviewing");
+    expect(completed.tasks[0]?.verification?.status).toBe("not_started");
+    expect(completed.finalVerification).toHaveLength(0);
   });
 
   test("accepts a normal ACP handoff while Supervisos owns result evidence", async () => {
@@ -383,12 +389,11 @@ describe("SupervisorOrchestratorService worker events", () => {
       resultText: handoff,
     });
 
-    expect(completed.status).toBe("completed");
+    expect(completed.status).toBe("needs_user");
     expect(completed.tasks[0]?.attempts[0]?.result?.outcomeSummary).toBe(
       handoff
     );
-    expect(completed.tasks[0]?.attempts[0]?.result?.verification).toEqual([
-      expect.objectContaining({ command: "bun test", exitCode: 0 }),
-    ]);
+    expect(completed.tasks[0]?.attempts[0]?.result?.verification).toEqual([]);
+    expect(completed.tasks[0]?.blockingDecisionId).toBeDefined();
   });
 });

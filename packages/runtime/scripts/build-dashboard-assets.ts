@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
-import { copyFile, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import { type BuildConfig, build, file, write } from "bun";
 
 const outDir = resolve(process.cwd(), "public/dashboard");
 const jsEntry = resolve(
@@ -33,40 +33,30 @@ const staticAssets = [
 ] as const;
 
 async function runBunBuild(): Promise<void> {
-  await new Promise<void>((resolveBuild, rejectBuild) => {
-    const proc = spawn(
-      "bun",
-      [
-        "build",
-        jsEntry,
-        "--outfile",
-        jsOut,
-        "--target",
-        "browser",
-        "--format",
-        "esm",
-        "--minify",
-      ],
-      { stdio: "inherit" }
-    );
-    proc.on("error", rejectBuild);
-    proc.on("exit", (code) => {
-      if (code === 0) {
-        resolveBuild();
-        return;
-      }
-      rejectBuild(
-        new Error(`dashboard asset build failed with exit code ${String(code)}`)
-      );
-    });
-  });
+  const config = {
+    entrypoints: [jsEntry],
+    target: "browser",
+    format: "esm",
+    minify: true,
+    write: false,
+  } satisfies BuildConfig & { write: false };
+  const result = await build(config);
+  if (!result.success) {
+    throw new AggregateError(result.logs, "Dashboard asset build failed");
+  }
+  const output =
+    result.outputs.find((artifact) => artifact.type === "text/javascript") ??
+    result.outputs[0];
+  if (!output) {
+    throw new Error("Dashboard asset build produced no output");
+  }
+  await Promise.all([write(jsOut, output), write(jsAssetOut, output)]);
 }
 
 await mkdir(outDir, { recursive: true });
 await runBunBuild();
-await copyFile(jsOut, jsAssetOut);
 await Promise.all(
   staticAssets.map(async (asset) => {
-    await copyFile(asset.source, asset.out);
+    await write(asset.out, file(asset.source));
   })
 );

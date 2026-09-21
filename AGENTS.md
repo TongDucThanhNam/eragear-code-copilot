@@ -123,19 +123,35 @@ rg -n 'dev:web|dev:server|desktop:dev|desktop:build|apps/web|apps/server' packag
 
 ## Supervisos And Goal Mode
 
-- Supervisos decision/chat paths use MiniMax-M3 through the runtime package;
-  configure a stored MiniMax key or `MINIMAX_API_KEY` before live verification.
-- Extra Supervisos instructions and tool steering are runtime settings:
-  `SUPERVISOR_CUSTOM_SYSTEM_PROMPT`, `SUPERVISOR_TOOL_POLICY`, and
-  `SUPERVISOR_TOOL_ALLOWLIST`. Keep built-in guardrails authoritative; custom
-  prompts and allowlists should narrow behavior, not bypass permission gates.
-- Optional Supervisos research and memory are settings/env-backed:
-  `SUPERVISOR_WEB_SEARCH_PROVIDER=exa` with `SUPERVISOR_WEB_SEARCH_API_KEY` or
-  `EXA_API_KEY`, and `SUPERVISOR_MEMORY_PROVIDER=obsidian` with the
-  `SUPERVISOR_OBSIDIAN_*` settings.
+- `GOAL.md` and
+  `docs/adr/0001-durable-local-workflow-controller.md` define the active
+  Supervisos migration. Supervisos is a durable local controller, not an AI
+  manager that owns execution state.
+- LLM/ACP reasoners may propose plans, replans, decisions, and summaries. They
+  must not mutate repositories, start workers, own timers/retries, or keep the
+  only copy of canonical state.
+- The deterministic Workflow Kernel owns facts, durable events, effect intents,
+  wakeups, retry, recovery, and human-authority boundaries. Keep this business
+  logic in `packages/runtime`, never Electron main/preload/renderer.
+- Treat run desired state, phase, and outcome as independent facts. Treat task
+  dependencies, outcome, wake time, active attempt, and blocking decision as
+  facts. `waiting_capacity`, `queued`, `ready`, `blocked`, `reviewing`,
+  `integrating`, and `needs_user` are derived compatibility/UI projections.
+- Every external workflow effect must have a durable intent before execution.
+  A prompt/resume effect that may have executed before a crash becomes
+  `uncertain`; inspect session, transcript, Git, workspace, and verifier
+  evidence before continuation or resend.
+- Keep WorkItem, TurnAttempt, and AgentSession separate. Capacity is an
+  observation/lease on an agent identity or provider account, not task state.
+- Agent output alone never completes a WorkItem. Require trusted evidence or an
+  explicit user acceptance/waiver for the referenced acceptance criteria.
+- Goal note edits create immutable Goal revisions and never mutate an active
+  run silently. Obsidian is desired state and a projection/report surface;
+  SQLite events/facts are execution truth.
 - Supervisos side chat uses the dedicated `supervisorChat` tRPC mutation, not
   the main ACP `sendMessage` path. Keep side-chat context bounded; do not inject
-  raw main transcripts or raw diffs.
+  raw main transcripts or raw diffs. Implementation requests create Goal
+  Drafts for approval rather than bypassing the workflow kernel.
 - Keep Goal Mode state separate from `SupervisorSessionState`; derive metrics
   from phase/attempt records instead of storing mutable root metrics.
 - Goal Mode gates use explicit loop file evidence when available, otherwise
@@ -147,21 +163,16 @@ rg -n 'dev:web|dev:server|desktop:dev|desktop:build|apps/web|apps/server' packag
 - The Supervisos `AST` quick action depends on repo snapshot indexing, Scope
   Resolution, and the TypeScript AST import graph; refresh Project Index in
   Settings > Memory before live manual checks.
-- Supervisos implementation requests return a `stage_main_prompt` action that
-  injects the enhanced prompt into the real main `ChatInput`; Autopilot may
-  auto-submit only when the active chat is connected and ready, while
-  non-Autopilot sessions leave the staged prompt visible for review/edit/send.
-- If a Supervisos implementation handoff hits the runtime `PROMPT_BUSY` guard,
-  keep the handoff in the renderer as a staged main `ChatInput` prompt rather
-  than bypassing the normal chat submit path or changing supervisor mode first.
 - After renderer/runtime changes that affect Supervisos side chat or Project
   Index intelligence, restart `bun run dev:desktop` before manual verification.
 
 ### Multi-session Supervisos runs
 
-- `SupervisorOrchestratorService` in `packages/runtime` owns the durable
-  `SupervisorRunState` DAG. Keep run/task/attempt/gate state out of Electron
-  main, preload, renderer stores, and per-session `SupervisorSessionState`.
+- Existing `SupervisorOrchestratorService` and `supervisorRuns` APIs are
+  compatibility facades. Production authority is behind `RunReconciler`, the
+  workflow dispatcher, and `EffectExecutor`; do not add scheduling, retry,
+  recovery, verification, integration, cleanup, or finalization decisions to
+  the facade.
 - Workers must be created through the existing session create/send/stop/resume
   services with prompt source `orchestrator`. Do not spawn an agent process from
   orchestration application/domain code.
@@ -182,12 +193,20 @@ rg -n 'dev:web|dev:server|desktop:dev|desktop:build|apps/web|apps/server' packag
 - Configure trusted final checks with
   `SUPERVISOR_ORCHESTRATION_VERIFICATION_COMMANDS` as a JSON array. Optional
   `SUPERVISOR_ORCHESTRATION_MAX_*` settings can only narrow the schema caps.
-- Runtime startup reconciles non-terminal runs after session status recovery;
-  paused runs stay paused, resumable sessions resume, and stale attempts retry
-  only within their persisted budget.
+- Runtime startup and the background workflow task drain/reconcile the durable
+  workflow journal. Every production external effect must be materialized and
+  claimed before IO; its result event and reduced snapshot commit atomically.
+  Paused runs remain paused. Recovery negotiates ACP capabilities in order:
+  resume, load, then a new session with a frozen handoff bundle. It must never
+  blindly resend an uncertain prompt.
+- Authority-changing controls and effect IO/result persistence must share the
+  production per-run workflow boundary. Release that boundary before pumping
+  again. Quota observers may persist capacity facts, but ACP stop/resume stays
+  behind claimed workflow effects; exact resume requires durable stop success.
 - Focused checks:
 
 ```powershell
+bun test packages/runtime/src/modules/workflow
 bun test packages/runtime/src/modules/supervisor-orchestration/domain packages/runtime/src/modules/supervisor-orchestration/application packages/runtime/src/modules/supervisor-orchestration/infra
 bun run --cwd packages/runtime test:e2e:supervisor-orchestration
 bun run --cwd packages/runtime test:e2e:supervisor-orchestration-cancel

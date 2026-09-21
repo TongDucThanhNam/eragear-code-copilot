@@ -173,12 +173,64 @@ const SUPERVISOR_RUN_VERIFICATION_SCHEMA = z
   .object({ command: z.string(), exitCode: z.number().int().nullable() })
   .strict();
 
+const SUPERVISOR_GOAL_CONTRACT_SCHEMA = z
+  .object({
+    title: z.string(),
+    objective: z.string(),
+    lockedStrategicDecisions: z.array(z.string()),
+    assumptions: z.array(z.string()),
+    nonGoals: z.array(z.string()),
+    changeBoundary: z.array(z.string()),
+    acceptanceCriteria: z.array(
+      z
+        .object({
+          criterionId: z.string(),
+          statement: z.string(),
+          evidence: z.enum(["machine", "user"]),
+        })
+        .strict()
+    ),
+    trustedVerificationCommands: z.array(z.string()),
+    authority: z
+      .object({
+        scopedCodeChange: z.enum(["auto", "ask"]),
+        architectureChange: z.enum(["auto", "ask"]),
+        dependencyChange: z.enum(["auto", "ask"]),
+        destructiveAction: z.literal("ask"),
+        finalIntegration: z.enum(["auto", "ask"]),
+      })
+      .strict(),
+    unresolvedQuestions: z.array(z.string()),
+  })
+  .strict();
+
 export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
   .object({
     runId: z.string(),
     revision: z.number().int().nonnegative(),
     projectId: z.string().optional(),
     originatingChatId: z.string().optional(),
+    sourceGoalContract: z
+      .object({
+        intakeId: z.string(),
+        revisionId: z.string(),
+        revision: z.number().int().positive().optional(),
+        hash: z.string(),
+        createdAt: z.string().optional(),
+        contract: SUPERVISOR_GOAL_CONTRACT_SCHEMA.optional(),
+        criterionResolutions: z.array(
+          z
+            .object({
+              criterionId: z.string(),
+              resolution: z.enum(["user_accepted", "waived"]),
+              decisionId: z.string(),
+              resolvedAt: z.string(),
+            })
+            .strict()
+        ),
+      })
+      .strict()
+      .optional(),
     status: z.enum([
       "draft",
       "planning",
@@ -193,6 +245,15 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
       "failed",
       "cancelled",
     ]),
+    cancellation: z
+      .object({
+        status: z.enum(["pending", "running", "succeeded", "failed"]),
+        pendingSessionCount: z.number().int().nonnegative(),
+        pendingWorkspaceCount: z.number().int().nonnegative(),
+        blockingDecisionId: z.string().optional(),
+      })
+      .strict()
+      .optional(),
     tasks: z.array(
       z
         .object({
@@ -207,6 +268,17 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
           ]),
           executionMode: z.enum(["read_only", "write"]),
           dependencies: z.array(z.string()),
+          criterionIds: z.array(z.string()).optional(),
+          changeKinds: z
+            .array(
+              z.enum([
+                "scoped_code_change",
+                "architecture_change",
+                "dependency_change",
+                "final_integration",
+              ])
+            )
+            .optional(),
           preferredModelId: z.string().optional(),
           status: z.enum([
             "blocked",
@@ -342,6 +414,7 @@ export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
           prompt: z.string(),
           createdAt: z.string(),
           answeredAt: z.string().optional(),
+          criterionIds: z.array(z.string()).optional(),
         })
         .strict()
     ),

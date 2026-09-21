@@ -1,5 +1,6 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { AgentSqliteRepository } from "#runtime/modules/agent/di";
+import { GoalIntakeSqliteRepository } from "#runtime/modules/goal-intake/di";
 import { ProjectSqliteRepository } from "#runtime/modules/project/di";
 import { createSessionSqliteRepository } from "#runtime/modules/session/di";
 import {
@@ -9,6 +10,7 @@ import {
 import { SettingsSqliteRepository } from "#runtime/modules/settings/di";
 import { SupervisorRunSqliteRepository } from "#runtime/modules/supervisor-orchestration/di";
 import { UsageStatsSqliteRepository } from "#runtime/modules/usage-stats/di";
+import { WorkflowJournalSqliteAdapter } from "#runtime/modules/workflow/di";
 import {
   closeSqliteDb,
   getSqliteStorageStatsLocal,
@@ -29,6 +31,23 @@ function toErrorPayload(error: unknown): SqliteWorkerResponse["error"] {
       name: error.name,
       message: error.message,
       stack: error.stack,
+      ...(typeof Reflect.get(error, "code") === "string"
+        ? { code: Reflect.get(error, "code") as string }
+        : {}),
+      ...(typeof Reflect.get(error, "operation") === "string"
+        ? { operation: Reflect.get(error, "operation") as string }
+        : {}),
+      ...(typeof Reflect.get(error, "intakeId") === "string"
+        ? { intakeId: Reflect.get(error, "intakeId") as string }
+        : {}),
+      ...(typeof Reflect.get(error, "expectedRevision") === "number"
+        ? {
+            expectedRevision: Reflect.get(error, "expectedRevision") as number,
+          }
+        : {}),
+      ...(typeof Reflect.get(error, "actualRevision") === "number"
+        ? { actualRevision: Reflect.get(error, "actualRevision") as number }
+        : {}),
     };
   }
   return {
@@ -68,6 +87,8 @@ if (!isMainThread && port) {
   const settingsRepo = new SettingsSqliteRepository();
   const usageStatsRepo = new UsageStatsSqliteRepository();
   const supervisorRunsRepo = new SupervisorRunSqliteRepository();
+  const goalIntakeRepo = new GoalIntakeSqliteRepository();
+  const workflowJournal = new WorkflowJournalSqliteAdapter();
   const readyMessage: SqliteWorkerReadyMessage = { type: "ready" };
   port.postMessage(readyMessage);
 
@@ -125,6 +146,16 @@ if (!isMainThread && port) {
       } else if (request.service === "supervisorRuns") {
         result = await getMethod(
           supervisorRunsRepo as unknown as Record<string, unknown>,
+          request.method
+        )(...request.args);
+      } else if (request.service === "goalIntake") {
+        result = await getMethod(
+          goalIntakeRepo as unknown as Record<string, unknown>,
+          request.method
+        )(...request.args);
+      } else if (request.service === "workflowJournal") {
+        result = await getMethod(
+          workflowJournal as unknown as Record<string, unknown>,
           request.method
         )(...request.args);
       } else if (request.service === "storage") {

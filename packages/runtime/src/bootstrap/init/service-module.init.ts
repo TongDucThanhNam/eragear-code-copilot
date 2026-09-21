@@ -31,6 +31,7 @@ import type { ServiceRegistryDependencies } from "../service-registry/dependenci
 import { createFeedbackUseCases } from "../service-registry/feedback-services";
 import { createFileWatcherUseCases } from "../service-registry/file-watcher-services";
 import { createGitUseCases } from "../service-registry/git-services";
+import { createGoalIntakeUseCases } from "../service-registry/goal-intake-services";
 import { createGoalModeUseCases } from "../service-registry/goal-mode-services";
 import { createHooksUseCases } from "../service-registry/hooks-services";
 import { createMemoryUseCases } from "../service-registry/memory-services";
@@ -227,6 +228,14 @@ export function initializeServiceModule({
       goalDraft: supervisorOrchestrationUseCases.orchestrator,
     }
   );
+  const goalIntakeUseCases = createGoalIntakeUseCases(
+    serviceRegistryDependencies,
+    sessionUseCases,
+    aiUseCases,
+    agentUseCases,
+    supervisorOrchestrationUseCases,
+    supervisorProjectIntelligence
+  );
   core.sessionAcpAdapter.setPermissionAutoResolver(async (input) => {
     const handled =
       await supervisorOrchestrationUseCases.workerPermissions.handlePermissionRequest(
@@ -272,6 +281,7 @@ export function initializeServiceModule({
     ops: opsUseCases,
     git: gitUseCases,
     goalMode: goalModeUseCases,
+    goalIntake: goalIntakeUseCases,
     quota: quotaUseCases,
     supervisor: supervisorUseCases,
     supervisorOrchestration: supervisorOrchestrationUseCases,
@@ -314,6 +324,7 @@ export function initializeServiceModule({
     sessionRuntime: core.sessionRuntime,
     sessionRepo: persistence.sessionRepo,
     sessionEventOutbox: core.sessionEventOutbox,
+    workflowJournal: persistence.workflowJournal,
     sessionUseCases,
     supervisorOrchestration: supervisorOrchestrationUseCases,
     localAde: settingsUseCases.localAde,

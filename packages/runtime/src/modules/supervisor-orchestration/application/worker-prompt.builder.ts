@@ -6,6 +6,7 @@ import type {
 const MAX_DEPENDENCY_SUMMARY_CHARS = 1200;
 const MAX_TASK_GOAL_CHARS = 16_000;
 const MAX_CONSTRAINTS_CHARS = 3000;
+const MAX_CRITERIA_CHARS = 6000;
 
 export interface WorkerDependencySummary {
   taskId: string;
@@ -36,6 +37,20 @@ export function buildWorkerPrompt(input: {
   const verification = input.task.verificationCommands
     .map((item) => `- ${item}`)
     .join("\n");
+  const criteriaById = new Map(
+    (input.run.sourceGoalContract?.contract?.acceptanceCriteria ?? []).map(
+      (criterion) => [criterion.criterionId, criterion]
+    )
+  );
+  const criteria = input.task.criterionIds
+    .map((criterionId) => {
+      const criterion = criteriaById.get(criterionId);
+      return criterion
+        ? `- ${criterion.criterionId} [${criterion.evidence}]: ${criterion.statement}`
+        : `- ${criterionId} [invalid binding: report as blocker]`;
+    })
+    .join("\n");
+  const changeKinds = input.task.changeKinds.join(", ");
 
   return [
     `# Task: ${input.task.title}`,
@@ -46,6 +61,10 @@ export function buildWorkerPrompt(input: {
     constraints
       ? `# Constraints\n${truncateText(constraints, MAX_CONSTRAINTS_CHARS)}`
       : undefined,
+    criteria
+      ? `# Goal Contract criteria owned by this task\n${truncateText(criteria, MAX_CRITERIA_CHARS)}`
+      : undefined,
+    changeKinds ? `# Approved change declarations\n${changeKinds}` : undefined,
     `# Dependency outcomes\n${dependencyContext}`,
     `# Supervisor-owned verification\n${
       verification ||

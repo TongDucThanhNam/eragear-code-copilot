@@ -22,6 +22,7 @@ import {
   Menu,
   Notification,
   session,
+  shell,
 } from "electron";
 import { DesktopAutoUpdateController } from "./auto-update.js";
 import {
@@ -39,6 +40,11 @@ import {
   loadDesktopSettings,
   saveDesktopSettings,
 } from "./desktop-settings.js";
+import {
+  createDesktopWindowControlHandlers,
+  DESKTOP_WINDOW_CONTROL_CHANNELS,
+} from "./desktop-window-controls.js";
+import { createExternalAiConsultationHandler } from "./external-ai-consultation.js";
 import {
   isExternalProjectAppTarget,
   openProjectInExternalApp,
@@ -365,7 +371,7 @@ function createMainWindow(): void {
       return;
     }
     mainWindow.webContents.send(
-      "eragear:windowStateChanged",
+      DESKTOP_WINDOW_CONTROL_CHANNELS.stateChanged,
       getWindowState(mainWindow)
     );
   };
@@ -501,30 +507,27 @@ ipcMain.handle(
     await runtimeHost.unsubscribeOperation(input.subscriptionId);
   }
 );
-ipcMain.handle("eragear:window:getState", (event) => {
-  const window = getWindowFromSender(event);
-  return window ? getWindowState(window) : null;
+const desktopWindowControlHandlers = createDesktopWindowControlHandlers({
+  getMainWindow: () =>
+    mainWindow && !mainWindow.isDestroyed() ? mainWindow : null,
+  getWindowFromSender,
 });
-ipcMain.handle("eragear:window:minimize", (event) => {
-  const window = getWindowFromSender(event);
-  window?.minimize();
-});
-ipcMain.handle("eragear:window:toggleMaximize", (event) => {
-  const window = getWindowFromSender(event);
-  if (!window) {
-    return null;
-  }
-  if (window.isMaximized()) {
-    window.unmaximize();
-  } else {
-    window.maximize();
-  }
-  return getWindowState(window);
-});
-ipcMain.handle("eragear:window:close", (event) => {
-  const window = getWindowFromSender(event);
-  window?.close();
-});
+ipcMain.handle(
+  DESKTOP_WINDOW_CONTROL_CHANNELS.getState,
+  desktopWindowControlHandlers.getState
+);
+ipcMain.handle(
+  DESKTOP_WINDOW_CONTROL_CHANNELS.minimize,
+  desktopWindowControlHandlers.minimize
+);
+ipcMain.handle(
+  DESKTOP_WINDOW_CONTROL_CHANNELS.toggleMaximize,
+  desktopWindowControlHandlers.toggleMaximize
+);
+ipcMain.handle(
+  DESKTOP_WINDOW_CONTROL_CHANNELS.close,
+  desktopWindowControlHandlers.close
+);
 ipcMain.handle(
   "eragear:dialog:openProjectFolder",
   async (event, input?: { defaultPath?: string }) => {
@@ -561,6 +564,15 @@ ipcMain.handle("eragear:project:openExternally", async (_event, input) => {
     target: candidate.target,
   });
 });
+ipcMain.handle(
+  "eragear:consultation:openExternal",
+  createExternalAiConsultationHandler({
+    getMainWindow: () =>
+      mainWindow && !mainWindow.isDestroyed() ? mainWindow : null,
+    getWindowFromSender,
+    openExternal: (url) => shell.openExternal(url),
+  })
+);
 ipcMain.handle(
   "eragear:browser:openHtmlFile",
   async (event, input?: IntegratedBrowserHtmlFileInput) =>

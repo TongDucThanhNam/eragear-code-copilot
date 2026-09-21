@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
 import { watch } from "node:fs";
-import { copyFile, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import { file, spawn, write } from "bun";
 
 const outDir = resolve(process.cwd(), "public/dashboard");
 const jsEntry = resolve(
@@ -38,7 +38,7 @@ const staticAssets = [
 
 const copyStaticAsset = async (asset: (typeof staticAssets)[number]) => {
   try {
-    await copyFile(asset.source, asset.out);
+    await write(asset.out, file(asset.source));
   } catch (error) {
     console.error(`[dashboard:watch] Failed to copy ${asset.label}`, error);
   }
@@ -48,8 +48,8 @@ await mkdir(outDir, { recursive: true });
 await Promise.all(staticAssets.map((asset) => copyStaticAsset(asset)));
 
 const build = spawn(
-  "bun",
   [
+    process.execPath,
     "build",
     jsEntry,
     "--outfile",
@@ -61,7 +61,11 @@ const build = spawn(
     "--watch",
     "--minify",
   ],
-  { stdio: "inherit" }
+  {
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  }
 );
 
 const staticWatchers = staticAssets.map((asset) =>
@@ -87,9 +91,9 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
-build.on("exit", (code) => {
+build.exited.then((code) => {
   for (const watcher of staticWatchers) {
     watcher.close();
   }
-  process.exit(code ?? 0);
+  process.exit(code);
 });

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import {
   cp,
@@ -15,6 +15,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { CryptoHasher } from "bun";
 import { z } from "zod";
 import type { ProjectRepositoryPort } from "#runtime/modules/project";
 import {
@@ -614,7 +615,7 @@ async function readInstallMarker(
 }
 
 async function hashSkillDirectory(rootPath: string): Promise<string> {
-  const hash = createHash("sha256");
+  const hash = new CryptoHasher("sha256");
 
   async function visit(directory: string, relativeDirectory: string) {
     const entries = (await readdir(directory, { withFileTypes: true })).sort(
@@ -781,7 +782,7 @@ async function ensureProjectDirectory(projectPath: string): Promise<void> {
 }
 
 function skillId(folderName: string): string {
-  const digest = createHash("sha256").update(folderName).digest("hex");
+  const digest = CryptoHasher.hash("sha256", folderName, "hex");
   return `global-skill.${digest.slice(0, 24)}`;
 }
 

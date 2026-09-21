@@ -1,3 +1,4 @@
+import { WorkflowEffectUncertainError } from "#runtime/modules/workflow";
 import { createId } from "#runtime/shared/utils/id.util";
 import type { SupervisorRunState } from "../domain/supervisor-run.schemas";
 import {
@@ -9,6 +10,11 @@ import {
   type AcpManagerTurn,
   AcpManagerTurnSchema,
 } from "./contracts/acp-manager-turn.contract";
+import {
+  assertPreparedSupervisorPrompt,
+  type PreparedSupervisorPrompt,
+  type SupervisorEffectPromptDispatchPort,
+} from "./ports/supervisor-effect-prompt-dispatch.port";
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
 import {
   type AcpSessionConfigOption,
@@ -36,15 +42,6 @@ export interface AcpManagerSessionCreatePort {
     modes?: AcpSessionModes;
     configOptions?: AcpSessionConfigOption[];
   }>;
-}
-
-export interface AcpManagerMessageSendPort {
-  execute(input: {
-    userId: string;
-    chatId: string;
-    text: string;
-    source: "orchestrator";
-  }): Promise<{ turnId: string }>;
 }
 
 export interface AcpManagerSessionStopPort {
@@ -106,7 +103,7 @@ export interface AcpManagerReadinessPort {
 export interface AcpManagerSessionCoordinatorDeps {
   runs: SupervisorRunRepositoryPort;
   createSession: AcpManagerSessionCreatePort;
-  sendMessage: AcpManagerMessageSendPort;
+  effectPromptDispatch: SupervisorEffectPromptDispatchPort;
   stopSession: AcpManagerSessionStopPort;
   resumeSession: AcpManagerSessionResumePort;
   setModel?: AcpManagerModelSetPort;
@@ -120,6 +117,17 @@ export interface AcpManagerSessionCoordinatorDeps {
   readiness?: AcpManagerReadinessPort;
   now?: () => string;
   createId?: (prefix: string) => string;
+}
+
+export interface DispatchAcpManagerInput {
+  runId: string;
+  userId: string;
+  managerAgentId: string;
+  turnKind: "plan" | "replan";
+  preparedPrompt: PreparedSupervisorPrompt;
+  requestedChanges?: string;
+  projectIndexSummary?: string;
+  scopeResolutionSummary?: string;
 }
 
 export interface AcpManagerCompletedTurn {
@@ -138,7 +146,7 @@ export interface AcpManagerStoppedTurn {
 export class AcpManagerSessionCoordinator {
   private readonly runs: SupervisorRunRepositoryPort;
   private readonly createSession: AcpManagerSessionCreatePort;
-  private readonly sendMessage: AcpManagerMessageSendPort;
+  private readonly effectPromptDispatch: SupervisorEffectPromptDispatchPort;
   private readonly stopSession: AcpManagerSessionStopPort;
   private readonly resumeSession: AcpManagerSessionResumePort;
   private readonly setModel?: AcpManagerModelSetPort;
@@ -156,7 +164,7 @@ export class AcpManagerSessionCoordinator {
   constructor(deps: AcpManagerSessionCoordinatorDeps) {
     this.runs = deps.runs;
     this.createSession = deps.createSession;
-    this.sendMessage = deps.sendMessage;
+    this.effectPromptDispatch = deps.effectPromptDispatch;
     this.stopSession = deps.stopSession;
     this.resumeSession = deps.resumeSession;
     this.setModel = deps.setModel;
@@ -174,15 +182,7 @@ export class AcpManagerSessionCoordinator {
     this.idFactory = deps.createId ?? createId;
   }
 
-  async dispatch(input: {
-    runId: string;
-    userId: string;
-    managerAgentId: string;
-    turnKind: "plan" | "replan";
-    requestedChanges?: string;
-    projectIndexSummary?: string;
-    scopeResolutionSummary?: string;
-  }): Promise<SupervisorRunState> {
+  async dispatch(input: DispatchAcpManagerInput): Promise<SupervisorRunState> {
     let run = await this.reserveSession(input);
     const manager = requireManager(run);
     try {
@@ -270,11 +270,19 @@ export class AcpManagerSessionCoordinator {
           ? { scopeResolutionSummary: input.scopeResolutionSummary }
           : {}),
       });
-      const submitted = await this.sendMessage.execute({
+      assertPreparedSupervisorPrompt(prompt, input.preparedPrompt);
+      const submitted = await this.effectPromptDispatch.execute({
         userId: run.userId,
         chatId: requireManager(run).chatId,
-        text: prompt,
+        text: input.preparedPrompt.text,
         source: "orchestrator",
+        workflow: {
+          effectId: input.preparedPrompt.effectId,
+          authorityId: input.preparedPrompt.authorityId,
+          runId: run.runId,
+          owner: "manager",
+          promptHash: input.preparedPrompt.promptHash,
+        },
       });
       return await this.updateRun(run.runId, run.userId, (draft) => {
         const draftManager = requireManager(draft);
@@ -287,6 +295,9 @@ export class AcpManagerSessionCoordinator {
         };
       });
     } catch (error) {
+      if (error instanceof WorkflowEffectUncertainError) {
+        throw error;
+      }
       const handled = await this.capacity?.suspendManager({
         runId: run.runId,
         userId: run.userId,
@@ -366,6 +377,7 @@ export class AcpManagerSessionCoordinator {
   async resumePending(input: {
     runId: string;
     userId: string;
+    preparedPrompt: PreparedSupervisorPrompt;
   }): Promise<SupervisorRunState> {
     const run = await this.requireRun(input.runId, input.userId);
     const manager = requireManager(run);
@@ -377,6 +389,7 @@ export class AcpManagerSessionCoordinator {
       userId: run.userId,
       managerAgentId: manager.agentId,
       turnKind: manager.pendingTurnKind,
+      preparedPrompt: input.preparedPrompt,
     });
   }
 

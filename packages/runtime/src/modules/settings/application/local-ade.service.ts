@@ -7,7 +7,6 @@
 // biome-ignore-all lint/style/noNonNullAssertion: Legacy assertion points are preserved during extraction and remain covered by runtime checks.
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import {
-  createHash,
   createPublicKey,
   randomUUID,
   verify as verifySignature,
@@ -34,6 +33,7 @@ import {
   type CapabilityScope,
   createCapabilityRegistrySnapshot,
 } from "@eragear-code-copilot/shared";
+import { CryptoHasher, Glob, which } from "bun";
 import type { AgentRepositoryPort } from "#runtime/modules/agent";
 import type { ProjectRepositoryPort } from "#runtime/modules/project";
 import type {
@@ -2337,7 +2337,7 @@ const DASHBOARD_PARITY: LocalAdeWorkflowParity[] = [
 ];
 
 function toHashId(...parts: string[]): string {
-  return createHash("sha1").update(parts.join("\0")).digest("hex").slice(0, 16);
+  return CryptoHasher.hash("sha1", parts.join("\0"), "hex").slice(0, 16);
 }
 
 function normalizeSlash(filePath: string): string {
@@ -2558,32 +2558,25 @@ async function walkFiles(params: {
     return results;
   }
 
-  async function visit(directory: string): Promise<void> {
-    if (results.length >= maxFiles) {
-      return;
-    }
-    let entries: Dirent[];
-    try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (results.length >= maxFiles) {
-        return;
-      }
-      const child = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await visit(child);
-        continue;
-      }
-      if (entry.isFile() && params.match(child)) {
-        results.push(child);
+  try {
+    for await (const filePath of new Glob("**/*").scan({
+      cwd: params.rootPath,
+      absolute: true,
+      dot: true,
+      followSymlinks: false,
+      onlyFiles: true,
+    })) {
+      if (params.match(filePath)) {
+        results.push(filePath);
+        if (results.length >= maxFiles) {
+          break;
+        }
       }
     }
+  } catch {
+    // Discovery is intentionally best effort for missing or unreadable roots.
   }
 
-  await visit(params.rootPath);
   return results;
 }
 
@@ -4002,7 +3995,7 @@ function tokenVector(tokens: string[]): number[] {
     () => 0
   );
   for (const token of tokens) {
-    const hash = createHash("sha1").update(token).digest();
+    const hash = CryptoHasher.hash("sha1", token);
     const index = (hash[0] ?? 0) % PROJECT_MEMORY_VECTOR_DIMENSIONS;
     const sign = (hash[1] ?? 0) % 2 === 0 ? 1 : -1;
     vector[index] = (vector[index] ?? 0) + sign;
@@ -4125,9 +4118,7 @@ function normalizeEmbeddingVector(vector: number[]): number[] {
 }
 
 function embeddingVectorHash(vector: number[]): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(vector))
-    .digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", JSON.stringify(vector), "hex")}`;
 }
 
 async function requestModelEmbeddings(params: {
@@ -5372,7 +5363,7 @@ function repoIndexSemanticHash(tags: string[]): string | undefined {
   if (tags.length === 0) {
     return undefined;
   }
-  return `sha256:${createHash("sha256").update(tags.join("\n")).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", tags.join("\n"), "hex")}`;
 }
 
 function repoIndexSemanticSummary(
@@ -6168,7 +6159,7 @@ function hookExecutionFingerprint(
     workingDirectory: normalizeSlash(hook.workingDirectory ?? "."),
     envKeys: sanitizeHookEnvKeys(hook.envKeys),
   });
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", payload, "hex")}`;
 }
 
 function hookTrustStatus(
@@ -6198,7 +6189,7 @@ function hookRunOperationFingerprint(hook: StoredHook): string {
     workingDirectory: hook.workingDirectory ?? null,
     envKeys: sanitizeHookEnvKeys(hook.envKeys),
   });
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", payload, "hex")}`;
 }
 
 function pruneHookRunApprovals(
@@ -7706,7 +7697,7 @@ function pluginExecutionFingerprint(
     scopes: policy.scopes,
     envKeys: policy.envKeys,
   });
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", payload, "hex")}`;
 }
 
 function pluginPermissionFingerprint(
@@ -7729,7 +7720,7 @@ function pluginPermissionFingerprint(
       ? normalizeSlash(plugin.workingDirectory ?? ".")
       : "sandbox",
   });
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", payload, "hex")}`;
 }
 
 function pluginPermissionStatus(
@@ -8254,10 +8245,8 @@ function verifySignedPluginPackageManifest(params: {
   const result: SignedPluginPackageVerification = {
     payload,
     manifestReference: params.manifestReference,
-    signatureHash: `sha256:${createHash("sha256").update(signature).digest("hex")}`,
-    publicKeyFingerprint: `sha256:${createHash("sha256")
-      .update(publicKeyDer)
-      .digest("hex")}`,
+    signatureHash: `sha256:${CryptoHasher.hash("sha256", signature, "hex")}`,
+    publicKeyFingerprint: `sha256:${CryptoHasher.hash("sha256", publicKeyDer, "hex")}`,
     expiryStatus,
   };
   const expectedSignatureHash = params.expectedSignatureHash
@@ -8519,7 +8508,7 @@ function pluginRegistryFingerprint(
       "Plugin registry URL"
     ).toString(),
   });
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", payload, "hex")}`;
 }
 
 function pluginRegistryTrustStatus(
@@ -9151,7 +9140,7 @@ function pluginRunOperationFingerprint(plugin: StoredPlugin): string {
       plugin.id
     ),
   });
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", payload, "hex")}`;
 }
 
 function prunePluginRunApprovals(
@@ -10865,7 +10854,7 @@ function mcpNotificationWatchMs(
 }
 
 function hashSecretMaterial(value: string): string {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", value, "hex")}`;
 }
 
 function sortedMcpRecordHashes(
@@ -10913,7 +10902,7 @@ function mcpInvocationFingerprint(
     headerEnv: sortedMcpHeaderEnv(server.headerEnv),
     remoteControls: visibleMcpRemoteControls(server),
   });
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+  return `sha256:${CryptoHasher.hash("sha256", payload, "hex")}`;
 }
 
 function mcpTrustStatus(
@@ -11555,22 +11544,21 @@ async function resolveExecutable(command: string): Promise<{
         };
   }
 
-  const lookupCommand = process.platform === "win32" ? "where.exe" : "which";
   try {
-    const result = await execFileAsync(lookupCommand, [trimmed], {
-      timeout: PROBE_TIMEOUT_MS,
-      windowsHide: true,
+    const firstPath = which(trimmed, {
+      PATH: process.env.PATH ?? "",
+      cwd: process.cwd(),
     });
-    const firstPath = result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean);
+    if (!firstPath) {
+      return {
+        available: false,
+        diagnostics: [`Could not resolve ${trimmed} on PATH.`],
+      };
+    }
     return {
       available: true,
-      ...(firstPath ? { executablePath: firstPath } : {}),
-      diagnostics: firstPath
-        ? [`Resolved ${trimmed} to ${firstPath}.`]
-        : [`Resolved ${trimmed} on PATH.`],
+      executablePath: firstPath,
+      diagnostics: [`Resolved ${trimmed} to ${firstPath}.`],
     };
   } catch (error) {
     return {

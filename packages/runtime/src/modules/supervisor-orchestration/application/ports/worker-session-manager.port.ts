@@ -1,4 +1,5 @@
 import type { SupervisorWorkerAttempt } from "../../domain/supervisor-run.schemas";
+import type { PreparedSupervisorPrompt } from "./supervisor-effect-prompt-dispatch.port";
 import type { PreparedWorkerWorkspace } from "./worker-workspace.port";
 
 export interface DispatchSupervisorWorkerInput {
@@ -6,8 +7,17 @@ export interface DispatchSupervisorWorkerInput {
   userId: string;
   taskId: string;
   idempotencyKey: string;
+  preparedPrompt: PreparedSupervisorPrompt;
   isolatedProjectRoot?: string;
   workspace?: PreparedWorkerWorkspace;
+}
+
+export interface ResumeSupervisorWorkerInput {
+  runId: string;
+  userId: string;
+  taskId: string;
+  attemptId: string;
+  preparedPrompt: PreparedSupervisorPrompt;
 }
 
 export interface DispatchSupervisorWorkerResult {
@@ -60,16 +70,6 @@ export interface WorkerSessionManagerPort {
     taskId: string;
     attemptId: string;
   }): Promise<void>;
-  resume(input: {
-    runId: string;
-    userId: string;
-    taskId: string;
-    attemptId: string;
-  }): Promise<void>;
-  resumePendingCapacity(input: {
-    runId: string;
-    userId: string;
-    taskId: string;
-    attemptId: string;
-  }): Promise<void>;
+  resume(input: ResumeSupervisorWorkerInput): Promise<void>;
+  resumePendingCapacity(input: ResumeSupervisorWorkerInput): Promise<void>;
 }

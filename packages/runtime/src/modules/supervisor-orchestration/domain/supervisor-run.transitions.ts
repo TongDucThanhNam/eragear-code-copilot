@@ -1,4 +1,10 @@
 import {
+  deriveSupervisorTaskStatus,
+  normalizeStoredCompatibilityFacts,
+  projectSupervisorCompatibilityStatuses,
+  translateLegacyStatusMutationsToFacts,
+} from "./supervisor-run.projections";
+import {
   type SupervisorRunState,
   SupervisorRunStateSchema,
   type SupervisorRunStatus,
@@ -10,16 +16,23 @@ const RUN_TRANSITIONS: Record<
   SupervisorRunStatus,
   readonly SupervisorRunStatus[]
 > = {
-  draft: ["planning", "cancelled"],
+  draft: ["planning", "paused", "cancelled"],
   planning: [
     "awaiting_approval",
     "queued",
     "waiting_capacity",
+    "paused",
     "needs_user",
     "failed",
     "cancelled",
   ],
-  awaiting_approval: ["planning", "queued", "needs_user", "cancelled"],
+  awaiting_approval: [
+    "planning",
+    "queued",
+    "paused",
+    "needs_user",
+    "cancelled",
+  ],
   queued: [
     "planning",
     "running",
@@ -61,10 +74,11 @@ const RUN_TRANSITIONS: Record<
     "queued",
     "running",
     "completing",
+    "paused",
     "failed",
     "cancelled",
   ],
-  completing: ["completed", "needs_user", "failed", "cancelled"],
+  completing: ["completed", "paused", "needs_user", "failed", "cancelled"],
   completed: [],
   failed: [],
   cancelled: [],
@@ -139,7 +153,9 @@ export function transitionSupervisorRun(
     mutate: (draft: SupervisorRunState) => void;
   }
 ): SupervisorRunState {
-  const parsedCurrent = SupervisorRunStateSchema.parse(current);
+  const normalizedCurrent = structuredClone(current);
+  normalizeStoredCompatibilityFacts(normalizedCurrent, input.now);
+  const parsedCurrent = SupervisorRunStateSchema.parse(normalizedCurrent);
   if (parsedCurrent.revision !== input.expectedRevision) {
     throw new SupervisorRunRevisionConflictError(
       parsedCurrent.runId,
@@ -150,12 +166,52 @@ export function transitionSupervisorRun(
 
   const draft = structuredClone(parsedCurrent);
   input.mutate(draft);
+  const requestedRunStatus =
+    draft.status === parsedCurrent.status ? undefined : draft.status;
+  const currentTasks = new Map(
+    parsedCurrent.tasks.map((task) => [task.taskId, task] as const)
+  );
+  const requestedTaskStatuses = new Map(
+    draft.tasks.flatMap((task) => {
+      const currentTask = currentTasks.get(task.taskId);
+      return !currentTask || currentTask.status !== task.status
+        ? [[task.taskId, task.status] as const]
+        : [];
+    })
+  );
+  translateLegacyStatusMutationsToFacts(parsedCurrent, draft);
+  projectSupervisorCompatibilityStatuses(draft, input.now);
+  assertRequestedLegacyStatusProjection(
+    draft,
+    requestedRunStatus,
+    requestedTaskStatuses
+  );
   assertImmutableRunIdentity(parsedCurrent, draft);
   assertRunStatusTransition(parsedCurrent.status, draft.status);
   assertTaskTransitions(parsedCurrent.tasks, draft.tasks);
   draft.revision = parsedCurrent.revision + 1;
   draft.updatedAt = input.now;
   return SupervisorRunStateSchema.parse(draft);
+}
+
+function assertRequestedLegacyStatusProjection(
+  draft: SupervisorRunState,
+  requestedRunStatus: SupervisorRunStatus | undefined,
+  requestedTaskStatuses: ReadonlyMap<string, SupervisorTaskStatus>
+): void {
+  if (requestedRunStatus && draft.status !== requestedRunStatus) {
+    throw new InvalidSupervisorRunTransitionError(
+      `Supervisor run status is not a valid lifecycle projection: requested ${requestedRunStatus}, derived ${draft.status}`
+    );
+  }
+  for (const [taskId, requestedStatus] of requestedTaskStatuses) {
+    const task = draft.tasks.find((candidate) => candidate.taskId === taskId);
+    if (!task || task.status !== requestedStatus) {
+      throw new InvalidSupervisorRunTransitionError(
+        `Supervisor task status is not a valid lifecycle projection for ${taskId}: requested ${requestedStatus}, derived ${task?.status ?? "missing"}`
+      );
+    }
+  }
 }
 
 export function setSupervisorRunStatus(
@@ -185,39 +241,20 @@ export function setSupervisorTaskStatus(
   task.status = status;
 }
 
-export function deriveReadyTaskIds(run: SupervisorRunState): string[] {
-  const completed = new Set(
-    run.tasks
-      .filter((task) => task.status === "completed")
-      .map((task) => task.taskId)
-  );
+export function deriveReadyTaskIds(
+  run: SupervisorRunState,
+  now = run.updatedAt
+): string[] {
   return run.tasks
-    .filter(
-      (task) =>
-        (task.status === "blocked" || task.status === "ready") &&
-        task.dependencies.every((dependency) => completed.has(dependency))
-    )
+    .filter((task) => deriveSupervisorTaskStatus(run, task, now) === "ready")
     .map((task) => task.taskId);
 }
 
 export function recomputeSupervisorTaskReadiness(
-  draft: SupervisorRunState
+  draft: SupervisorRunState,
+  now = draft.updatedAt
 ): void {
-  const completed = new Set(
-    draft.tasks
-      .filter((task) => task.status === "completed")
-      .map((task) => task.taskId)
-  );
-  for (const task of draft.tasks) {
-    if (task.status !== "blocked" && task.status !== "ready") {
-      continue;
-    }
-    task.status = task.dependencies.every((dependency) =>
-      completed.has(dependency)
-    )
-      ? "ready"
-      : "blocked";
-  }
+  projectSupervisorCompatibilityStatuses(draft, now);
 }
 
 function assertImmutableRunIdentity(
@@ -260,14 +297,12 @@ function assertTaskTransitions(
   currentTasks: SupervisorTaskRecord[],
   nextTasks: SupervisorTaskRecord[]
 ): void {
-  const currentById = new Map(currentTasks.map((task) => [task.taskId, task]));
-  for (const task of nextTasks) {
-    const current = currentById.get(task.taskId);
-    if (current) {
-      assertTaskStatusTransition(current.status, task.status, task.taskId);
-    }
-  }
-
+  // V3 task statuses are compatibility projections of independent facts.
+  // One atomic fact transition may therefore skip legacy presentation states
+  // (for example ready -> waiting_capacity when a capacity intent is stored).
+  // Terminal immutability is enforced by the schema/reducer; keep only the
+  // replan invariant here. Explicit legacy callers of setSupervisorTaskStatus
+  // still pass through assertTaskStatusTransition.
   for (const current of currentTasks) {
     if (
       current.status === "completed" &&

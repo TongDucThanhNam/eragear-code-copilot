@@ -7,7 +7,6 @@
  * @module infra/git
  */
 
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import {
@@ -21,7 +20,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { promisify } from "node:util";
 import type {
   GitChangedFile,
   GitCheckpoint,
@@ -45,10 +43,10 @@ import {
 } from "#runtime/modules/git";
 import type { GitPort } from "#runtime/modules/tooling";
 import { createLogger } from "#runtime/platform/logging/structured-logger";
+import { runBunSubprocess } from "#runtime/platform/process/bun-subprocess";
 import { toError } from "#runtime/shared/utils/error.util";
 import { isNodeErrno } from "#runtime/shared/utils/node-error.util";
 
-const execFileAsync = promisify(execFile);
 const logger = createLogger("Storage");
 const GIT_EXEC_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const EMPTY_DIFF_FILE_PREFIX = "eragear-git-empty-diff-";
@@ -84,11 +82,10 @@ async function runGitCommand(params: {
   maxBuffer?: number;
   env?: NodeJS.ProcessEnv;
 }): Promise<{ stdout: string; stderr: string }> {
-  return await execFileAsync("git", params.args, {
+  return await runBunSubprocess("git", params.args, {
     cwd: params.cwd,
-    maxBuffer: params.maxBuffer ?? GIT_EXEC_MAX_BUFFER_BYTES,
     env: params.env,
-    encoding: "utf8",
+    maxBuffer: params.maxBuffer ?? GIT_EXEC_MAX_BUFFER_BYTES,
     windowsHide: true,
   });
 }

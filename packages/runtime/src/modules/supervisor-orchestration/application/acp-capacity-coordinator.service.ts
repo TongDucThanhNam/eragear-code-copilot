@@ -13,7 +13,6 @@ import {
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
 
 export interface AcpCapacitySessionLifecyclePort {
-  stop(userId: string, chatId: string): Promise<unknown>;
   resumeExact(userId: string, chatId: string): Promise<unknown>;
   getModelId?(chatId: string): string | undefined;
 }
@@ -134,16 +133,6 @@ export class AcpCapacityCoordinator {
         continue;
       }
       if (exhausted.length === 0) {
-        if (
-          snapshot.windows.length > 0 &&
-          group.candidates.some((candidate) => !candidate.suspendible)
-        ) {
-          await this.resumeDue({
-            userId: group.userId,
-            capacityGroup: group.providerId,
-            now: "9999-12-31T23:59:59.999Z",
-          });
-        }
         continue;
       }
       const resetAt = latestResetAt(exhausted);
@@ -217,13 +206,11 @@ export class AcpCapacityCoordinator {
       const draftTask = requireTask(draft, input.taskId);
       const draftAttempt = requireAttempt(draftTask, input.attemptId);
       draftAttempt.status = "waiting_capacity";
-      draftTask.status = "waiting_capacity";
+      draftTask.activity = "capacity_wait";
+      draftTask.notBefore = wait.retryAt;
       draft.capacityWaits.push(wait);
-      if (classification.retryable) {
-        draft.status = "waiting_capacity";
-      } else {
-        draft.status = "needs_user";
-        openResumeDecision(draft, {
+      if (!classification.retryable) {
+        draftTask.blockingDecisionId = openResumeDecision(draft, {
           decisionId: this.idFactory("decision"),
           now: this.now(),
           kind:
@@ -243,9 +230,6 @@ export class AcpCapacityCoordinator {
         createdAt: this.now(),
       });
     });
-    await this.sessions
-      .stop(input.userId, attempt.chatId)
-      .catch(() => undefined);
     await this.publishSuspended(suspended, wait);
     return { suspended: true, run: suspended };
   }
@@ -287,10 +271,11 @@ export class AcpCapacityCoordinator {
       draft.managerSession.status = "waiting_capacity";
       draft.capacityWaits.push(wait);
       if (classification.retryable) {
-        draft.status = "waiting_capacity";
+        if (draft.phase === "planning") {
+          draft.activity = "capacity_wait";
+        }
       } else {
-        draft.status = "needs_user";
-        openResumeDecision(draft, {
+        const decisionId = openResumeDecision(draft, {
           decisionId: this.idFactory("decision"),
           now: this.now(),
           kind:
@@ -299,6 +284,9 @@ export class AcpCapacityCoordinator {
               : "classifier_uncertain",
           prompt: classification.reason,
         });
+        if (draft.phase === "planning") {
+          draft.blockingDecisionId = decisionId;
+        }
       }
       draft.audit.push({
         auditId: this.idFactory("audit"),
@@ -308,9 +296,6 @@ export class AcpCapacityCoordinator {
         createdAt: this.now(),
       });
     });
-    await this.sessions
-      .stop(input.userId, manager.chatId)
-      .catch(() => undefined);
     await this.publishSuspended(suspended, wait);
     return { suspended: true, run: suspended };
   }
@@ -360,13 +345,15 @@ export class AcpCapacityCoordinator {
                 );
               }
               draft.managerSession.status = "running";
-              draft.status = "planning";
+              if (draft.phase === "planning") {
+                draft.activity = "planning";
+              }
             } else {
               const task = requireTask(draft, currentWait.taskId as string);
               requireAttempt(task, currentWait.attemptId as string).status =
                 "running";
-              task.status = "running";
-              draft.status = "running";
+              task.activity = "agent_turn";
+              Reflect.deleteProperty(task, "notBefore");
             }
             draft.audit.push({
               auditId: this.idFactory("audit"),
@@ -398,8 +385,7 @@ export class AcpCapacityCoordinator {
         } catch (error) {
           failedClosed += 1;
           await this.save(run, (draft) => {
-            draft.status = "needs_user";
-            openResumeDecision(draft, {
+            const decisionId = openResumeDecision(draft, {
               decisionId: this.idFactory("decision"),
               now,
               kind: "exact_resume_failed",
@@ -408,6 +394,14 @@ export class AcpCapacityCoordinator {
                   ? error.message
                   : "ACP exact resume failed",
             });
+            if (currentWait.owner === "task") {
+              requireTask(
+                draft,
+                currentWait.taskId as string
+              ).blockingDecisionId = decisionId;
+            } else if (draft.phase === "planning") {
+              draft.blockingDecisionId = decisionId;
+            }
           });
         }
       }
@@ -540,13 +534,12 @@ function openResumeDecision(
     kind: "exact_resume_failed" | "classifier_uncertain";
     prompt: string;
   }
-): void {
-  if (
-    run.decisions.some(
-      (decision) => decision.status === "open" && decision.kind === input.kind
-    )
-  ) {
-    return;
+): string {
+  const existing = run.decisions.find(
+    (decision) => decision.status === "open" && decision.kind === input.kind
+  );
+  if (existing) {
+    return existing.decisionId;
   }
   run.decisions.push({
     decisionId: input.decisionId,
@@ -555,6 +548,7 @@ function openResumeDecision(
     prompt: input.prompt,
     createdAt: input.now,
   });
+  return input.decisionId;
 }
 
 interface QuotaCandidateBase {

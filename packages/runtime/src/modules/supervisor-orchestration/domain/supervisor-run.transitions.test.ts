@@ -81,10 +81,17 @@ describe("supervisor run transitions", () => {
     }
     const withCompletedDependency = {
       ...run,
-      tasks: [{ ...firstTask, status: "completed" as const }, secondTask],
+      tasks: [
+        {
+          ...firstTask,
+          outcome: "succeeded" as const,
+          status: "completed" as const,
+        },
+        secondTask,
+      ],
     };
     expect(deriveReadyTaskIds(withCompletedDependency)).toEqual(["task-b"]);
-    recomputeSupervisorTaskReadiness(withCompletedDependency);
+    recomputeSupervisorTaskReadiness(withCompletedDependency, LATER);
     expect(withCompletedDependency.tasks[1]?.status).toBe("ready");
     expect(() =>
       transitionSupervisorRun(withCompletedDependency, {
@@ -95,5 +102,137 @@ describe("supervisor run transitions", () => {
         },
       })
     ).toThrow(InvalidSupervisorRunTransitionError);
+  });
+
+  test("projects new lifecycle facts and translates legacy status writes", () => {
+    const current = createSupervisorRunFixture();
+    const paused = transitionSupervisorRun(current, {
+      expectedRevision: current.revision,
+      now: LATER,
+      mutate(draft) {
+        draft.desiredState = "paused";
+      },
+    });
+    expect(paused.status).toBe("paused");
+    expect(paused.phase).toBe("executing");
+
+    const legacyRunning = transitionSupervisorRun(current, {
+      expectedRevision: current.revision,
+      now: LATER,
+      mutate(draft) {
+        draft.status = "running";
+      },
+    });
+    expect(legacyRunning.desiredState).toBe("running");
+    expect(legacyRunning.phase).toBe("executing");
+    expect(legacyRunning.activity).toBe("executing");
+    expect(legacyRunning.status).toBe("running");
+  });
+
+  test("materializes a durable decision for a legacy needs-user mutation", () => {
+    const current = createSupervisorRunFixture();
+    const blocked = transitionSupervisorRun(current, {
+      expectedRevision: current.revision,
+      now: LATER,
+      mutate(draft) {
+        draft.status = "needs_user";
+        const task = draft.tasks[0];
+        if (!task) {
+          throw new Error("Fixture task missing");
+        }
+        task.status = "needs_user";
+      },
+    });
+
+    expect(blocked.blockingDecisionId).toBeDefined();
+    expect(blocked.tasks[0]?.blockingDecisionId).toBeDefined();
+    expect(blocked.decisions).toHaveLength(2);
+    expect(
+      blocked.decisions.every((decision) => decision.status === "open")
+    ).toBeTrue();
+  });
+
+  test("projects a stale V3 compatibility status from terminal facts", () => {
+    const stale = createSupervisorRunFixture({ status: "completed" });
+    stale.status = "running";
+
+    const next = transitionSupervisorRun(stale, {
+      expectedRevision: stale.revision,
+      now: LATER,
+      mutate() {
+        // A no-op transition must not translate stale compatibility data to facts.
+      },
+    });
+
+    expect(next.status).toBe("completed");
+    expect(next.phase).toBe("finished");
+    expect(next.outcome).toBe("succeeded");
+  });
+
+  test("allows an elapsed not-before work item to move directly into dispatch", () => {
+    const deferred = createSupervisorRunFixture();
+    const task = deferred.tasks[0];
+    if (!task) {
+      throw new Error("Fixture task missing");
+    }
+    task.notBefore = "2026-07-11T00:00:30.000Z";
+    task.status = "blocked";
+
+    const queued = transitionSupervisorRun(deferred, {
+      expectedRevision: deferred.revision,
+      now: LATER,
+      mutate(draft) {
+        const draftTask = draft.tasks[0];
+        if (!draftTask) {
+          throw new Error("Fixture task missing");
+        }
+        draftTask.status = "queued";
+      },
+    });
+
+    expect(queued.tasks[0]?.status).toBe("queued");
+    expect(queued.tasks[0]?.notBefore).toBeUndefined();
+  });
+
+  test("allows fact projections to skip legacy task presentation states", () => {
+    const current = createSupervisorRunFixture();
+    const waiting = transitionSupervisorRun(current, {
+      expectedRevision: current.revision,
+      now: LATER,
+      mutate(draft) {
+        const task = draft.tasks[0];
+        if (!task) {
+          throw new Error("Fixture task missing");
+        }
+        task.dispatch = {
+          dispatchId: "dispatch-1",
+          state: "capacity_requested",
+        };
+        task.activity = "dispatching";
+      },
+    });
+
+    expect(waiting.tasks[0]?.status).toBe("waiting_capacity");
+
+    const leased = transitionSupervisorRun(waiting, {
+      expectedRevision: waiting.revision,
+      now: LATER,
+      mutate(draft) {
+        const task = draft.tasks[0];
+        if (!task) {
+          throw new Error("Fixture task missing");
+        }
+        task.preferredAgentId = "agent-1";
+        task.dispatch = { dispatchId: "dispatch-1", state: "leased" };
+        task.capacityLease = {
+          leaseId: "lease-1",
+          agentIdentityId: "agent-1",
+          issuedAt: LATER,
+          expiresAt: "2026-07-11T00:02:00.000Z",
+        };
+      },
+    });
+
+    expect(leased.tasks[0]?.status).toBe("queued");
   });
 });

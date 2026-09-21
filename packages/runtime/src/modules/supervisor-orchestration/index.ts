@@ -15,6 +15,7 @@ export {
   type AcpManagerResultReaderPort,
   AcpManagerSessionCoordinator,
   type AcpManagerSessionCoordinatorDeps,
+  type DispatchAcpManagerInput,
   extractAcpManagerTurn,
 } from "./application/acp-manager-session-coordinator.service";
 export type {
@@ -38,6 +39,15 @@ export {
   SupervisorPlannerProposalSchema,
   SupervisorPlannerTaskProposalSchema,
 } from "./application/contracts/supervisor-planner.contract";
+export type {
+  PreparedSupervisorPrompt,
+  SupervisorEffectPromptDispatchPort,
+} from "./application/ports/supervisor-effect-prompt-dispatch.port";
+export {
+  assertPreparedSupervisorPrompt,
+  computeSupervisorPromptHash,
+  prepareSupervisorPrompt,
+} from "./application/ports/supervisor-effect-prompt-dispatch.port";
 export type {
   CreateSupervisorRunDraftInput,
   StartSupervisorRunInput,
@@ -66,6 +76,10 @@ export type {
   PreparedWorkerWorkspace,
   WorkerWorkspacePort,
 } from "./application/ports/worker-workspace.port";
+export {
+  type AcpSessionModes,
+  resolveSafeSessionModeId,
+} from "./application/safe-session-mode";
 export { SupervisorAgentCapacityCoordinator } from "./application/supervisor-agent-capacity-coordinator.service";
 export { SupervisorAgentProfileService } from "./application/supervisor-agent-profile.service";
 export {
@@ -131,6 +145,23 @@ export {
   SupervisorWorkerPermissionService,
   type WorkerPermissionResponsePort,
 } from "./application/supervisor-worker-permission.service";
+export {
+  SupervisorWorkflowRunBoundary,
+  type SupervisorWorkflowRunBoundaryPort,
+} from "./application/supervisor-workflow-run-boundary";
+export type {
+  SupervisorWorkflowEffectContext,
+  SupervisorWorkflowEffectFacade,
+  SupervisorWorkflowRuntimeDeps,
+  SupervisorWorkflowRuntimeTickResult,
+  SupervisorWorkflowStartupInput,
+  SupervisorWorkflowStateResult,
+} from "./application/supervisor-workflow-runtime.service";
+export {
+  createRunReconcilerSnapshot,
+  resolveRunVerificationCommands,
+  SupervisorWorkflowRuntimeService,
+} from "./application/supervisor-workflow-runtime.service";
 export { TelegramLongPollingCoordinator } from "./application/telegram-long-polling-coordinator.service";
 export {
   type TelegramInboundUpdate,
@@ -159,7 +190,6 @@ export type {
 } from "./application/worker-result.service";
 export { WorkerResultService } from "./application/worker-result.service";
 export type {
-  WorkerMessageSendPort,
   WorkerSessionCreatePort,
   WorkerSessionManagerDeps,
   WorkerSessionResumePort,
@@ -171,6 +201,19 @@ export {
   isReplanInsideApprovedEnvelope,
   supervisorPlanHashMatches,
 } from "./domain/supervisor-plan-hash";
+export {
+  deriveSupervisorRunStatus,
+  deriveSupervisorTaskStatus,
+  normalizeStoredCompatibilityFacts,
+  projectSupervisorCompatibilityStatuses,
+  synchronizeActiveAttemptReference,
+  translateLegacyStatusMutationsToFacts,
+} from "./domain/supervisor-run.projections";
+export type { SupervisorRunDurableEvent } from "./domain/supervisor-run.reducer";
+export {
+  reduceSupervisorRun,
+  SupervisorRunDurableEventSchema,
+} from "./domain/supervisor-run.reducer";
 export type {
   SupervisorApprovedPlan,
   SupervisorCapacityFailureKind,
@@ -181,16 +224,29 @@ export type {
   SupervisorManagerDecision,
   SupervisorManagerSession,
   SupervisorPatchArtifact,
+  SupervisorRunActivity,
   SupervisorRunAuditEntry,
+  SupervisorRunDesiredState,
   SupervisorRunLimits,
+  SupervisorRunOutcome,
+  SupervisorRunPhase,
   SupervisorRunPriority,
   SupervisorRunState,
   SupervisorRunStatus,
+  SupervisorTaskActivity,
   SupervisorTaskRecord,
   SupervisorTaskStatus,
   SupervisorVerificationEvidence,
   SupervisorWorkerAttempt,
   SupervisorWorkerResult,
+  SupervisorWorkflowAcceptance,
+  SupervisorWorkflowCancellation,
+  SupervisorWorkflowCapacityLease,
+  SupervisorWorkflowDispatch,
+  SupervisorWorkflowFinalization,
+  SupervisorWorkflowIntegration,
+  SupervisorWorkflowPlan,
+  SupervisorWorkflowVerification,
 } from "./domain/supervisor-run.schemas";
 export {
   createDefaultSupervisorRunLimits,
@@ -198,8 +254,21 @@ export {
   SUPERVISOR_RUN_LIMIT_CAPS,
   SUPERVISOR_RUN_LIMIT_DEFAULTS,
   SUPERVISOR_RUN_SCHEMA_VERSION,
+  SupervisorRunActivitySchema,
+  SupervisorRunDesiredStateSchema,
+  SupervisorRunOutcomeSchema,
+  SupervisorRunPhaseSchema,
   SupervisorRunPrioritySchema,
   SupervisorRunStateSchema,
+  SupervisorTaskActivitySchema,
+  SupervisorWorkflowAcceptanceSchema,
+  SupervisorWorkflowCancellationSchema,
+  SupervisorWorkflowCapacityLeaseSchema,
+  SupervisorWorkflowDispatchSchema,
+  SupervisorWorkflowFinalizationSchema,
+  SupervisorWorkflowIntegrationSchema,
+  SupervisorWorkflowPlanSchema,
+  SupervisorWorkflowVerificationSchema,
 } from "./domain/supervisor-run.schemas";
 export {
   deriveReadyTaskIds,

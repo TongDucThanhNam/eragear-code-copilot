@@ -1,207 +1,437 @@
-# Supervisos Manager Mode v2
+# Supervisos Durable Workflow Controller
 
 ## Objective
 
-Turn Supervisos into the durable engineering-management control plane for the
-complete development lifecycle:
+Turn Supervisos into a durable local controller that reconciles a versioned
+Goal contract into reviewable Git changes with explicit evidence. The
+controller schedules ACP sessions according to capability, provider capacity,
+workspace ownership, and human authority.
+
+The product north-star is:
+
+> Manual interventions per accepted Goal.
+
+Long execution time is acceptable. Closing Desktop, restarting the runtime,
+losing an agent process, or exhausting one provider's quota must not lose the
+workflow position. The controller must know what is durable, why progress
+stopped, when it may retry, and whether a user decision is genuinely required.
+
+The governing architecture decision is recorded in
+`docs/adr/0001-durable-local-workflow-controller.md`.
+
+## Core decision
+
+LLMs decide **what and why**. Deterministic runtime services decide **when,
+who, state, retry, authority, and recovery**.
+
+- The user owns strategy, architecture, product decisions, authority, and
+  final semantic acceptance.
+- Supervisor Reasoning proposes plans, replans, decisions, and summaries.
+- The Workflow Kernel owns canonical state, durable events, timers, effect
+  intents, idempotency, retry, and recovery.
+- The Capacity Broker owns provider/account observations, eligibility,
+  cooldowns, probes, and leases.
+- Agent Runtime owns ACP processes, capability snapshots, sessions, and prompt
+  turns.
+- Workspace owns Git snapshots, write ownership, checkpoints, verification,
+  integration, and evidence.
+- SQLite is execution truth. Obsidian is desired state, human knowledge, and a
+  projection/report surface.
+
+Electron main/preload remain thin. Business rules stay in `packages/runtime`.
+Renderer access to privileged operations remains behind preload/contextBridge
+IPC with context isolation enabled and renderer Node integration disabled.
+
+## Target architecture
 
 ```text
-idea/spec -> sticky ACP manager plan -> one approval -> ACP workers
--> review/test/fix -> quota wait + exact resume -> aggregate verification
--> one scoped commit -> completion report
+User / Obsidian / Desktop / Mobile / Telegram
+             Goal, constraints, approvals
+                         |
+                         v
+             Contract Snapshot + Revision
+                         |
+                         v
+┌───────────────────────────────────────────────────────────┐
+│ Durable Workflow Kernel                                  │
+│ SQLite facts + events + effect outbox + durable wakeups   │
+│ RunReconciler + DecisionPolicy + GlobalDispatcher         │
+└───────────────────┬───────────────────────┬───────────────┘
+                    |                       |
+                    | typed proposal        | capacity lease
+                    v                       v
+        SupervisorReasonerPort       CapacityBroker
+        ACP / AI SDK / local model   provider/account facts
+                    └───────────┬───────────┘
+                                v
+                     AgentExecutionController
+                  ACP new / resume / load / prompt
+                                |
+                   Git workspace + verifier
+                                |
+                         Evidence records
+                                |
+                      Obsidian projections
 ```
 
-The user supplies the goal, constraints, and source material; approves the
-initial plan; answers genuine exceptions; and reviews the final result. Every
-AI judgment made by Supervisos (chat, planning, replanning, scheduled-work
-decisions, and completion synthesis) must run through ACP. Provider quota APIs
-are telemetry only and must never be an alternate prompt path.
+Supervisor Reasoning is a replaceable adapter. A manager ACP session may be
+used, but it never owns canonical workflow state. Approved WorkItems may
+continue while reasoning capacity is unavailable; only planning, replanning,
+or a new semantic decision waits for reasoning capacity.
 
-Business rules remain in `packages/runtime`. Electron main/preload own only
-native lifecycle, daemon control, credential integration, and a narrow
-`contextBridge` surface with `contextIsolation: true` and renderer Node
-integration disabled.
+## Bounded contexts and lifecycles
 
-## Product contract
+Keep these lifecycles separate:
 
-### Manager session and planning
+```text
+Product:  GoalContract -> GoalRevision -> PlanVersion -> WorkItem
+Agent:    WorkItem -> TurnAttempt -> AgentSession
+Capacity: AgentIdentity -> CapacityObservation -> CapacityLease
+Human:    DecisionRequest -> DecisionResolution
+```
 
-- Every goal has one sticky ACP manager chat/session/agent binding.
-- The manager process may stop while idle, but the ACP session must be resumed
-  with `exactOnly`; creating a replacement session is forbidden.
-- Manager sessions are read-only. Runtime application services alone dispatch
-  workers, authorize transitions, integrate patches, and commit.
-- Manager context is bounded and redacted, using Project Index, Scope
-  Resolution, Memory, trusted MCP, and repository summaries.
-- Structured manager turns use strict schemas for `plan`, `replan`,
-  `question`, `continue`, and `complete`.
-- Plans contain a DAG, file/command envelope, verification, risks, current
-  branch/ref, delivery authorization, a monotonically increasing version, and
-  a deterministic hash.
-- Approval requires `planVersion`, `planHash`, and `expectedRevision`. It locks
-  the execution envelope and authorizes direct-branch before/after worker
-  checkpoint commits plus one final commit on the shown current branch,
-  including the default branch when explicitly shown.
-- Replans inside the approved goal, file/command envelope, permissions, success
-  criteria, and delivery policy are automatic. Scope expansion, destructive
-  action, or changed success criteria create a durable user decision.
-- Side-chat implementation requests create Goal Drafts. They never stage a
-  prompt into the main ChatInput.
+An ACP session, prompt turn, and WorkItem are different entities. A WorkItem
+survives multiple attempts and sessions. An AgentSession may serve multiple
+turns. Quota is an observation on an identity/provider, not a WorkItem state.
+An unresolved DecisionRequest derives `needs_user`; it is not a run phase.
 
-### Agents, scheduling, and capacity
+### Run facts
 
-- `SupervisorAgentProfile` extends configured Agents with `enabled`, manager
-  and worker roles, `maxConcurrentSessions` (default 1), optional quota
-  telemetry/capacity-group binding, and readiness evidence.
-- Initial classified profiles cover Codex, Claude, Gemini, and OpenCode.
-  Custom agents use a generic classifier and fail closed if exact resume cannot
-  be proven.
-- Overnight dispatch requires a recent ACP handshake and exact-resume test.
-- The global scheduler uses weighted fairness: urgent 8, high 4, normal 2,
-  low 1. Every runnable run gets at most one dispatch per round before
-  additional weight is consumed.
-- Read-only work may run across projects. Direct write execution is serialized
-  per Git repository and uses the exact registered project cwd.
-- Unstarted work may be rerouted. Once an attempt has an assignment, quota
-  suspension preserves the same `agentId`, `chatId`, ACP session id,
-  `attemptId`, project cwd, and direct checkpoint refs.
-- Quota signals reuse the existing snapshot/reset/cache/refresh/backoff/dedupe/
-  cooldown/lease subsystem. They only advise dispatch admission.
-- ACP errors, JSON-RPC metadata, bounded redacted stderr, and assistant failure
-  output are classified as `quota_exhausted`, `transient_rate_limit`,
-  `auth_required`, `transport`, `session_fatal`, or `unknown`.
-- With an ETA, retry at `resetAt` plus bounded deterministic jitter. Without an
-  ETA use 1, 5, 15, and 30 minutes, then at most hourly.
-- Capacity exhaustion publishes a typed suspension event, stops the process,
-  releases the agent slot, and leaves the same attempt/direct branch resumable.
-  Suspension does not consume an attempt.
-- Resume is always `exactOnly`; failure creates a Manager Inbox decision and
-  never falls back to a new ACP session.
+```ts
+type Run = {
+  desiredState: "running" | "paused" | "cancelled";
+  phase: "planning" | "executing" | "finalizing" | "finished";
+  outcome?: "succeeded" | "failed" | "cancelled";
+};
+```
 
-### Durable run v2
+### WorkItem facts
 
-- Terminal v1 runs remain readable. Non-terminal v1 runs migrate to
-  `needs_user` and require ACP-manager replanning; they do not auto-resume.
-- Run statuses add `awaiting_approval` and `waiting_capacity`; task and attempt
-  statuses add `waiting_capacity`.
-- State persists manager session reference, plan version/hash/envelope,
-  priority, capacity waits, decision ids, target branch/ref, delivery
-  authorization, and final commit SHA.
-- There is no overall calendar/active run deadline. Per-turn timeouts,
-  task/attempt/replan caps, and loop detection remain bounded.
-- `SupervisorRunState` remains separate from per-session
-  `SupervisorSessionState` and Goal Mode state.
-- Goal Mode remains the source of deterministic gate/evidence behavior, not a
-  competing run aggregate.
+```ts
+type WorkItem = {
+  dependencies: string[];
+  outcome?: "succeeded" | "failed" | "cancelled";
+  notBefore?: string;
+  activeAttemptId?: string;
+  blockingDecisionId?: string;
+};
+```
 
-### Public API and inbox
+`paused` is desired state. `waiting_capacity`, `queued`, `blocked`, `ready`,
+`reviewing`, `integrating`, and `needs_user` are projections from facts such as
+dependencies, active activities, capacity leases, effect intents, wake times,
+and open decisions. Compatibility APIs may expose legacy status strings during
+migration, but services must not treat them as canonical state.
 
-`supervisorRuns` exposes:
+## Workflow Kernel
 
-- `createDraft` (`start` is a one-version compatibility alias)
-- `approvePlan`, `requestPlanChanges`, `answerDecision`, `setPriority`
-- `get`, `list`, `pause`, `resume`, `cancel`, `retryTask`, and update stream
+The kernel has three primary primitives:
 
-Draft input accepts only `projectId`, intent, constraints, priority, and an
-optional agent allowlist. Runtime resolves the owned project root.
-`providerId` and `workerModelId` are not run authority.
+```ts
+reduce(previousFacts, durableEvent): nextFacts
+decide(currentFacts, now): EffectIntent[]
+execute(effectIntent): durableResultEvent
+```
 
-Agent profile APIs expose `list`, `upsert`, and `testResume`. A durable Manager
-Inbox exposes list/subscription and idempotent answers. Bots and Scheduled
-Tasks call the Goal API. Quota refresh wakes existing capacity waits and never
-creates duplicate runs.
+The reducer is pure and performs no AI, ACP, filesystem, Git, network, or
+clock IO. The reconciler is deterministic and produces typed intents. Effect
+executors call existing ports/adapters and append result events.
 
-### Git delivery and safety
+Every external effect has a durable intent before execution:
 
-Each write attempt creates complete-repository before/after checkpoint commits
-on the approved current branch. After the full DAG and aggregate verification
-pass, create one additional final commit:
+```text
+transaction {
+  compare-and-swap aggregate revision
+  append durable event
+  reduce/persist facts
+  enqueue effect intents
+}
+        |
+        v
+claim and execute due effects
+        |
+        v
+append EffectSucceeded / EffectFailed / EffectUncertain
+```
 
-1. Revalidate branch, approved fingerprints, run-owned files, and that every
-   commit since the approved HEAD is a Supervisor checkpoint.
-2. Create a safety ref.
-3. Use an isolated Git index for the final run-owned union. Pre-existing user
-   staged/unstaged state is already preserved by the first pre-worker commit.
-4. Run normal Git hooks; never pass `--no-verify`.
-5. Record the final commit SHA.
+Startup recovery is ordinary reconciliation:
 
-If the branch changed or HEAD gained any non-Supervisor commit after approval,
-integration becomes `needs_user`.
-Supervisos never pushes, opens a PR, deploys, switches branch, resets, stashes,
-or auto-reverts failed/cancelled work. Plan approval only grants the explicit
-file/command/delivery envelope; project-root sandboxing, allowlists, and
-permission gates remain authoritative and may still veto execution.
+1. Recover stale `started` effects; prompt/resume effects become `uncertain`,
+   never silently `pending`.
+2. Drain pending effect intents.
+3. Reconcile non-terminal runs.
+4. Reconcile active or uncertain attempts using session, transcript, Git, and
+   verification evidence.
+5. Restore durable wakeups and expire stale capacity leases.
 
-### Daemon, Telegram, power, and Mission Control
+Only three scheduling owners remain:
 
-- Runtime operates as a loopback single-instance per-user daemon with an
-  endpoint manifest and per-user token protected by OS ACLs. The renderer never
-  receives that token.
-- Windows installs a hidden Task Scheduler user job. Linux installs a
-  `systemd --user` unit with optional linger. macOS `launchd` is deferred.
-- Electron main/preload expose only daemon install/start/stop/status and the
-  existing typed runtime bridge. Closing Desktop or locking the screen does not
-  stop runs.
-- Telegram uses outbound HTTPS long polling, encrypted credential storage,
-  one-time pairing, opaque idempotent decision tokens, and replay protection.
-  Free-form replies are accepted only for one open decision and are never shell
-  commands.
-- Blocker/completion messages are immediate. A changed/non-terminal portfolio
-  digest is sent at 09:00 in the user's timezone.
-- Power policy keeps the machine awake on AC while runnable prompt or
-  verification work exists. If every run waits for capacity longer than 30
-  minutes it releases the inhibitor and uses a wake timer where supported.
-- Mission Control is the global portfolio UI for goals, approvals, capacity,
-  decisions, readiness, DAG/evidence, and final commit. Chat Runs is a
-  projection/deep link.
+- `RunReconciler` advances one run from facts.
+- `GlobalDispatcher` selects a ready WorkItem, compatible AgentProfile,
+  eligible AgentIdentity, and available Workspace.
+- `EffectExecutor` performs external effects and records outcomes.
+
+GlobalDispatcher never plans or replans.
+
+## Prompt delivery and uncertain effects
+
+Do not claim exactly-once ACP prompt delivery. The workflow outbox provides
+at-least-once effect execution, while reconciliation provides effectively-once
+behavior where evidence permits it.
+
+Before a prompt is sent, persist the TurnAttempt, prompt hash, session binding,
+workspace snapshot, and `started` effect. If the runtime dies after send but
+before acknowledgement, mark the effect and attempt `uncertain` on recovery.
+Inspect the live process/session, transcript updates, Git diff, workspace, and
+verification state. Resend only with evidence that the prompt was not
+executed. Otherwise send a bounded continuation asking the agent to inspect
+canonical current state; never blindly replay the original task.
+
+## Agent session recovery
+
+Use negotiated ACP capabilities in this order:
+
+1. `session/resume` when advertised.
+2. `session/load` when advertised.
+3. `session/new` with a frozen handoff bundle.
+
+The handoff bundle is built from canonical facts and evidence, not manager
+memory. It includes Goal and Plan revisions, WorkItem contract, change
+boundary, criteria, Git commit/diff, changed files, verification output,
+outstanding failures, last confirmed agent result, and the explicit next
+action.
+
+ACP long-running session goals are worker projections. They are not the
+product Goal.
+
+## Capacity
+
+`capacity` is one bounded context covering provider quota, ACP capacity,
+agent-profile capacity, provider health, cooldowns, probes, and leases.
+
+Classify failures at least as:
+
+```text
+burst_rate_limit
+subscription_exhausted
+auth_required
+provider_unavailable
+context_exhausted
+transport_lost
+agent_crashed
+fatal
+unknown
+```
+
+Capacity observations record state, next eligibility when known, confidence,
+evidence, and observation time. Do not invent precise remaining quota when the
+provider does not expose it. The scheduling contract needs to answer whether
+an identity can run, when to probe again, and whether fallback is authorized.
+
+- Burst limits use exponential backoff with jitter.
+- Subscription exhaustion uses authoritative reset evidence when present,
+  otherwise bounded probes.
+- Authentication creates a blocking DecisionRequest.
+- Provider fallback occurs only when the Goal contract permits it.
+- Context exhaustion creates a new session with a handoff bundle.
+- Transport/process failures attempt capability-aware recovery.
+- Unknown failures have a small retry budget, then escalate.
+
+Reasoning and worker execution use separate capacity priority classes.
+
+## Goal contracts and evidence
+
+Obsidian follows a local GitOps model:
+
+```text
+Obsidian       desired state + human knowledge
+SQLite/events observed execution state
+Reconciler     controller
+ACP agents     workers
+Git/tests      evidence
+```
+
+User-owned Goal notes and generated Plan/Decision/Run projections have
+separate ownership. The controller never rewrites the body of an active Goal
+note. A note edit creates an immutable GoalRevision with a content hash and
+does not mutate an active run. Policy or the user chooses to continue the old
+revision, replan to the new revision, or cancel.
+
+Every PlanVersion records the Goal revision/hash, repository snapshot,
+referenced-note hashes, planner profile, and creation time. Workers receive a
+bounded ContextBundle, not the whole vault.
+
+Keep these contract axes separate:
+
+- Change boundary: where an agent may modify.
+- Acceptance criteria: what must ultimately be true.
+- Trusted verification: which evidence can prove a criterion.
+
+Each WorkItem references criterion IDs. A Goal succeeds only when every
+criterion has passing machine evidence or an explicit user acceptance/waiver.
+An agent saying `done` is never completion evidence.
+
+## Supervisor Reasoning
+
+Reasoners return typed proposals only:
+
+```ts
+interface SupervisorReasonerPort {
+  proposePlan(input: PlanningSnapshot): Promise<PlanProposal>;
+  proposeReplan(input: ReplanningSnapshot): Promise<ReplanProposal>;
+  draftDecision(input: DecisionSnapshot): Promise<DecisionDraft>;
+  summarizeRun(input: RunEvidenceSnapshot): Promise<RunSummary>;
+}
+```
+
+A deterministic validator checks schemas, graph cycles, criterion coverage,
+agent profiles, trusted commands, change boundaries, write conflicts, policy
+caps, and locked architecture decisions before materializing a proposal. The
+reasoner never calls repository mutation methods or starts sessions directly.
+
+## Human authority
+
+The initial product mode is `managed`: the user approves one PlanVersion, then
+the controller runs until completion or an explicit decision boundary.
+
+Create DecisionRequests for architecture/stack changes, significant dependency
+changes, migrations, destructive actions, new permissions, boundary expansion,
+semantic acceptance without executable evidence, exhausted retry budgets, and
+final integration when policy requires it.
+
+A decision contains the question, blocking reason, evidence, options,
+recommendation, consequences, affected WorkItems, and Plan revision. It blocks
+only the affected WorkItems/run. Unrelated projects continue. Desktop,
+Obsidian, mobile, and Telegram are adapters for the same durable decisions;
+they contain no orchestration business rules.
+
+## Workspace and concurrency
+
+Ship multi-project concurrency before intra-project parallel writes:
+
+- Default to one active writer per Git repository.
+- Run independent projects concurrently across eligible identities.
+- Use a WorkItem worktree/branch where isolation is required.
+- Parallelize within one repository only for independent dependencies with
+  disjoint change boundaries.
+- Serialize integration and rerun verification after integration.
+- Treat merge conflict as an integration failure, not a worker failure.
+
+Preserve existing checkpoint, permission, project-root sandbox, and Git safety
+rules. Approval never authorizes push, deployment, arbitrary filesystem paths,
+or bypassing hooks/permission gates.
+
+## Repository boundaries
+
+Migrate by extraction and compatibility projections, then delete old owners:
+
+- `supervisor` becomes `supervisor-reasoning`: chat, planning/replanning,
+  decision drafting, bounded context/prompt building, intelligence, research.
+- `supervisor-orchestration` becomes `workflow`: contracts, facts, events,
+  reducer, reconciler, decisions, effect outbox, dispatcher, and projections.
+- `quota` and capacity coordinators become `capacity`.
+- ACP worker/process/session/turn handling becomes `agent-runtime`.
+- Git workspaces, checkpoints, verifier, evidence, locks, and integration become
+  `workspace`.
+- Obsidian and Telegram become idempotent input/projection integrations.
+
+Do not perform a big-bang directory rename. First move authority to the new
+primitive, keep existing tRPC/UI names as compatibility facades, verify, then
+remove duplicate brains and obsolete statuses.
+
+## Delivery slices
+
+### Slice 1 — Durable babysitter
+
+```text
+Goal/Task
+-> one WorkItem
+-> one ACP AgentSession
+-> durable prompt observation
+-> failure/capacity classification
+-> scheduled recovery/continuation
+-> trusted verification
+-> evidence report
+```
+
+No AI decomposition is required. This slice must survive process/runtime
+restart and provider exhaustion without user babysitting.
+
+### Slice 2 — Managed sequential Goal
+
+Add typed reasoning proposals, one plan approval, sequential WorkItems,
+criterion/evidence traceability, Decision Inbox, and bounded replanning.
+
+### Slice 3 — Multi-project Capacity Broker
+
+Add a global ready queue, one writer per project, provider/account leases,
+weighted fairness, circuit breakers, failover policy, and separate reasoning /
+worker priority classes.
+
+### Slice 4 — Safe parallelism
+
+Add dependency DAG execution, disjoint change boundaries, worktrees, serialized
+integration, post-merge verification, steering, and bounded replan.
+
+Telegram orchestration, advanced planners, power policy refinements, and
+long-lived manager-session conveniences must not block Slice 1.
+
+## Required invariants
+
+1. Canonical workflow state never exists only in a chat transcript.
+2. Agent completion claims do not complete a WorkItem without evidence or user
+   acceptance.
+3. A WorkItem has at most one active TurnAttempt.
+4. A workspace has at most one active writer.
+5. Every external effect has a durable intent before execution.
+6. A crash after dispatch but before acknowledgement becomes `uncertain`; the
+   controller does not blindly resend.
+7. A Goal edit creates a new revision and does not silently alter an active
+   contract.
+8. A blocking decision does not stop unrelated projects.
+9. Capacity exhaustion preserves session binding and current evidence.
+10. Goal revision, PlanVersion, events, Git, and evidence can reconstruct a
+    complete run.
+
+## Acceptance tests and metrics
+
+Acceptance must cover:
+
+- Kill runtime while an agent edits; restart and reconcile the same work.
+- Capacity reset with an ETA wakes and continues automatically.
+- Capacity exhaustion without an ETA uses bounded probes without a retry
+  storm.
+- Agent claims success while tests fail; WorkItem remains incomplete.
+- Edit an Obsidian Goal during a run; the run keeps its frozen revision.
+- Two projects share a provider; leases never exceed configured capacity.
+- Adapter lacks resume/load; a new session receives the frozen handoff bundle.
+- Crash after prompt send but before acknowledgement; recovery inspects
+  evidence and never blindly resends.
+
+Primary metric: `manualInterventionsPerAcceptedGoal`.
+
+Supporting metrics:
+
+- `automaticRecoveryRate`
+- `unverifiedCompletionCount`
+- `duplicateOrUncertainDispatchCount`
+- `timeBlockedWithoutNotification`
 
 ## Implementation order
 
-1. Schema v2, migration, exact-only resume, plan hash/envelope, and typed
-   capacity events.
-2. ACP Manager Session Coordinator, approval/inbox flow, and removal of all
-   active MiniMax/AI-SDK Supervisor model calls.
-3. Agent Profiles, weighted global scheduler, and quota/Bots wake integration.
-4. Windows/Linux daemon, Mission Control, Telegram, power lease, and final
-   scoped commit.
-5. Live ACP smoke, then delete compatibility adapters/settings after their
-   compatibility window.
+1. Introduce orthogonal facts, pure reducer/projections, durable workflow
+   events/effect intents, and uncertain prompt dispatch while preserving
+   compatibility APIs.
+2. Route startup and run scheduling through RunReconciler and EffectExecutor;
+   make recovery ordinary reconciliation.
+3. Extract SupervisorReasonerPort and validate typed proposals; remove manager
+   session state as workflow authority.
+4. Consolidate quota/capacity ownership and move lease selection into
+   GlobalDispatcher.
+5. Add GoalRevision/PlanVersion/criterion/evidence contracts and bounded
+   Obsidian ingestion/projections.
+6. Rename boundaries and delete compatibility statuses/services only after
+   production paths and acceptance tests use the new owners.
 
 Update `GOAL_PROGRESS.md` after every major phase with changed files, exact
-commands, results, and remaining work.
-
-## Verification and acceptance
-
-- Unit coverage: ACP error classification/redaction, ETA/backoff, deterministic
-  plan hash/envelope, v1 migration, weighted fairness/capacity groups, Telegram
-  replay protection, and path-scoped commit.
-- Integration: quota between turns stops a process; restart restores the same
-  session/attempt/direct project cwd with exact resume and completes.
-- Manager planning/replan quota waits never create a new manager session.
-- Multiple projects/agents continue when one run is quota blocked; writes to
-  the same Git repository never overlap.
-- The pre-worker checkpoint commits the complete dirty/staged repository state;
-  the post-worker checkpoint commits the complete worker result. Finalization
-  accepts only the resulting Supervisor checkpoint ancestry, allows an approved
-  default branch, and fails closed on foreign branch/HEAD/drift/conflict.
-- Desktop closure does not stop the daemon; reconnect restores portfolio and
-  subscriptions.
-- Telegram E2E covers approve, changes, question answer, pause/resume/cancel,
-  completion, and digest.
-- Existing blocker, Goal Mode, orchestration, quota, session, and desktop tests
-  remain green.
-- Audit active Supervisor paths: no `generateText`, direct provider model call,
-  or MiniMax model wiring remains.
-- Final smoke: create in Desktop, approve via Telegram, close Desktop, hit
-  quota, exact-resume the same ACP session after refresh, aggregate verification
-  passes, before/after checkpoints and one final current-branch commit exist,
-  and completion is reported.
-
-## Fixed scope
-
-- Windows and Linux in v1; macOS later.
-- No native Manager UI in this phase.
-- No push, PR, deploy, or branch switching.
-- Goals live until completion, cancellation, or a genuine blocker.
-- Existing user changes in a dirty repository must be preserved by the
-  pre-worker checkpoint.
+verification commands, results, and remaining work.

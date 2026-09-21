@@ -4,6 +4,7 @@ import type {
   PromptEnhancerPort,
   SendMessagePolicy,
 } from "#runtime/modules/ai";
+import type { GoalIntakeRepositoryPort } from "#runtime/modules/goal-intake";
 import type { ProjectRepositoryPort } from "#runtime/modules/project";
 import type {
   AgentRuntimePort,
@@ -19,6 +20,10 @@ import type {
 import type { SupervisorPolicy } from "#runtime/modules/supervisor";
 import type { SupervisorRunRepositoryPort } from "#runtime/modules/supervisor-orchestration";
 import type { UsageStatsRepositoryPort } from "#runtime/modules/usage-stats";
+import type {
+  SupervisorWorkflowUnitOfWorkPort,
+  WorkflowJournalPort,
+} from "#runtime/modules/workflow";
 import type { CacheStats } from "#runtime/platform/caching/types";
 import type { GitAdapter } from "#runtime/platform/git";
 import type { GitWorkflowAdapter } from "#runtime/platform/git/workflow";
@@ -39,7 +44,9 @@ export interface ServiceRegistryDependencies {
   agentRepo: AgentRepositoryPort;
   settingsRepo: SettingsRepositoryPort;
   usageStatsRepo: UsageStatsRepositoryPort;
+  goalIntakeRepo: GoalIntakeRepositoryPort;
   supervisorRunRepo: SupervisorRunRepositoryPort;
+  workflowJournal: WorkflowJournalPort & SupervisorWorkflowUnitOfWorkPort;
   appConfigService: AppConfigService;
   uiSettingsService: UiSettingsService;
   gitAdapter: GitAdapter;

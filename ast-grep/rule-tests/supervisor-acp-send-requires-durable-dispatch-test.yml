@@ -1,0 +1,6 @@
+id: supervisor-acp-send-requires-durable-dispatch
+valid:
+  - await this.dispatcher.dispatch(input);
+  - await this.sendMessage.inspect(input);
+invalid:
+  - 'await this.sendMessage.execute({ source: "orchestrator", text: prompt });'

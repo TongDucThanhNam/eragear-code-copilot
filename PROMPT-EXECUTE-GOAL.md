@@ -1,127 +1,108 @@
-# Prompt: Thực thi GOAL.md
+# Prompt: Execute `GOAL.md`
 
-> Copy prompt dưới đây và paste vào AI coding assistant (ZCode, Claude Code, Cursor, v.v.).
-> Thay `{PHASE}` và `{BUOC}` bằng bước cụ thể muốn bắt đầu.
+This is the manual protocol that the Supervisos Workflow Kernel is gradually
+making durable. Replace `{SLICE}` or `{STEP}` when you want to constrain a run.
 
----
+## Execute the active Goal
 
-## Prompt mặc định (thực thi toàn bộ)
+```text
+You are a coding agent executing the repository's GOAL.md.
 
-```
-Bạn là AI coding agent thực thi GOAL.md. Đọc toàn bộ GOAL.md tại root project trước khi làm gì.
+Before acting, read GOAL.md, the applicable AGENTS.md files, and the relevant
+code. GOAL.md is the product source of truth.
 
-QUY TẮC THỰC THI:
+Execution rules:
 
-1. ĐỌC TRƯỚC: Đọc GOAL.md, AGENTS.md, và các file liên quan trước khi bắt đầu.
-2. TUÂN THỦ CONSTRAINTS: Mọi constraint trong GOAL.md là tuyệt đối — không ngoại lệ.
-3. THEO THỨ TỰ: Thực hiện Execution Plan từng bước, không skip.
-4. BÁO CÁO TỪNG BƯỚC: Sau mỗi bước, báo cáo ngắn gọn:
-   - Đã làm gì (file nào thay đổi)
-   - Kết quả verify (test pass/fail)
-   - Blocker (nếu có)
-   - Next step
-5. VERIFY LIÊN TỤC: Sau mỗi feature, chạy `bun run check-types` và focused test.
+1. Respect the Goal contract, locked decisions, change boundary, human
+   authority, and non-goals.
+2. Inspect current Git/workspace state before changing files. Preserve existing
+   user work.
+3. Work through the active implementation order without skipping required
+   invariants.
+4. After each coherent step, report changed files, verification evidence,
+   blockers, and the explicit next action.
+5. Run focused tests and type checks after each feature. Run broader checks in
+   proportion to risk.
+6. Do not claim completion from agent output alone. Map every acceptance
+   criterion to passing machine evidence or an explicit user acceptance/waiver.
+7. Evidence that is missing or uncertain means the work is not accepted.
+8. Do not broaden architecture, dependencies, permissions, destructive
+   actions, or the change boundary without an explicit user decision.
+9. If interrupted, reconstruct state from the frozen Goal/Plan revision, Git,
+   durable events/effects, verification evidence, and the last confirmed agent
+   result. Never blindly replay an uncertain prompt.
 
-QUY TẮC CHỐNG BIAS:
-- KHÔNG dừng khi "phần còn lại là polish" → tiếp tục cho đến khi TẤT CẢ Success Criteria pass.
-- KHÔNG claim done nếu chưa inspect file/output thật sự.
-- Evidence uncertain = chưa xong → tiếp tục làm.
-- KHÔNG tự workaround blocker → DỪNG và mô tả.
+Architecture rules:
 
-ARCHITECTURE RULES (từ AGENTS.md):
-- Mỗi feature mới: Port → Service → Adapter → Transport → UI
-- Domain KHÔNG import infra/transport
-- Ports ở `application/ports/`, KHÔNG ở domain
-- Tool-call handler KHÔNG tự tạo session state
-- KHÔNG bypass SessionRuntimePort khi broadcast event
+- Business rules stay in packages/runtime.
+- Domain code does not import application, transport, platform, or infra.
+- Application services use ports for external effects.
+- Electron main/preload remain lifecycle/native integration only.
+- LLMs propose what/why; deterministic services own when/who/state/retry.
+- WorkItem, TurnAttempt, AgentSession, CapacityLease, and DecisionRequest are
+  distinct lifecycles.
+- Every external workflow effect has a durable intent before execution.
 
-BẮT ĐẦU TỪ: Phase 1, Bước 1.1 (Git Integration)
+Start with the first incomplete item in GOAL.md's Implementation order.
 
-Sau khi đọc GOAL.md, báo cáo:
-1. Bạn hiểu objective là gì
-2. Bạn sẽ bắt đầu từ bước nào
-3. Có gì cần clarify không
-```
+Before editing, report:
 
----
-
-## Prompt cho phase/bước cụ thể
-
-```
-Thực thi GOAL.md — Bước {BUOC}: {TÊN_BƯỚC}
-
-Ví dụ: Thực thi GOAL.md — Bước 1.1: Git Integration
-
-Đọc GOAL.md và AGENTS.md trước. Chỉ thực hiện bước được chỉ định.
-
-QUY TRÌNH:
-1. Đọc GOAL.md → xác định chính xác scope của bước này
-2. Đọc các file liên quan trong repo hiện tại
-3. Tạo plan chi tiết cho bước này (Port → Service → Adapter → Transport → UI)
-4. Implement theo plan
-5. Verify: `bun run check-types` + focused test
-6. Báo cáo kết quả
-
-CONSTRAINTS (từ GOAL.md):
-- Architecture: Clean Architecture layers
-- Ports ở application/ports/, KHÔNG ở domain
-- Domain KHÔNG import infra/transport
-- KHÔNG refactor code không liên quan
-- KHÔNG skip verify
-
-Báo cáo sau khi xong:
-- Files changed
-- Test results
-- Any blockers
+1. The objective and frozen scope you understand.
+2. The current incomplete step and evidence used to identify it.
+3. Any genuine decision boundary that prevents safe progress.
 ```
 
----
+## Execute one slice or step
 
-## Prompt verify / audit
+```text
+Execute GOAL.md — {SLICE_OR_STEP}
 
-```
-Audit GOAL.md — Verify Success Criteria
+Read GOAL.md and applicable AGENTS.md files first. Work only within the named
+slice/step and its prerequisites.
 
-Đọc toàn bộ GOAL.md. Chạy từng Success Criterion (1-25) và kiểm tra:
+1. Inspect the relevant current implementation and Git state.
+2. Identify the canonical facts, ports, effects, and evidence for this step.
+3. Implement the smallest coherent vertical slice.
+4. Verify with focused tests, type checks, architecture checks, and patch
+   hygiene appropriate to the risk.
+5. Update GOAL_PROGRESS.md with exact files, commands/results, and remaining
+   work.
 
-CHO MỖI CRITERION:
-1. Kiểm tra code có tồn tại không (file paths)
-2. Chạy verification command nếu có
-3. Đánh giá: PASS / FAIL / PARTIAL
-4. Nếu FAIL: mô tả chính xác cái gì thiếu
-
-SAU CÙNG:
-- Tổng kết: X/25 pass
-- Liệt kê tất cả FAIL items với chi tiết
-- Đề xuất bước tiếp theo cho mỗi FAIL item
-
-KHÔNG bỏ qua criterion nào. KHÔNG claim pass nếu chưa verify thật.
+Report changed files, evidence, blockers/decisions, and the next action.
 ```
 
----
+## Audit completion
 
-## Prompt resume (tiếp tục sau khi bị gián đoạn)
+```text
+Audit GOAL.md against the repository and runtime evidence.
 
+For every required invariant, active-slice acceptance test, and explicit
+acceptance criterion:
+
+1. Locate the implementation and canonical owner.
+2. Run or inspect the trusted verification evidence.
+3. Mark PASS, FAIL, or PARTIAL.
+4. For FAIL/PARTIAL, state the missing fact/effect/evidence and next action.
+
+Also audit for duplicate scheduling/retry/recovery owners, direct legacy status
+authority, prompt sends without durable intents, and completion paths based
+only on agent claims.
+
+Do not claim success for unverified criteria.
 ```
-Resume GOAL.md execution
 
-Đọc GOAL.md. Kiểm tra current state của codebase để xác định:
-1. Bước cuối cùng đã hoàn thành là gì (kiểm tra git diff, file timestamps)
-2. Bước tiếp theo cần làm là gì
-3. Có regression nào kể từ lần thực thi cuối không
+## Resume after interruption
 
-Sau đó tiếp tục Execution Plan từ bước tiếp theo.
-Tuân thủ tất cả rules trong GOAL.md.
+```text
+Resume GOAL.md execution from durable evidence.
+
+1. Read the frozen Goal revision and approved PlanVersion, if present.
+2. Inspect Git/workspace state, workflow events/effect intents, active or
+   uncertain TurnAttempts, session capabilities, and verification evidence.
+3. Identify the last confirmed effect and the explicit next action.
+4. If a prompt/resume may have executed, reconcile it as uncertain; do not
+   blindly resend.
+5. Continue with the next safe effect inside the existing authority boundary.
+
+Report the reconstructed state, evidence, action taken, and remaining work.
 ```
-
----
-
-## Ghi chú sử dụng
-
-| Tình huống | Dùng prompt nào |
-|------------|----------------|
-| Bắt đầu từ đầu | Prompt mặc định |
-| Chỉ muốn làm 1 feature | Prompt cho bước cụ thể |
-| Kiểm tra tiến độ | Prompt verify / audit |
-| Bị gián đoạn, muốn tiếp | Prompt resume |
-| Giao cho agent mới | Prompt mặc định + chỉ định bước bắt đầu |

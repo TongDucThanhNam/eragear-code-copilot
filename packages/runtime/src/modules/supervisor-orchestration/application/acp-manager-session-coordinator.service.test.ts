@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { WorkflowEffectUncertainError } from "#runtime/modules/workflow";
 import type { SupervisorRunState } from "../domain/supervisor-run.schemas";
 import { createSupervisorRunFixture } from "../domain/supervisor-run.test-fixture";
+import { buildAcpManagerPrompt } from "./acp-manager-prompt.builder";
 import {
   AcpManagerSessionCoordinator,
   extractAcpManagerTurn,
 } from "./acp-manager-session-coordinator.service";
+import { prepareSupervisorPrompt } from "./ports/supervisor-effect-prompt-dispatch.port";
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
 
 class MemoryRuns implements SupervisorRunRepositoryPort {
@@ -72,6 +75,18 @@ const managerPlan = JSON.stringify({
     },
   },
 });
+
+function prepareManagerPrompt(
+  run: SupervisorRunState,
+  turnKind: "plan" | "replan",
+  effectId: string
+) {
+  return prepareSupervisorPrompt({
+    effectId,
+    authorityId: "authority-manager-test",
+    text: buildAcpManagerPrompt({ run, turnKind }),
+  });
+}
 
 test("extracts the latest valid manager turn after an ACP replacement stream", () => {
   const stale = JSON.stringify({
@@ -159,11 +174,17 @@ describe("AcpManagerSessionCoordinator", () => {
       },
       preferredModelId: "openai/gpt-5.6-sol",
       preferredEffort: "max",
-      sendMessage: {
+      effectPromptDispatch: {
         execute: (input) => {
           turn += 1;
           calls.push(`send:${input.chatId}`);
           expect(input.text).toContain("read-only");
+          expect(input.workflow).toMatchObject({
+            effectId: `effect-manager-${turn}`,
+            authorityId: "authority-manager-test",
+            runId: base.runId,
+            owner: "manager",
+          });
           return Promise.resolve({ turnId: `turn-${turn}` });
         },
       },
@@ -206,6 +227,7 @@ describe("AcpManagerSessionCoordinator", () => {
       userId: base.userId,
       managerAgentId: "agent-1",
       turnKind: "plan",
+      preparedPrompt: prepareManagerPrompt(base, "plan", "effect-manager-1"),
     });
     const chatId = dispatched.managerSession?.chatId;
     expect(dispatched.managerSession).toMatchObject({
@@ -226,6 +248,7 @@ describe("AcpManagerSessionCoordinator", () => {
       userId: base.userId,
       managerAgentId: "agent-1",
       turnKind: "replan",
+      preparedPrompt: prepareManagerPrompt(base, "replan", "effect-manager-2"),
     });
     expect(calls.filter((call) => call.startsWith("create:"))).toHaveLength(1);
     expect(modeCalls).toEqual([`${chatId}:manager`]);
@@ -239,6 +262,67 @@ describe("AcpManagerSessionCoordinator", () => {
     ]);
     expect(calls).toContain(`resume:${chatId}:exact_only`);
     expect(readinessCalls).toEqual(["user-1:agent-1:project-1"]);
+  });
+
+  test("surfaces an uncertain ACK unchanged after resuming a pending manager turn", async () => {
+    const base = createSupervisorRunFixture({
+      status: "planning",
+      tasks: [],
+      managerSession: {
+        agentId: "agent-1",
+        chatId: "manager-chat-uncertain",
+        agentSessionId: "acp-1",
+        status: "stopped",
+        exactResumeRequired: true,
+        pendingTurnKind: "plan",
+      },
+    });
+    const runs = new MemoryRuns(base);
+    const uncertain = new WorkflowEffectUncertainError({
+      code: "ACP_PROMPT_ACK_UNCERTAIN",
+      effectId: "effect-manager-resume",
+    });
+    let capacityCalls = 0;
+    let dispatchCalls = 0;
+    const coordinator = new AcpManagerSessionCoordinator({
+      runs,
+      createSession: { execute: () => Promise.reject(new Error("not used")) },
+      effectPromptDispatch: {
+        execute: (input) => {
+          dispatchCalls += 1;
+          expect(input.workflow).toMatchObject({
+            effectId: "effect-manager-resume",
+            authorityId: "authority-manager-test",
+            runId: base.runId,
+            owner: "manager",
+          });
+          return Promise.reject(uncertain);
+        },
+      },
+      stopSession: { execute: () => Promise.resolve() },
+      resumeSession: { execute: () => Promise.resolve({}) },
+      results: { latestAssistantText: () => Promise.resolve(null) },
+      capacity: {
+        suspendManager: () => {
+          capacityCalls += 1;
+          return Promise.resolve({ suspended: true, run: base });
+        },
+      },
+    });
+
+    await expect(
+      coordinator.resumePending({
+        runId: base.runId,
+        userId: base.userId,
+        preparedPrompt: prepareManagerPrompt(
+          base,
+          "plan",
+          "effect-manager-resume"
+        ),
+      })
+    ).rejects.toBe(uncertain);
+    expect(dispatchCalls).toBe(1);
+    expect(capacityCalls).toBe(0);
   });
 
   test("fails closed and stops the manager after invalid structured output", async () => {
@@ -265,7 +349,7 @@ describe("AcpManagerSessionCoordinator", () => {
       createSession: {
         execute: () => Promise.reject(new Error("not used")),
       },
-      sendMessage: {
+      effectPromptDispatch: {
         execute: () => Promise.reject(new Error("not used")),
       },
       stopSession: {
@@ -328,7 +412,9 @@ describe("AcpManagerSessionCoordinator", () => {
     const coordinator = new AcpManagerSessionCoordinator({
       runs,
       createSession: { execute: () => Promise.reject(new Error("not used")) },
-      sendMessage: { execute: () => Promise.reject(new Error("not used")) },
+      effectPromptDispatch: {
+        execute: () => Promise.reject(new Error("not used")),
+      },
       stopSession: { execute: () => Promise.resolve() },
       resumeSession: { execute: () => Promise.reject(new Error("not used")) },
       results: { latestAssistantText: () => Promise.resolve(null) },
@@ -393,7 +479,9 @@ describe("AcpManagerSessionCoordinator", () => {
     const coordinator = new AcpManagerSessionCoordinator({
       runs,
       createSession: { execute: () => Promise.reject(new Error("not used")) },
-      sendMessage: { execute: () => Promise.reject(new Error("not used")) },
+      effectPromptDispatch: {
+        execute: () => Promise.reject(new Error("not used")),
+      },
       stopSession: { execute: () => Promise.resolve() },
       resumeSession: { execute: () => Promise.reject(new Error("not used")) },
       results: {
@@ -443,7 +531,7 @@ describe("AcpManagerSessionCoordinator", () => {
       createSession: {
         execute: () => Promise.reject(new Error("not used")),
       },
-      sendMessage: {
+      effectPromptDispatch: {
         execute: () => Promise.reject(new Error("not used")),
       },
       stopSession: {
@@ -482,7 +570,9 @@ describe("AcpManagerSessionCoordinator", () => {
     const coordinator = new AcpManagerSessionCoordinator({
       runs: new MemoryRuns(base),
       createSession: { execute: () => Promise.reject(new Error("not used")) },
-      sendMessage: { execute: () => Promise.reject(new Error("not used")) },
+      effectPromptDispatch: {
+        execute: () => Promise.reject(new Error("not used")),
+      },
       stopSession: {
         execute: (_userId, chatId) => {
           stopped.push(chatId);

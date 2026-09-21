@@ -1,6 +1,9 @@
 import path from "node:path";
 import type { SupervisorTaskRecord } from "../domain/supervisor-run.schemas";
-import { SupervisorRunStateSchema } from "../domain/supervisor-run.schemas";
+import {
+  SUPERVISOR_RUN_SCHEMA_VERSION,
+  SupervisorRunStateSchema,
+} from "../domain/supervisor-run.schemas";
 import type {
   SupervisorPlannerContext,
   SupervisorPlannerPolicy,
@@ -18,6 +21,7 @@ const UNSAFE_PLAN_TEXT =
   /\b(?:git\s+(?:commit|push|reset|stash|switch|checkout)|commit\b|push\b|deploy\b|credential(?:s)?\b|api[_ -]?key\b|secret(?:s)?\b|permission\s+bypass|bypass\s+permission|rm\s+-rf|remove-item\b|delete\s+(?:all|user|project|repository|repo)\b)/i;
 const WINDOWS_ABSOLUTE_PATH = /^[a-zA-Z]:[\\/]/;
 const TRAILING_SLASH = /\/$/;
+const INVALID_BOUNDARY_CONTROL_CHAR = /[\r\n:]/;
 
 export class SupervisorPlanValidationError extends Error {
   readonly code:
@@ -30,6 +34,10 @@ export class SupervisorPlanValidationError extends Error {
     | "SCOPELESS_WRITE"
     | "UNSAFE_ACTION"
     | "INVALID_GRAPH"
+    | "INVALID_CRITERION_COVERAGE"
+    | "UNTRUSTED_GOAL_VERIFICATION"
+    | "AUTHORITY_DECLARATION_REQUIRED"
+    | "INVALID_CHANGE_BOUNDARY"
     | "COMPLETED_TASK_REMOVED";
 
   constructor(
@@ -84,7 +92,9 @@ export class SupervisorPlannerService {
       if (
         replacement.goal !== completed.goal ||
         replacement.role !== completed.role ||
-        replacement.executionMode !== completed.executionMode
+        replacement.executionMode !== completed.executionMode ||
+        !sameStrings(replacement.criterionIds, completed.criterionIds) ||
+        !sameStrings(replacement.changeKinds, completed.changeKinds)
       ) {
         throw new SupervisorPlanValidationError(
           "COMPLETED_TASK_REMOVED",
@@ -130,12 +140,13 @@ export class SupervisorPlannerService {
       parsedContext.agents.map((agent) => [agent.agentId, agent])
     );
     const tasks = proposal.tasks.map((task) =>
-      this.materializeTask(task, configuredAgents, activeAgents)
+      this.materializeTask(task, configuredAgents, activeAgents, parsedContext)
     );
+    this.validateGoalContractCoverage(parsedContext, tasks);
 
     try {
       SupervisorRunStateSchema.parse({
-        schemaVersion: 2,
+        schemaVersion: SUPERVISOR_RUN_SCHEMA_VERSION,
         runId: parsedContext.runId,
         revision: 0,
         userId: "planner-validation",
@@ -144,6 +155,9 @@ export class SupervisorPlannerService {
         constraints: parsedContext.constraints,
         priority: "normal",
         status: "planning",
+        desiredState: "running",
+        phase: "planning",
+        activity: "planning",
         baseSnapshot: {
           dirtyPaths: [],
           targetFingerprints: {},
@@ -177,7 +191,8 @@ export class SupervisorPlannerService {
   private materializeTask(
     task: SupervisorPlannerTaskProposal,
     configuredAgents: Map<string, SupervisorPlannerContext["agents"][number]>,
-    activeAgents: Map<string, SupervisorPlannerContext["agents"][number]>
+    activeAgents: Map<string, SupervisorPlannerContext["agents"][number]>,
+    context: SupervisorPlannerContext
   ): SupervisorTaskRecord {
     assertNoUnsafeAction(task);
     const filesAllowed = task.scopeIntent.map(normalizeSafeRelativePath);
@@ -195,10 +210,10 @@ export class SupervisorPlannerService {
       role: task.role,
       executionMode: task.executionMode,
       dependencies: [...task.dependencies],
+      criterionIds: [...task.criterionIds],
+      changeKinds: [...task.changeKinds],
       filesAllowed,
-      verificationCommands: [
-        ...(this.policy.trustedVerificationCommandsByRole[task.role] ?? []),
-      ],
+      verificationCommands: this.resolveTaskVerificationCommands(task, context),
       preferredAgentId: agentId,
       ...(task.preferredModelId
         ? { preferredModelId: task.preferredModelId }
@@ -206,6 +221,110 @@ export class SupervisorPlannerService {
       status: task.dependencies.length === 0 ? "ready" : "blocked",
       attempts: [],
     };
+  }
+
+  private resolveTaskVerificationCommands(
+    task: SupervisorPlannerTaskProposal,
+    context: SupervisorPlannerContext
+  ): string[] {
+    const goalContract = context.goalContract;
+    const criteriaById = new Map(
+      goalContract?.acceptanceCriteria.map((criterion) => [
+        criterion.criterionId,
+        criterion,
+      ]) ?? []
+    );
+    const ownsMachineCriterion = task.criterionIds.some(
+      (criterionId) => criteriaById.get(criterionId)?.evidence === "machine"
+    );
+    return [
+      ...new Set(
+        ownsMachineCriterion && goalContract
+          ? goalContract.trustedVerificationCommands
+          : (this.policy.trustedVerificationCommandsByRole[task.role] ?? [])
+      ),
+    ];
+  }
+
+  private validateGoalContractCoverage(
+    context: SupervisorPlannerContext,
+    tasks: SupervisorTaskRecord[]
+  ): void {
+    const contract = context.goalContract;
+    if (!contract) {
+      return;
+    }
+    const trustedCommands = new Set(
+      Object.values(this.policy.trustedVerificationCommandsByRole).flat()
+    );
+    const untrustedCommands = contract.trustedVerificationCommands.filter(
+      (command) => !trustedCommands.has(command)
+    );
+    if (untrustedCommands.length > 0) {
+      throw new SupervisorPlanValidationError(
+        "UNTRUSTED_GOAL_VERIFICATION",
+        `Goal Contract names verification commands that are not runtime-trusted: ${untrustedCommands.join(", ")}`
+      );
+    }
+
+    const criteriaById = new Map(
+      contract.acceptanceCriteria.map((criterion) => [
+        criterion.criterionId,
+        criterion,
+      ])
+    );
+    const covered = new Map<string, SupervisorTaskRecord[]>();
+    const normalizedBoundaries = contract.changeBoundary.map(
+      normalizeGoalChangeBoundary
+    );
+    for (const task of tasks) {
+      validateGoalTaskAuthorityAndScope(task, normalizedBoundaries);
+      for (const criterionId of task.criterionIds) {
+        if (!criteriaById.has(criterionId)) {
+          throw new SupervisorPlanValidationError(
+            "INVALID_CRITERION_COVERAGE",
+            `Task ${task.taskId} references unknown Goal Contract criterion ${criterionId}`
+          );
+        }
+        const bindings = covered.get(criterionId) ?? [];
+        bindings.push(task);
+        covered.set(criterionId, bindings);
+      }
+    }
+
+    for (const criterion of contract.acceptanceCriteria) {
+      const bindings = covered.get(criterion.criterionId) ?? [];
+      if (bindings.length === 0) {
+        throw new SupervisorPlanValidationError(
+          "INVALID_CRITERION_COVERAGE",
+          `Goal Contract criterion ${criterion.criterionId} is not covered by any task`
+        );
+      }
+      if (
+        criterion.evidence === "machine" &&
+        !bindings.some(
+          (task) =>
+            contract.trustedVerificationCommands.length > 0 &&
+            contract.trustedVerificationCommands.every((command) =>
+              task.verificationCommands.includes(command)
+            )
+        )
+      ) {
+        throw new SupervisorPlanValidationError(
+          "INVALID_CRITERION_COVERAGE",
+          `Machine criterion ${criterion.criterionId} has no covering task with trusted verification`
+        );
+      }
+    }
+    if (
+      contract.authority.finalIntegration === "ask" &&
+      !tasks.some((task) => task.changeKinds.includes("final_integration"))
+    ) {
+      throw new SupervisorPlanValidationError(
+        "AUTHORITY_DECLARATION_REQUIRED",
+        "Goal Contract requires explicit final integration approval, but no task declares final_integration"
+      );
+    }
   }
 
   private selectAgent(
@@ -285,6 +404,72 @@ export function normalizeSafeRelativePath(value: string): string {
   return normalized;
 }
 
+function normalizeGoalChangeBoundary(value: string): string {
+  const trimmed = value.trim().replaceAll("\\", "/");
+  const hasSupportedRecursiveSuffix = trimmed.endsWith("/**");
+  const candidate = hasSupportedRecursiveSuffix
+    ? trimmed.slice(0, -3)
+    : trimmed;
+  if (
+    !candidate ||
+    candidate.includes("*") ||
+    candidate.includes("?") ||
+    INVALID_BOUNDARY_CONTROL_CHAR.test(candidate)
+  ) {
+    throw new SupervisorPlanValidationError(
+      "INVALID_CHANGE_BOUNDARY",
+      `Unsupported Goal Contract change boundary: ${value}`
+    );
+  }
+  try {
+    return normalizeSafeRelativePath(candidate);
+  } catch (error) {
+    throw new SupervisorPlanValidationError(
+      "INVALID_CHANGE_BOUNDARY",
+      `Unsafe Goal Contract change boundary: ${value}`,
+      { cause: error }
+    );
+  }
+}
+
+function isPathInsideBoundary(pathValue: string, boundary: string): boolean {
+  return pathValue === boundary || pathValue.startsWith(`${boundary}/`);
+}
+
+function validateGoalTaskAuthorityAndScope(
+  task: SupervisorTaskRecord,
+  normalizedBoundaries: string[]
+): void {
+  if (
+    task.executionMode === "write" &&
+    !task.changeKinds.includes("scoped_code_change")
+  ) {
+    throw new SupervisorPlanValidationError(
+      "AUTHORITY_DECLARATION_REQUIRED",
+      `Write task ${task.taskId} must declare scoped_code_change`
+    );
+  }
+  if (task.executionMode === "read_only" && task.changeKinds.length > 0) {
+    throw new SupervisorPlanValidationError(
+      "AUTHORITY_DECLARATION_REQUIRED",
+      `Read-only task ${task.taskId} cannot declare change authority`
+    );
+  }
+  if (
+    task.executionMode === "write" &&
+    !task.filesAllowed.every((file) =>
+      normalizedBoundaries.some((boundary) =>
+        isPathInsideBoundary(file, boundary)
+      )
+    )
+  ) {
+    throw new SupervisorPlanValidationError(
+      "INVALID_CHANGE_BOUNDARY",
+      `Write task ${task.taskId} expands beyond the frozen Goal Contract change boundary`
+    );
+  }
+}
+
 function assertNoUnsafeAction(task: SupervisorPlannerTaskProposal): void {
   const text = [
     task.title,
@@ -300,7 +485,16 @@ function assertNoUnsafeAction(task: SupervisorPlannerTaskProposal): void {
   }
 }
 
+function sameStrings(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
 export const __supervisorPlannerInternals = {
   normalizeSafeRelativePath,
+  normalizeGoalChangeBoundary,
+  isPathInsideBoundary,
   assertNoUnsafeAction,
 };

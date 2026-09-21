@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ast-grep/ast-grep/main/schemas/typescript_rule.json
+
+id: supervisor-acp-send-requires-durable-dispatch
+message: Supervisor session coordinators must dispatch ACP prompts through the durable workflow effect boundary.
+severity: error
+language: TypeScript
+files:
+  - packages/runtime/src/modules/supervisor-orchestration/application/acp-manager-session-coordinator.service.ts
+  - packages/runtime/src/modules/supervisor-orchestration/application/worker-session-manager.service.ts
+rule:
+  pattern: this.sendMessage.execute($$$ARGS)
+note: Persist a workflow effect and attempt/session evidence before any ACP prompt IO; coordinators must never send directly.

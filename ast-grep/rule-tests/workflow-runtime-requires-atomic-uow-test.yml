@@ -1,0 +1,6 @@
+id: workflow-runtime-requires-atomic-uow
+valid:
+  - await this.unitOfWork.commitRunTransition(input);
+  - await this.runs.get(runId, userId);
+invalid:
+  - await this.runs.save(next, current.revision);

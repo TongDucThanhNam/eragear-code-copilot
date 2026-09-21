@@ -1,12 +1,11 @@
-import { execFile } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import { CryptoHasher } from "bun";
+import { runBunSubprocess } from "#runtime/platform/process/bun-subprocess";
 import type { SupervisorScopedCommitPort } from "../application/supervisor-final-commit.service";
 
-const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 10 * 1024 * 1024;
 const LINE_BREAK_PATTERN = /\r?\n/;
 const LEADING_CURRENT_DIRECTORY_PATTERN = /^\.\//;
@@ -180,10 +179,9 @@ async function git(
   args: string[],
   env: NodeJS.ProcessEnv = process.env
 ): Promise<string> {
-  const result = await execFileAsync("git", args, {
+  const result = await runBunSubprocess("git", args, {
     cwd,
     env,
-    encoding: "utf8",
     maxBuffer: MAX_BUFFER,
     windowsHide: true,
   });
@@ -211,13 +209,11 @@ async function fingerprintPath(target: string): Promise<string> {
   try {
     const info = await stat(target);
     if (info.isDirectory()) {
-      return createHash("sha256").update("directory").digest("hex");
+      return CryptoHasher.hash("sha256", "directory", "hex");
     }
-    return createHash("sha256")
-      .update(await readFile(target))
-      .digest("hex");
+    return CryptoHasher.hash("sha256", await readFile(target), "hex");
   } catch {
-    return createHash("sha256").update("missing").digest("hex");
+    return CryptoHasher.hash("sha256", "missing", "hex");
   }
 }
 

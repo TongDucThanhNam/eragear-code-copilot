@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import type { UIMessage, UIMessagePart } from "@eragear-code-copilot/shared";
+import { CryptoHasher } from "bun";
 import type {
   BroadcastEvent,
   UiMessageState,
@@ -65,7 +65,7 @@ function prunePartIdIndex(state: UiMessageState): void {
 }
 
 function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+  return CryptoHasher.hash("sha256", token, "hex").slice(0, 16);
 }
 
 function createIntrinsicTokenId(prefix: string, token: string): string {

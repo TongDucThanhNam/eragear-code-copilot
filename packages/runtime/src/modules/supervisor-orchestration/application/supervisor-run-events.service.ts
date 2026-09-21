@@ -1,5 +1,9 @@
 import type { SupervisorRunClientUpdate } from "@eragear-code-copilot/shared";
 import type { EventBusPort } from "#runtime/shared/ports/event-bus.port";
+import {
+  deriveSupervisorRunStatus,
+  deriveSupervisorTaskStatus,
+} from "../domain/supervisor-run.projections";
 import type { SupervisorRunState } from "../domain/supervisor-run.schemas";
 
 export interface SubscribeSupervisorRunUpdatesInput {
@@ -39,8 +43,46 @@ export function createClientSafeSupervisorRunUpdate(
     ...(run.originatingChatId
       ? { originatingChatId: run.originatingChatId }
       : {}),
-    status: run.status,
+    ...(run.sourceGoalContract
+      ? {
+          sourceGoalContract: {
+            intakeId: run.sourceGoalContract.intakeId,
+            revisionId: run.sourceGoalContract.revisionId,
+            ...(run.sourceGoalContract.revision
+              ? { revision: run.sourceGoalContract.revision }
+              : {}),
+            hash: run.sourceGoalContract.hash,
+            ...(run.sourceGoalContract.createdAt
+              ? { createdAt: run.sourceGoalContract.createdAt }
+              : {}),
+            ...(run.sourceGoalContract.contract
+              ? { contract: structuredClone(run.sourceGoalContract.contract) }
+              : {}),
+            criterionResolutions: run.goalCriterionResolutions.map(
+              (resolution) => ({
+                criterionId: resolution.criterionId,
+                resolution: resolution.resolution,
+                decisionId: resolution.decisionId,
+                resolvedAt: resolution.resolvedAt,
+              })
+            ),
+          },
+        }
+      : {}),
+    status: deriveSupervisorRunStatus(run),
     priority: run.priority,
+    ...(run.cancellation
+      ? {
+          cancellation: {
+            status: run.cancellation.status,
+            pendingSessionCount: run.cancellation.pendingSessionIds.length,
+            pendingWorkspaceCount: run.cancellation.pendingWorkspaceIds.length,
+            ...(run.cancellation.blockingDecisionId
+              ? { blockingDecisionId: run.cancellation.blockingDecisionId }
+              : {}),
+          },
+        }
+      : {}),
     ...(run.managerSession
       ? {
           manager: {
@@ -68,16 +110,18 @@ export function createClientSafeSupervisorRunUpdate(
       role: task.role,
       executionMode: task.executionMode,
       dependencies: [...task.dependencies],
+      criterionIds: [...task.criterionIds],
+      changeKinds: [...task.changeKinds],
       ...(task.preferredModelId
         ? { preferredModelId: task.preferredModelId }
         : {}),
-      status: task.status,
+      status: deriveSupervisorTaskStatus(run, task),
       attempts: task.attempts.map((attempt) => ({
         attemptId: attempt.attemptId,
         chatId: attempt.chatId,
         agentId: attempt.agentId,
         ...(attempt.modelId ? { modelId: attempt.modelId } : {}),
-        status: attempt.status,
+        status: toClientAttemptStatus(attempt.status),
         ...(attempt.result
           ? { files: structuredClone(attempt.result.files) }
           : {}),
@@ -115,6 +159,9 @@ export function createClientSafeSupervisorRunUpdate(
       prompt: decision.prompt,
       createdAt: decision.createdAt,
       ...(decision.answeredAt ? { answeredAt: decision.answeredAt } : {}),
+      ...(decision.criterionIds
+        ? { criterionIds: [...decision.criterionIds] }
+        : {}),
     })),
     finalVerification: run.finalVerification.map((item) => ({
       command: item.command,
@@ -124,4 +171,13 @@ export function createClientSafeSupervisorRunUpdate(
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
   };
+}
+
+type SupervisorClientAttemptStatus =
+  SupervisorRunClientUpdate["tasks"][number]["attempts"][number]["status"];
+
+function toClientAttemptStatus(
+  status: SupervisorRunState["tasks"][number]["attempts"][number]["status"]
+): SupervisorClientAttemptStatus {
+  return status === "uncertain" ? "running" : status;
 }

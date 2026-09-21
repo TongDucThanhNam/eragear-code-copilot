@@ -7,6 +7,8 @@ export type SqliteWorkerService =
   | "settings"
   | "usageStats"
   | "supervisorRuns"
+  | "goalIntake"
+  | "workflowJournal"
   | "storage";
 
 export interface SqliteWorkerRequest {
@@ -26,6 +28,11 @@ export interface SqliteWorkerResponse {
     name: string;
     message: string;
     stack?: string;
+    code?: string;
+    operation?: string;
+    intakeId?: string;
+    expectedRevision?: number;
+    actualRevision?: number;
   };
 }
 

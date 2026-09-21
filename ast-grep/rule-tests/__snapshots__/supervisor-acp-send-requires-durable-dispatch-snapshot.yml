@@ -1,0 +1,8 @@
+id: supervisor-acp-send-requires-durable-dispatch
+snapshots:
+  'await this.sendMessage.execute({ source: "orchestrator", text: prompt });':
+    labels:
+    - source: 'this.sendMessage.execute({ source: "orchestrator", text: prompt })'
+      style: primary
+      start: 6
+      end: 72

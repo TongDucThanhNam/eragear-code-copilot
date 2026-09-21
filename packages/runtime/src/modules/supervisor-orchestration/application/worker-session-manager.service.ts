@@ -1,3 +1,5 @@
+import { WorkflowEffectUncertainError } from "#runtime/modules/workflow";
+import { NotFoundError } from "#runtime/shared/errors";
 import { createId } from "#runtime/shared/utils/id.util";
 import type {
   SupervisorRunState,
@@ -7,10 +9,15 @@ import {
   SupervisorRunRevisionConflictError,
   transitionSupervisorRun,
 } from "../domain/supervisor-run.transitions";
+import {
+  assertPreparedSupervisorPrompt,
+  type SupervisorEffectPromptDispatchPort,
+} from "./ports/supervisor-effect-prompt-dispatch.port";
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
 import type {
   DispatchSupervisorWorkerInput,
   DispatchSupervisorWorkerResult,
+  ResumeSupervisorWorkerInput,
   SupervisorWorkerBinding,
   WorkerSessionManagerPort,
 } from "./ports/worker-session-manager.port";
@@ -54,15 +61,6 @@ export interface WorkerSessionCreatePort {
   }>;
 }
 
-export interface WorkerMessageSendPort {
-  execute(input: {
-    userId: string;
-    chatId: string;
-    text: string;
-    source: "orchestrator";
-  }): Promise<{ turnId: string }>;
-}
-
 export interface WorkerSessionStopPort {
   execute(userId: string, chatId: string): Promise<unknown>;
 }
@@ -95,7 +93,7 @@ export interface WorkerConfigOptionSetPort {
 export interface WorkerSessionManagerDeps {
   runs: SupervisorRunRepositoryPort;
   createSession: WorkerSessionCreatePort;
-  sendMessage: WorkerMessageSendPort;
+  effectPromptDispatch: SupervisorEffectPromptDispatchPort;
   stopSession: WorkerSessionStopPort;
   resumeSession: WorkerSessionResumePort;
   setModel?: WorkerModelSetPort;
@@ -118,7 +116,7 @@ export interface WorkerSessionManagerDeps {
 export class WorkerSessionManagerService implements WorkerSessionManagerPort {
   private readonly runs: SupervisorRunRepositoryPort;
   private readonly createSession: WorkerSessionCreatePort;
-  private readonly sendMessage: WorkerMessageSendPort;
+  private readonly effectPromptDispatch: SupervisorEffectPromptDispatchPort;
   private readonly stopSession: WorkerSessionStopPort;
   private readonly resumeSession: WorkerSessionResumePort;
   private readonly setModel?: WorkerModelSetPort;
@@ -132,7 +130,7 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
   constructor(deps: WorkerSessionManagerDeps) {
     this.runs = deps.runs;
     this.createSession = deps.createSession;
-    this.sendMessage = deps.sendMessage;
+    this.effectPromptDispatch = deps.effectPromptDispatch;
     this.stopSession = deps.stopSession;
     this.resumeSession = deps.resumeSession;
     this.setModel = deps.setModel;
@@ -213,18 +211,26 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
       });
       const latestRun = await this.requireRun(input.runId, input.userId);
       const latestTask = requireTask(latestRun, input.taskId);
-      const result = await this.sendMessage.execute({
+      const expectedPrompt = buildWorkerPrompt({
+        run: latestRun,
+        task: latestTask,
+        dependencySummaries: collectDependencySummaries(latestRun, latestTask),
+      });
+      assertPreparedSupervisorPrompt(expectedPrompt, input.preparedPrompt);
+      const result = await this.effectPromptDispatch.execute({
         userId: input.userId,
         chatId: attempt.chatId,
         source: "orchestrator",
-        text: buildWorkerPrompt({
-          run: latestRun,
-          task: latestTask,
-          dependencySummaries: collectDependencySummaries(
-            latestRun,
-            latestTask
-          ),
-        }),
+        text: input.preparedPrompt.text,
+        workflow: {
+          effectId: input.preparedPrompt.effectId,
+          authorityId: input.preparedPrompt.authorityId,
+          runId: input.runId,
+          owner: "worker",
+          workItemId: input.taskId,
+          attemptId: attempt.attemptId,
+          promptHash: input.preparedPrompt.promptHash,
+        },
       });
       const updated = await this.updateAttempt(
         input,
@@ -235,6 +241,9 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
       );
       return { attempt: updated, alreadyDispatched: false };
     } catch (error) {
+      if (error instanceof WorkflowEffectUncertainError) {
+        throw error;
+      }
       const suspension = await this.capacity?.suspendWorker({
         runId: input.runId,
         userId: input.userId,
@@ -417,8 +426,23 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
   }): Promise<void> {
     const run = await this.requireRun(input.runId, input.userId);
     const attempt = requireAttempt(run, input.taskId, input.attemptId);
-    await this.stopSession.execute(input.userId, attempt.chatId);
+    try {
+      await this.stopSession.execute(input.userId, attempt.chatId);
+    } catch (error) {
+      if (!isPersistedSessionAlreadyMissing(error, attempt.chatId)) {
+        throw error;
+      }
+    }
+    if (attempt.status === "terminal" || attempt.status === "interrupted") {
+      return;
+    }
     await this.updateAttempt(input, input.attemptId, (draftAttempt, draft) => {
+      if (
+        draftAttempt.status === "terminal" ||
+        draftAttempt.status === "interrupted"
+      ) {
+        return;
+      }
       draftAttempt.status = "interrupted";
       draftAttempt.finishedAt = this.now();
       const task = requireTask(draft, input.taskId);
@@ -439,12 +463,7 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     await this.stopSession.execute(input.userId, attempt.chatId);
   }
 
-  async resume(input: {
-    runId: string;
-    userId: string;
-    taskId: string;
-    attemptId: string;
-  }): Promise<void> {
+  async resume(input: ResumeSupervisorWorkerInput): Promise<void> {
     const run = await this.requireRun(input.runId, input.userId);
     const attempt = requireAttempt(run, input.taskId, input.attemptId);
     const resumed = (await this.resumeSession.execute(
@@ -461,11 +480,22 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     });
     const latestRun = await this.requireRun(input.runId, input.userId);
     const task = requireTask(latestRun, input.taskId);
-    const submitted = await this.sendMessage.execute({
+    const expectedPrompt = buildWorkerResumePrompt(task);
+    assertPreparedSupervisorPrompt(expectedPrompt, input.preparedPrompt);
+    const submitted = await this.effectPromptDispatch.execute({
       userId: input.userId,
       chatId: attempt.chatId,
       source: "orchestrator",
-      text: buildWorkerResumePrompt(task),
+      text: input.preparedPrompt.text,
+      workflow: {
+        effectId: input.preparedPrompt.effectId,
+        authorityId: input.preparedPrompt.authorityId,
+        runId: input.runId,
+        owner: "worker",
+        workItemId: input.taskId,
+        attemptId: input.attemptId,
+        promptHash: input.preparedPrompt.promptHash,
+      },
     });
     await this.updateAttempt(input, input.attemptId, (draftAttempt) => {
       draftAttempt.status = "running";
@@ -473,12 +503,9 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     });
   }
 
-  async resumePendingCapacity(input: {
-    runId: string;
-    userId: string;
-    taskId: string;
-    attemptId: string;
-  }): Promise<void> {
+  async resumePendingCapacity(
+    input: ResumeSupervisorWorkerInput
+  ): Promise<void> {
     const run = await this.requireRun(input.runId, input.userId);
     const task = requireTask(run, input.taskId);
     const attempt = requireAttempt(run, input.taskId, input.attemptId);
@@ -490,17 +517,30 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
           dependencySummaries: collectDependencySummaries(run, task),
         });
     try {
-      const submitted = await this.sendMessage.execute({
+      assertPreparedSupervisorPrompt(prompt, input.preparedPrompt);
+      const submitted = await this.effectPromptDispatch.execute({
         userId: input.userId,
         chatId: attempt.chatId,
         source: "orchestrator",
-        text: prompt,
+        text: input.preparedPrompt.text,
+        workflow: {
+          effectId: input.preparedPrompt.effectId,
+          authorityId: input.preparedPrompt.authorityId,
+          runId: input.runId,
+          owner: "worker",
+          workItemId: input.taskId,
+          attemptId: input.attemptId,
+          promptHash: input.preparedPrompt.promptHash,
+        },
       });
       await this.updateAttempt(input, input.attemptId, (draftAttempt) => {
         draftAttempt.status = "running";
         draftAttempt.turnId = submitted.turnId;
       });
     } catch (error) {
+      if (error instanceof WorkflowEffectUncertainError) {
+        throw error;
+      }
       const suspension = await this.capacity?.suspendWorker({
         ...input,
         failure: { error },
@@ -547,6 +587,8 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
           : {}),
         status: "starting",
         idempotencyKey: input.idempotencyKey,
+        dispatchEffectId: input.preparedPrompt.effectId,
+        promptHash: input.preparedPrompt.promptHash,
         startedAt: now,
       };
       const next = transitionSupervisorRun(run, {
@@ -699,6 +741,18 @@ export class WorkerSessionManagerService implements WorkerSessionManagerPort {
     }
     return run;
   }
+}
+
+function isPersistedSessionAlreadyMissing(
+  error: unknown,
+  expectedChatId: string
+): boolean {
+  return (
+    error instanceof NotFoundError &&
+    error.module === "session" &&
+    error.op === "session.lifecycle.stop" &&
+    error.details?.chatId === expectedChatId
+  );
 }
 
 function requireTask(run: SupervisorRunState, taskId: string) {

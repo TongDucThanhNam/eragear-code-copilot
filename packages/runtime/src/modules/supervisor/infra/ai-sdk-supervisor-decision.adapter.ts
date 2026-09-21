@@ -194,7 +194,9 @@ export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
   }
 }
 
-export function resolveSupervisorLanguageModel(policy: SupervisorPolicy) {
+export function resolveSupervisorLanguageModel(
+  policy: SupervisorPolicy
+): MiniMaxLanguageModel {
   const trimmedModel = policy.model.trim();
   const miniMaxModel = parseMiniMaxModelId(trimmedModel);
   if (miniMaxModel) {

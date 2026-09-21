@@ -72,10 +72,6 @@ describe("ACP capacity restart integration", () => {
     const calls: string[] = [];
     const events: string[] = [];
     const sessions: AcpCapacitySessionLifecyclePort = {
-      stop: (_userId, chatId) => {
-        calls.push(`stop:${chatId}`);
-        return Promise.resolve();
-      },
       resumeExact: (_userId, chatId) => {
         calls.push(`exact:${chatId}`);
         return Promise.resolve();
@@ -128,7 +124,7 @@ describe("ACP capacity restart integration", () => {
       status: "running",
       turnId: "turn-1",
     });
-    expect(calls).toEqual(["stop:chat-1", "exact:chat-1"]);
+    expect(calls).toEqual(["exact:chat-1"]);
     expect(events).toEqual([
       "supervisor_capacity_suspended",
       "supervisor_capacity_resumed",

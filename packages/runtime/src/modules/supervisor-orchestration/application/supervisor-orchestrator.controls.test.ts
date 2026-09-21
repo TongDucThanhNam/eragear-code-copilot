@@ -13,6 +13,8 @@ import {
   SupervisorOrchestratorService,
 } from "./supervisor-orchestrator.service";
 import { SupervisorSchedulerService } from "./supervisor-scheduler.service";
+import type { SupervisorWorkflowRunBoundaryPort } from "./supervisor-workflow-run-boundary";
+import { SupervisorWorkflowRunBoundary } from "./supervisor-workflow-run-boundary";
 import { WorkerResultService } from "./worker-result.service";
 
 class MemoryRuns implements SupervisorRunRepositoryPort {
@@ -25,6 +27,12 @@ class MemoryRuns implements SupervisorRunRepositoryPort {
   }
 
   create(run: SupervisorRunState): Promise<SupervisorRunState> {
+    const existing = this.runs.get(run.runId);
+    if (existing) {
+      return Promise.reject(
+        new SupervisorRunRevisionConflictError(run.runId, -1, existing.revision)
+      );
+    }
     this.runs.set(run.runId, structuredClone(run));
     return Promise.resolve(structuredClone(run));
   }
@@ -89,6 +97,49 @@ function createTask(
   };
 }
 
+function sourceGoalContractFixture(
+  overrides: Partial<
+    NonNullable<
+      Parameters<
+        SupervisorOrchestratorService["createDraft"]
+      >[0]["sourceGoalContract"]
+    >
+  > = {}
+) {
+  return {
+    intakeId: "goal-intake-1",
+    revisionId: "goal-contract-1",
+    revision: 1,
+    hash: "a".repeat(64),
+    createdAt: "2026-07-11T00:00:00.000Z",
+    contract: {
+      title: "Durable Goal Contract",
+      objective: "Deliver the approved outcome",
+      lockedStrategicDecisions: ["SQLite remains execution truth"],
+      assumptions: [],
+      nonGoals: [],
+      changeBoundary: ["packages/runtime/**"],
+      acceptanceCriteria: [
+        {
+          criterionId: "criterion-1",
+          statement: "The approved outcome has durable evidence",
+          evidence: "machine" as const,
+        },
+      ],
+      trustedVerificationCommands: ["bun test"],
+      authority: {
+        scopedCodeChange: "auto" as const,
+        architectureChange: "ask" as const,
+        dependencyChange: "ask" as const,
+        destructiveAction: "ask" as const,
+        finalIntegration: "ask" as const,
+      },
+      unresolvedQuestions: [],
+    },
+    ...overrides,
+  };
+}
+
 function createHarness(
   run?: SupervisorRunState,
   options: {
@@ -97,6 +148,7 @@ function createHarness(
     finalVerifier?: SupervisorOrchestratorDeps["finalVerifier"];
     finalCommit?: SupervisorOrchestratorDeps["finalCommit"];
     workspaces?: WorkerWorkspacePort;
+    workflowRunBoundary?: SupervisorWorkflowRunBoundaryPort;
   } = {}
 ) {
   const runs = new MemoryRuns(run);
@@ -133,7 +185,10 @@ function createHarness(
       plan() {
         return Promise.resolve({
           proposal: { schemaVersion: 1, summary: "safe", tasks: [] },
-          tasks: [createTask("task-a"), createTask("task-b")],
+          tasks: [
+            createTask("task-a", { criterionIds: ["criterion-1"] }),
+            createTask("task-b"),
+          ],
         });
       },
       replan() {
@@ -211,6 +266,9 @@ function createHarness(
       },
     },
     ...(options.finalCommit ? { finalCommit: options.finalCommit } : {}),
+    ...(options.workflowRunBoundary
+      ? { workflowRunBoundary: options.workflowRunBoundary }
+      : {}),
     now: () => "2026-07-11T00:01:00.000Z",
     createId(prefix) {
       id += 1;
@@ -237,7 +295,178 @@ async function approveDraft(
 }
 
 describe("SupervisorOrchestratorService controls", () => {
-  test("starts a run and dispatches two independent tasks within concurrency", async () => {
+  test("binds one immutable Supervisor run to an approved Goal Intake contract", async () => {
+    const harness = createHarness();
+    const sourceGoalContract = sourceGoalContractFixture({
+      intakeId: "goal-intake-1",
+      revisionId: "goal-contract-1",
+      hash: "a".repeat(64),
+    });
+    const created = await harness.service.createDraft({
+      userId: "user-1",
+      projectId: "project-1",
+      projectRoot: "C:/repo",
+      intent: "Deliver the approved outcome",
+      constraints: ["Stay inside the approved boundary"],
+      priority: "normal",
+      sourceGoalContract,
+    });
+
+    const replayed = await harness.service.createDraft({
+      userId: "user-1",
+      projectId: "project-1",
+      projectRoot: "C:/repo",
+      intent: "This replay must not create another run",
+      constraints: [],
+      priority: "normal",
+      sourceGoalContract,
+    });
+
+    expect(replayed.runId).toBe(created.runId);
+    expect(replayed.sourceGoalContract).toEqual(sourceGoalContract);
+    expect(replayed.workflowPlan?.goalRevisionId).toBe(
+      sourceGoalContract.revisionId
+    );
+    expect(await harness.runs.list({ userId: "user-1" })).toHaveLength(1);
+
+    await expect(
+      harness.service.createDraft({
+        userId: "user-1",
+        projectId: "project-1",
+        projectRoot: "C:/repo",
+        intent: "Attempt to rotate the already-bound contract",
+        constraints: [],
+        priority: "normal",
+        sourceGoalContract: {
+          ...sourceGoalContract,
+          hash: "b".repeat(64),
+        },
+      })
+    ).rejects.toThrow("already bound to another contract revision");
+  });
+
+  test("concurrent exact Goal Contract conversion converges on one deterministic run", async () => {
+    const harness = createHarness();
+    const sourceGoalContract = sourceGoalContractFixture({
+      intakeId: "goal-intake-concurrent",
+      revisionId: "goal-contract-concurrent",
+      hash: "c".repeat(64),
+    });
+    const input = {
+      userId: "user-1",
+      projectId: "project-1",
+      projectRoot: "C:/repo",
+      intent: "Deliver the exact concurrent contract",
+      constraints: ["Preserve its frozen provenance"],
+      priority: "normal" as const,
+      sourceGoalContract,
+    };
+
+    const [left, right] = await Promise.all([
+      harness.service.createDraft(input),
+      harness.service.createDraft(input),
+    ]);
+
+    expect(left.runId).toBe(right.runId);
+    expect(left.runId).toStartWith("supervisor-run-goal-");
+    expect(left.sourceGoalContract).toEqual(sourceGoalContract);
+    expect(right.sourceGoalContract).toEqual(sourceGoalContract);
+    expect(await harness.runs.list({ userId: "user-1" })).toHaveLength(1);
+  });
+
+  test("recovers the exact persisted source run after workflow pumping fails", async () => {
+    const harness = createHarness();
+    const sourceGoalContract = sourceGoalContractFixture({
+      intakeId: "goal-intake-pump-failure",
+      revisionId: "goal-contract-pump-failure",
+      hash: "d".repeat(64),
+    });
+    const input = {
+      userId: "user-1",
+      projectId: "project-1",
+      projectRoot: "C:/repo",
+      intent: "Preserve the run across a pump failure",
+      constraints: ["Do not create a replacement run"],
+      priority: "normal" as const,
+      sourceGoalContract,
+    };
+    let pumpCalls = 0;
+    harness.service.setWorkflowPump(async (runId, userId) => {
+      pumpCalls += 1;
+      if (pumpCalls === 1) {
+        throw new Error("workflow pump failed after create");
+      }
+      const run = await harness.runs.get(runId, userId);
+      if (!run) {
+        throw new Error("Persisted source run disappeared before retry pump");
+      }
+      return run;
+    });
+
+    await expect(harness.service.createDraft(input)).rejects.toThrow(
+      "workflow pump failed after create"
+    );
+    const persisted = (await harness.runs.list({ userId: "user-1" }))[0];
+    if (!persisted) {
+      throw new Error("Expected persisted source run after pump failure");
+    }
+    const replayed = await harness.service.createDraft(input);
+
+    expect(replayed.runId).toBe(persisted.runId);
+    expect(replayed.sourceGoalContract).toEqual(sourceGoalContract);
+    expect(pumpCalls).toBe(2);
+    expect(await harness.runs.list({ userId: "user-1" })).toHaveLength(1);
+  });
+
+  test("accepts cancellation only after in-flight effect IO and its result commit", async () => {
+    const run = createSupervisorRunFixture({
+      schemaVersion: 3,
+      desiredState: "running",
+      phase: "executing",
+      status: "running",
+      workflowPlan: {
+        goalRevisionId: "goal-1",
+        authorityId: "authority-1",
+        status: "approved",
+        planVersion: 1,
+      },
+    });
+    const boundary = new SupervisorWorkflowRunBoundary();
+    const harness = createHarness(run, { workflowRunBoundary: boundary });
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    const order: string[] = [];
+    const effect = boundary.runExclusive(run.runId, async () => {
+      order.push("integration-io-started");
+      entered.resolve();
+      await release.promise;
+      order.push("integration-result-committed");
+    });
+    await entered.promise;
+
+    let cancellationResolved = false;
+    const cancellation = harness.service
+      .cancel(run.runId, run.userId)
+      .then((saved) => {
+        cancellationResolved = true;
+        order.push("cancellation-accepted");
+        return saved;
+      });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(cancellationResolved).toBe(false);
+    release.resolve();
+    const [, cancelled] = await Promise.all([effect, cancellation]);
+    expect(cancelled.desiredState).toBe("cancelled");
+    expect(order).toEqual([
+      "integration-io-started",
+      "integration-result-committed",
+      "cancellation-accepted",
+    ]);
+  });
+
+  test("approves a run into durable ready work without direct dispatch", async () => {
     const harness = createHarness();
     const draft = await harness.service.start({
       userId: "user-1",
@@ -248,8 +477,8 @@ describe("SupervisorOrchestratorService controls", () => {
     expect(draft.status).toBe("awaiting_approval");
     expect(harness.dispatched).toEqual([]);
     const run = await approveDraft(harness, draft);
-    expect(run.tasks.map((task) => task.status)).toEqual(["queued", "queued"]);
-    expect(harness.dispatched).toEqual(["task-a", "task-b"]);
+    expect(run.tasks.map((task) => task.status)).toEqual(["ready", "ready"]);
+    expect(harness.dispatched).toEqual([]);
     expect(run.audit.map((entry) => entry.kind)).toEqual([
       "run_created",
       "plan_awaiting_approval",
@@ -257,7 +486,7 @@ describe("SupervisorOrchestratorService controls", () => {
     ]);
   });
 
-  test("checks provider admission before every scheduled worker dispatch", async () => {
+  test("defers provider admission to the durable capacity effect", async () => {
     const harness = createHarness();
     const admitted: string[] = [];
     harness.service.setDispatchAdmission({
@@ -279,8 +508,8 @@ describe("SupervisorOrchestratorService controls", () => {
     });
     const run = await approveDraft(harness, draft);
 
-    expect(admitted).toEqual(["task-a", "task-b"]);
-    expect(harness.dispatched).toEqual(["task-a", "task-b"]);
+    expect(admitted).toEqual([]);
+    expect(harness.dispatched).toEqual([]);
     expect(run).toMatchObject({
       legacyAutomation: {
         scheduleId: "schedule-1",
@@ -328,11 +557,11 @@ describe("SupervisorOrchestratorService controls", () => {
     expect(paused.status).toBe("paused");
     expect(harness.dispatched).toEqual([]);
     const resumed = await harness.service.resume(base.runId, base.userId);
-    expect(resumed.tasks[0]?.status).toBe("queued");
-    expect(harness.dispatched).toEqual(["task-a"]);
+    expect(resumed.tasks[0]?.status).toBe("ready");
+    expect(harness.dispatched).toEqual([]);
   });
 
-  test("cancels every active worker and all non-completed tasks", async () => {
+  test("persists cancellation intent before any worker cleanup", async () => {
     const activeTask = createTask("task-a", {
       status: "running",
       attempts: [
@@ -346,22 +575,140 @@ describe("SupervisorOrchestratorService controls", () => {
         },
       ],
     });
+    const capacityTask = createTask("task-capacity", {
+      status: "waiting_capacity",
+      attempts: [
+        {
+          attemptId: "attempt-capacity",
+          chatId: "chat-capacity",
+          agentId: "agent-1",
+          status: "waiting_capacity",
+          idempotencyKey: "run:task:capacity",
+          startedAt: "2026-07-11T00:00:00.000Z",
+        },
+      ],
+    });
     const completedTask = createTask("task-b", { status: "completed" });
     const base = createSupervisorRunFixture({
       status: "running",
-      tasks: [activeTask, completedTask],
+      tasks: [activeTask, capacityTask, completedTask],
+      capacityWaits: [
+        {
+          waitId: "wait-capacity",
+          owner: "task",
+          taskId: capacityTask.taskId,
+          attemptId: "attempt-capacity",
+          agentId: "agent-1",
+          kind: "quota_exhausted",
+          reason: "Quota resets later",
+          suspendedAt: "2026-07-11T00:00:30.000Z",
+          retryAt: "2026-07-11T01:00:00.000Z",
+          backoffStep: 0,
+        },
+      ],
     });
     const harness = createHarness(base);
     const cancelled = await harness.service.cancel(base.runId, base.userId);
-    expect(cancelled.status).toBe("cancelled");
-    expect(cancelled.tasks.map((task) => task.status)).toEqual([
-      "cancelled",
-      "completed",
-    ]);
-    expect(harness.stopped).toEqual(["attempt-1"]);
+    expect(cancelled.status).toBe("paused");
+    expect(cancelled.outcome).toBeUndefined();
+    expect(cancelled.desiredState).toBe("cancelled");
+    expect(cancelled.cancellation).toMatchObject({
+      status: "pending",
+      pendingSessionIds: ["chat-1", "chat-capacity"],
+    });
+    expect(
+      cancelled.tasks.flatMap((task) =>
+        task.attempts.map((attempt) => attempt.status)
+      )
+    ).toEqual(["running", "waiting_capacity"]);
+    expect(harness.stopped).toEqual([]);
   });
 
-  test("stops the sticky ACP manager when cancelling a planning run", async () => {
+  test("keeps cancellation durable while cleanup effects are pending", async () => {
+    const workspace = {
+      workspaceId: "workspace-cancel",
+      kind: "isolated_git" as const,
+      userProjectRoot: "C:/repo",
+      projectRoot: "C:/runtime/workspace-cancel",
+      gitWorktreeRoot: "C:/runtime/workspace-cancel",
+      baseHead: "abc123",
+      targetFingerprints: {},
+    };
+    const activeTask = createTask("task-a", {
+      status: "running",
+      attempts: [
+        {
+          attemptId: "attempt-1",
+          chatId: "chat-1",
+          agentId: "agent-1",
+          status: "running",
+          idempotencyKey: "run:task:1",
+          startedAt: "2026-07-11T00:00:00.000Z",
+          workspace,
+        },
+      ],
+    });
+    const base = createSupervisorRunFixture({
+      status: "running",
+      tasks: [activeTask],
+    });
+    let interruptCleanup = true;
+    const disposed: string[] = [];
+    const harness = createHarness(base, {
+      workspaces: {
+        dispose(candidate: Parameters<WorkerWorkspacePort["dispose"]>[0]) {
+          disposed.push(candidate.workspaceId);
+          if (interruptCleanup) {
+            interruptCleanup = false;
+            return Promise.reject(new Error("simulated cancellation crash"));
+          }
+          return Promise.resolve();
+        },
+      } as unknown as WorkerWorkspacePort,
+    });
+
+    await harness.service.cancel(base.runId, base.userId);
+    const cancelling = await harness.runs.get(base.runId, base.userId);
+    if (!cancelling) {
+      throw new Error("Expected durable cancellation state");
+    }
+    expect(cancelling).toMatchObject({
+      status: "paused",
+      desiredState: "cancelled",
+      phase: "executing",
+    });
+    expect(cancelling.outcome).toBeUndefined();
+    const stillCancelling = await harness.service.pause(
+      base.runId,
+      base.userId
+    );
+    expect(stillCancelling.desiredState).toBe("cancelled");
+    await expect(
+      harness.service.resume(base.runId, base.userId)
+    ).rejects.toThrow("cancellation is still in progress");
+
+    const stillPending = await harness.service.cancel(base.runId, base.userId);
+
+    expect(stillPending).toMatchObject({
+      status: "paused",
+      desiredState: "cancelled",
+      phase: "executing",
+      cancellation: {
+        status: "pending",
+        pendingSessionIds: ["chat-1"],
+        pendingWorkspaceIds: ["workspace-cancel"],
+      },
+    });
+    expect(stillPending.revision).toBe(cancelling.revision);
+    expect(stillPending.workflowPlan?.authorityId).toBe(
+      cancelling.workflowPlan?.authorityId
+    );
+    expect(stillPending.tasks[0]?.attempts[0]?.status).toBe("running");
+    expect(harness.stopped).toEqual([]);
+    expect(disposed).toEqual([]);
+  });
+
+  test("records sticky manager cleanup as a cancellation effect", async () => {
     const base = createSupervisorRunFixture({
       status: "planning",
       tasks: [],
@@ -390,8 +737,11 @@ describe("SupervisorOrchestratorService controls", () => {
     });
 
     const cancelled = await harness.service.cancel(base.runId, base.userId);
-    expect(cancelled.status).toBe("cancelled");
-    expect(stoppedManagers).toEqual([base.runId]);
+    expect(cancelled.status).toBe("paused");
+    expect(cancelled.cancellation?.pendingSessionIds).toEqual([
+      "manager-chat-1",
+    ]);
+    expect(stoppedManagers).toEqual([]);
   });
 
   test("retries failed work within budget and rejects exhausted attempts", async () => {
@@ -419,8 +769,8 @@ describe("SupervisorOrchestratorService controls", () => {
       userId: base.userId,
       taskId: failed.taskId,
     });
-    expect(retried.tasks[0]?.status).toBe("queued");
-    expect(harness.dispatched).toEqual(["task-a"]);
+    expect(retried.tasks[0]?.status).toBe("ready");
+    expect(harness.dispatched).toEqual([]);
 
     const exhausted = createSupervisorRunFixture({
       status: "needs_user",
@@ -474,6 +824,77 @@ describe("SupervisorOrchestratorService controls", () => {
     expect(retried.status).toBe("queued");
     expect(retried.tasks[0]?.status).toBe("ready");
     expect(harness.dispatched).toEqual([]);
+  });
+
+  test("requires an explicit typed resolution before recording user criterion acceptance", async () => {
+    const sourceGoalContract = sourceGoalContractFixture();
+    sourceGoalContract.contract.acceptanceCriteria = [
+      {
+        criterionId: "criterion-user",
+        statement: "The semantic outcome is acceptable",
+        evidence: "user",
+      },
+    ];
+    sourceGoalContract.contract.authority.finalIntegration = "auto";
+    const task = createTask("task-user", {
+      criterionIds: ["criterion-user"],
+      status: "completed",
+      outcome: "succeeded",
+      acceptance: "machine_verified",
+      verification: {
+        verificationId: "verification-user",
+        status: "passed",
+        evidenceRefs: ["evidence-user"],
+      },
+      integration: {
+        integrationId: "integration-user",
+        status: "not_required",
+      },
+    });
+    const base = createSupervisorRunFixture({
+      sourceGoalContract,
+      status: "needs_user",
+      blockingDecisionId: "decision-user-criterion",
+      tasks: [task],
+      decisions: [
+        {
+          decisionId: "decision-user-criterion",
+          kind: "goal_criteria_acceptance",
+          status: "open",
+          prompt: "Explicitly accept or waive criterion-user",
+          criterionIds: ["criterion-user"],
+          createdAt: "2026-07-11T00:00:30.000Z",
+        },
+      ],
+    });
+    const harness = createHarness(base);
+
+    await expect(
+      harness.service.answerDecision({
+        runId: base.runId,
+        userId: base.userId,
+        decisionId: "decision-user-criterion",
+        answer: "Looks okay, maybe",
+        expectedRevision: base.revision,
+      })
+    ).rejects.toThrow("explicit accept or waive");
+
+    const accepted = await harness.service.answerDecision({
+      runId: base.runId,
+      userId: base.userId,
+      decisionId: "decision-user-criterion",
+      answer: "Accepted after semantic review",
+      criterionResolution: "accept",
+      expectedRevision: base.revision,
+    });
+
+    expect(accepted.goalCriterionResolutions).toEqual([
+      expect.objectContaining({
+        criterionId: "criterion-user",
+        resolution: "user_accepted",
+        decisionId: "decision-user-criterion",
+      }),
+    ]);
   });
 
   test("answers a final delivery decision by revalidating and committing without a manager replan", async () => {
@@ -557,14 +978,14 @@ describe("SupervisorOrchestratorService controls", () => {
       expectedRevision: base.revision,
     });
 
-    expect(completed.status).toBe("completed");
-    expect(completed.finalCommitSha).toBe("b".repeat(40));
+    expect(completed.status).toBe("completing");
+    expect(completed.finalCommitSha).toBeUndefined();
     expect(completed.decisions[0]).toMatchObject({
       status: "answered",
       answeredByUserId: "user-1",
     });
     expect(managerDispatches).toEqual([]);
-    expect(commitRevisions).toHaveLength(1);
+    expect(commitRevisions).toHaveLength(0);
   });
 
   test("rejects invalid transitions and cross-user access", async () => {
@@ -656,7 +1077,11 @@ describe("SupervisorOrchestratorService controls", () => {
       gateId: "gate-1",
     });
     expect(approved.gates[0]?.status).toBe("approved");
-    expect(approved.tasks[0]?.status).toBe("completed");
+    expect(approved.tasks[0]?.status).toBe("needs_user");
+    expect(approved.tasks[0]?.integration).toMatchObject({
+      status: "pending",
+      workspaceId: "workspace-1",
+    });
     await expect(
       approvedHarness.service.approveGate({
         runId: base.runId,
@@ -688,7 +1113,8 @@ describe("SupervisorOrchestratorService controls", () => {
     const replanned = await approveDraft(harness, proposed);
     expect(replanned.plannerReplanCount).toBe(1);
     expect(replanned.tasks[0]?.taskId).toBe("task-b");
-    expect(harness.dispatched).toEqual(["task-b"]);
+    expect(replanned.tasks[0]?.status).toBe("ready");
+    expect(harness.dispatched).toEqual([]);
 
     const active = createSupervisorRunFixture({
       status: "running",
@@ -727,3 +1153,13 @@ describe("SupervisorOrchestratorService controls", () => {
     ).rejects.toThrow("exhausted its replan budget");
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}

@@ -289,6 +289,21 @@ function resolveWorkerResponseError(message: SqliteWorkerResponse): Error {
   if (errorData?.stack) {
     error.stack = errorData.stack;
   }
+  if (errorData?.code) {
+    Reflect.set(error, "code", errorData.code);
+  }
+  if (errorData?.operation) {
+    Reflect.set(error, "operation", errorData.operation);
+  }
+  if (errorData?.intakeId) {
+    Reflect.set(error, "intakeId", errorData.intakeId);
+  }
+  if (errorData?.expectedRevision !== undefined) {
+    Reflect.set(error, "expectedRevision", errorData.expectedRevision);
+  }
+  if (errorData?.actualRevision !== undefined) {
+    Reflect.set(error, "actualRevision", errorData.actualRevision);
+  }
   return error;
 }
 

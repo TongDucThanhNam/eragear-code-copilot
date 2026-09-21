@@ -3,6 +3,10 @@ import type {
   SupervisorRunState,
 } from "../domain/supervisor-run.schemas";
 import type { SupervisorRunRepositoryPort } from "./ports/supervisor-run-repository.port";
+import {
+  evaluateSupervisorSchedule,
+  isSupervisorRunDispatchable,
+} from "./supervisor-scheduler.service";
 
 export const SUPERVISOR_PRIORITY_WEIGHTS: Record<
   SupervisorRunPriority,
@@ -58,6 +62,7 @@ export function buildWeightedFairRunOrder(
 export class SupervisorGlobalSchedulerService {
   private readonly deps: {
     runs: SupervisorRunRepositoryPort;
+    now?: () => string;
     orchestrator: {
       schedule(
         runId: string,
@@ -69,6 +74,7 @@ export class SupervisorGlobalSchedulerService {
 
   constructor(deps: {
     runs: SupervisorRunRepositoryPort;
+    now?: () => string;
     orchestrator: {
       schedule(
         runId: string,
@@ -81,15 +87,25 @@ export class SupervisorGlobalSchedulerService {
   }
 
   async tick(maxDispatches = 64): Promise<string[]> {
-    const runs = (await this.deps.runs.listNonTerminal()).filter(
-      (run) => run.status === "queued" || run.status === "running"
+    const now = this.deps.now?.() ?? new Date().toISOString();
+    const runnableRuns = (await this.deps.runs.listNonTerminal())
+      .map((run) => ({
+        run,
+        decision: evaluateSupervisorSchedule(run, now),
+      }))
+      .filter(
+        ({ run, decision }) =>
+          isSupervisorRunDispatchable(run, now) &&
+          decision.dispatchTaskIds.length > 0
+      );
+    const byId = new Map(
+      runnableRuns.map(({ run }) => [run.runId, run] as const)
     );
-    const byId = new Map(runs.map((run) => [run.runId, run]));
     const order = buildWeightedFairRunOrder(
-      runs.map((run) => ({
+      runnableRuns.map(({ run, decision }) => ({
         runId: run.runId,
         priority: run.priority,
-        runnableCount: countRunnableTasks(run),
+        runnableCount: decision.dispatchTaskIds.length,
         createdAt: run.createdAt,
       })),
       maxDispatches
@@ -102,18 +118,4 @@ export class SupervisorGlobalSchedulerService {
     }
     return order;
   }
-}
-
-function countRunnableTasks(run: SupervisorRunState): number {
-  const completed = new Set(
-    run.tasks
-      .filter((task) => task.status === "completed")
-      .map((task) => task.taskId)
-  );
-  return run.tasks.filter(
-    (task) =>
-      (task.status === "ready" || task.status === "blocked") &&
-      task.attempts.length < run.limits.maxAttemptsPerTask &&
-      task.dependencies.every((dependency) => completed.has(dependency))
-  ).length;
 }

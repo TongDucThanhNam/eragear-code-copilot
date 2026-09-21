@@ -1,7 +1,8 @@
-import type { Dirent } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { TextUIPart, UIMessage } from "@eragear-code-copilot/shared";
+import { Glob } from "bun";
+import { parseTolerantJsonLines } from "#runtime/shared/utils/json-lines.util";
 
 export interface ExternalHistoryResolveInput {
   sessionIdToLoad?: string;
@@ -146,11 +147,8 @@ function parseCodexHistoryUserEntries(
   const entries: TimelineTextEntry[] = [];
   let order = 0;
 
-  for (const line of historyText.split("\n")) {
-    if (!line.trim()) {
-      continue;
-    }
-    const parsed = parseJsonRecord(line);
+  for (const value of parseTolerantJsonLines(historyText)) {
+    const parsed = asRecord(value);
     if (!parsed) {
       continue;
     }
@@ -180,11 +178,8 @@ function parseCodexTranscriptAssistantEntries(
   const entries: TimelineTextEntry[] = [];
   let order = 0;
 
-  for (const line of transcriptText.split("\n")) {
-    if (!line.trim()) {
-      continue;
-    }
-    const parsed = parseJsonRecord(line);
+  for (const value of parseTolerantJsonLines(transcriptText)) {
+    const parsed = asRecord(value);
     if (!parsed || parsed.type !== "response_item") {
       continue;
     }
@@ -296,31 +291,20 @@ async function findCodexTranscriptPath(
   sessionId: string
 ): Promise<string | null> {
   const root = path.join(codexRoot, CODEX_SESSIONS_DIR_NAME);
-  const stack = [root];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    const entries = await readOptionalDirectoryEntries(current);
-    if (!entries) {
-      continue;
-    }
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-        continue;
-      }
-      if (
-        entry.isFile() &&
-        entry.name.endsWith(".jsonl") &&
-        entry.name.includes(sessionId)
-      ) {
+  try {
+    for await (const fullPath of new Glob("**/*.jsonl").scan({
+      cwd: root,
+      absolute: true,
+      dot: true,
+      followSymlinks: false,
+      onlyFiles: true,
+    })) {
+      if (path.basename(fullPath).includes(sessionId)) {
         return fullPath;
       }
     }
+  } catch {
+    return null;
   }
 
   return null;
@@ -329,28 +313,6 @@ async function findCodexTranscriptPath(
 async function readOptionalText(filePath: string): Promise<string | null> {
   try {
     return await readFile(filePath, "utf8");
-  } catch {
-    return null;
-  }
-}
-
-async function readOptionalDirectoryEntries(
-  dirPath: string
-): Promise<Dirent<string>[] | null> {
-  try {
-    return await readdir(dirPath, {
-      withFileTypes: true,
-      encoding: "utf8",
-    });
-  } catch {
-    return null;
-  }
-}
-
-function parseJsonRecord(line: string): JsonRecord | null {
-  try {
-    const parsed = JSON.parse(line);
-    return asRecord(parsed);
   } catch {
     return null;
   }
