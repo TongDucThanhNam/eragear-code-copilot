@@ -481,6 +481,117 @@ export interface SupervisorRunClientUpdate {
   updatedAt: string;
 }
 
+/**
+ * Bounded read-only detail view over one persisted supervisor run.
+ *
+ * The runtime derives this from stored facts per request; it is a projection,
+ * never a second truth store. Bounds are enforced runtime-side (see the
+ * runtime detail projection) so every array and free-text field here is
+ * already truncated with honest totals when it says so. Paths, storage refs,
+ * session internals, and secrets are deliberately excluded.
+ */
+export interface SupervisorRunDetailClientView {
+  runId: string;
+  revision: number;
+  projectId?: string;
+  status: SupervisorRunClientUpdate["status"];
+  phase: "planning" | "executing" | "finalizing" | "finished";
+  desiredState: "running" | "paused" | "cancelled";
+  outcome?: "succeeded" | "failed" | "cancelled";
+  plannerReplanCount: number;
+  /** Bounded copy of the run's original intent for surfaces without a Goal contract. */
+  originalIntent?: string;
+  createdAt: string;
+  updatedAt: string;
+  tasks: Array<{
+    taskId: string;
+    title: string;
+    /** Bounded worker prompt for the task. */
+    prompt: string;
+    role: SupervisorRunClientUpdate["tasks"][number]["role"];
+    executionMode: SupervisorRunClientUpdate["tasks"][number]["executionMode"];
+    dependencies: string[];
+    criterionIds: string[];
+    status: SupervisorRunClientUpdate["tasks"][number]["status"];
+    outcome?: "succeeded" | "failed" | "cancelled";
+    blockingDecisionId?: string;
+    notBefore?: string;
+    filesAllowed: { paths: string[]; total: number };
+    verificationCommands: string[];
+    attempts: Array<{
+      attemptId: string;
+      chatId: string;
+      agentId: string;
+      modelId?: string;
+      status:
+        | "starting"
+        | "running"
+        | "waiting_capacity"
+        | "uncertain"
+        | "terminal"
+        | "interrupted";
+      semanticStatus?: "succeeded" | "needs_user" | "failed" | "cancelled";
+      startedAt: string;
+      finishedAt?: string;
+      /** Bounded outcome summary from the worker result. */
+      outcomeSummary?: string;
+      /** Bounded failure/needs-user reason. */
+      reason?: string;
+      /** Hash-addressed checkpoint reference; storage paths stay runtime-side. */
+      checkpoint?: { sha256: string; byteLength: number };
+      files: {
+        touched: { paths: string[]; total: number };
+        created: { paths: string[]; total: number };
+        deleted: { paths: string[]; total: number };
+        renamed: Array<{ from: string; to: string }>;
+      };
+      verification: Array<{
+        command: string;
+        exitCode: number | null;
+        outputSummary?: string;
+      }>;
+      unresolvedPermissions: string[];
+      toolFailureSummary: string[];
+      workspace?: {
+        kind: "read_only" | "direct_git" | "isolated_git";
+        baseHead?: string;
+      };
+    }>;
+  }>;
+  gates: Array<{
+    gateId: string;
+    taskId: string;
+    attemptId: string;
+    kind: SupervisorRunClientUpdate["gates"][number]["kind"];
+    status: SupervisorRunClientUpdate["gates"][number]["status"];
+    /** Bounded machine reason for the gate. */
+    reason: string;
+    createdAt: string;
+    decidedAt?: string;
+  }>;
+  audit: {
+    entries: Array<{
+      auditId: string;
+      kind: string;
+      createdAt: string;
+      actor: "user" | "orchestrator" | "worker" | "system";
+      summary: string;
+      taskId?: string;
+      attemptId?: string;
+    }>;
+    total: number;
+    truncated: boolean;
+  };
+  finalVerification: Array<{
+    command: string;
+    exitCode: number | null;
+    outputSummary?: string;
+    startedAt?: string;
+    finishedAt?: string;
+  }>;
+  finalCommitSha?: string;
+}
+
 export interface SupervisorManagerInboxItem {
   runId: string;
   revision: number;

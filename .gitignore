@@ -53,3 +53,4 @@ temp
 apps/server/.eragear/sessions.json
 .agentlens
 artifacts
+.zcode-dispatch/

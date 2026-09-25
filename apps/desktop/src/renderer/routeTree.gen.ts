@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as RunsRouteImport } from './routes/runs'
 import { Route as MissionControlRouteImport } from './routes/mission-control'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
@@ -41,6 +42,11 @@ import { Route as SettingsActivityRouteImport } from './routes/settings.activity
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RunsRoute = RunsRouteImport.update({
+  id: '/runs',
+  path: '/runs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MissionControlRoute = MissionControlRouteImport.update({
@@ -183,6 +189,7 @@ const SettingsActivityRoute = SettingsActivityRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/mission-control': typeof MissionControlRoute
+  '/runs': typeof RunsRoute
   '/settings': typeof SettingsRouteWithChildren
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
@@ -213,6 +220,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/mission-control': typeof MissionControlRoute
+  '/runs': typeof RunsRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -243,6 +251,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/mission-control': typeof MissionControlRoute
+  '/runs': typeof RunsRoute
   '/settings': typeof SettingsRouteWithChildren
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
@@ -275,6 +284,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/mission-control'
+    | '/runs'
     | '/settings'
     | '/settings/activity'
     | '/settings/agents'
@@ -305,6 +315,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/mission-control'
+    | '/runs'
     | '/settings/activity'
     | '/settings/agents'
     | '/settings/appearance'
@@ -334,6 +345,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/mission-control'
+    | '/runs'
     | '/settings'
     | '/settings/activity'
     | '/settings/agents'
@@ -365,6 +377,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MissionControlRoute: typeof MissionControlRoute
+  RunsRoute: typeof RunsRoute
   SettingsRoute: typeof SettingsRouteWithChildren
 }
 
@@ -375,6 +388,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/runs': {
+      id: '/runs'
+      path: '/runs'
+      fullPath: '/runs'
+      preLoaderRoute: typeof RunsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mission-control': {
@@ -632,6 +652,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MissionControlRoute: MissionControlRoute,
+  RunsRoute: RunsRoute,
   SettingsRoute: SettingsRouteWithChildren,
 }
 export const routeTree = rootRouteImport

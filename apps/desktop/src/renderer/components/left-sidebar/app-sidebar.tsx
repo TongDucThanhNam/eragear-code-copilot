@@ -3,7 +3,7 @@
 
 import { IconInnerShadowTop } from "@tabler/icons-react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Gauge } from "lucide-react";
+import { Gauge, Waypoints } from "lucide-react";
 import type * as React from "react";
 import { useEffect, useMemo } from "react";
 import { getAgentIconComponent } from "@/components/left-sidebar/agent-icons";
@@ -128,6 +128,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <Link to="/mission-control">
                 <Gauge className="size-5" />
                 <span>Mission Control</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild isActive={pathname.startsWith("/runs")}>
+              <Link to="/runs">
+                <Waypoints className="size-5" />
+                <span>Run Center</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

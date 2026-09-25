@@ -629,6 +629,22 @@ export function MissionControl() {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Button
+                          aria-label={`Open ${getSupervisorRunTitle(run)} in Run Center`}
+                          className="gap-1.5"
+                          data-testid="mission-control-open-workspace"
+                          onClick={() =>
+                            navigate({
+                              to: "/runs",
+                              search: { runId: run.runId },
+                            })
+                          }
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <ExternalLink className="size-3.5" /> Open
+                        </Button>
                         <select
                           aria-label={`Priority for ${run.runId}`}
                           className="h-7 rounded-md border bg-background px-2 text-xs"

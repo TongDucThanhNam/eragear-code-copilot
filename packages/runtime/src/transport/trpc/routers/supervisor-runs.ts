@@ -8,6 +8,7 @@ import {
   ApproveSupervisorPlanInputSchema,
   ConfigureSupervisorTelegramInputSchema,
   CreateSupervisorRunDraftInputSchema,
+  createClientSafeSupervisorRunDetail,
   createClientSafeSupervisorRunUpdate,
   ListSupervisorRunsInputSchema,
   RequestSupervisorPlanChangesInputSchema,
@@ -59,6 +60,17 @@ export const supervisorRunsRouter = router({
         getRequiredUserId(ctx)
       );
       return run ? createClientSafeSupervisorRunUpdate(run) : null;
+    }),
+
+  /** Bounded read-only evidence/detail projection over one owned run. */
+  detail: protectedProcedure
+    .input(SupervisorRunIdInputSchema)
+    .query(async ({ input, ctx }) => {
+      const run = await ctx.useCases.supervisorOrchestration.orchestrator.get(
+        input.runId,
+        getRequiredUserId(ctx)
+      );
+      return run ? createClientSafeSupervisorRunDetail(run) : null;
     }),
 
   list: protectedProcedure

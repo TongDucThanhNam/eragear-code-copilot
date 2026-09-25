@@ -72,6 +72,7 @@ describe("supervisorRunsRouter", () => {
       "start",
       "createDraft",
       "get",
+      "detail",
       "list",
       "pause",
       "resume",
@@ -109,6 +110,7 @@ describe("supervisorRunsRouter", () => {
       intent: "Implement safely",
     });
     await caller.get({ runId: "run-1" });
+    await caller.detail({ runId: "run-1" });
     await caller.list();
     await caller.pause({ runId: "run-1" });
     await caller.resume({ runId: "run-1" });
@@ -140,8 +142,35 @@ describe("supervisorRunsRouter", () => {
     await caller.approveGate({ runId: "run-1", gateId: "gate-1" });
     await caller.rejectGate({ runId: "run-1", gateId: "gate-1" });
 
-    expect(calls).toHaveLength(15);
+    expect(calls).toHaveLength(16);
     expect(calls.every((call) => call.userId === "user-1")).toBe(true);
+  });
+
+  test("maps the read-only detail projection through authenticated ownership", async () => {
+    const { caller, run } = createCaller();
+    const detail = await caller.detail({ runId: run.runId });
+    expect(detail).not.toBeNull();
+    expect(detail?.runId).toBe(run.runId);
+    expect(detail?.tasks[0]?.prompt).toBe("Find the relevant interfaces");
+    const other = supervisorRunsRouter.createCaller({
+      auth: { type: "local", userId: "user-2" },
+      appConfig: {},
+      useCases: {
+        project: {
+          list: {
+            execute: () =>
+              Promise.resolve({ projects: [], activeProjectId: null }),
+          },
+        },
+        supervisorOrchestration: {
+          orchestrator: {
+            get: () => Promise.resolve(null),
+          },
+          events: { subscribe: () => () => undefined },
+        },
+      },
+    } as never);
+    await expect(other.detail({ runId: run.runId })).resolves.toBeNull();
   });
 
   test("resolves project root server-side and rejects an unknown project", async () => {

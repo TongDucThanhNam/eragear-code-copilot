@@ -202,6 +202,10 @@ export {
   supervisorPlanHashMatches,
 } from "./domain/supervisor-plan-hash";
 export {
+  createClientSafeSupervisorRunDetail,
+  SUPERVISOR_RUN_DETAIL_LIMITS,
+} from "./domain/supervisor-run.detail";
+export {
   deriveSupervisorRunStatus,
   deriveSupervisorTaskStatus,
   normalizeStoredCompatibilityFacts,

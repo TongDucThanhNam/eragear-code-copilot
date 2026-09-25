@@ -4837,3 +4837,214 @@ were left running.
   The generated installer is 130,797,460 bytes with SHA-256
   `251F9D729FAA1DB159F744F48C0D7C2AF50769FAB3A63EB460F25305CE1AFD5D`.
   It is intentionally unsigned in the current local environment.
+
+## 2026-09-22 Supervisos Run Center
+
+Implemented the Supervisos Run Center assignment
+(`artifacts/supervisos-run-center/assignment.md`): a shared semantic status
+vocabulary, a full main-area Run Workspace with six live views, a
+dependency-aware `SupervisorWorkflowTimeline`, exact manager/worker transcript
+navigation, a unified Needs Attention surface that preserves decision
+authority, and honest waiting reasons. Runtime remains the only authority; the
+renderer only projects and requests.
+
+- Added the shared semantic workflow vocabulary in
+  `packages/shared/src/workflow/status.ts` (status kinds, tones, compact
+  attempt-in-context projection, FNV-1a identity hue seed) and re-exported it
+  from `packages/shared/src/index.ts`.
+- Added a bounded read-only runtime projection
+  `packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-run.detail.ts`
+  (`createClientSafeSupervisorRunDetail`) plus domain tests; paths, storage
+  refs, session internals, and secrets are type-level absent from the new
+  `SupervisorRunDetailClientView` in `packages/shared/src/chat/types.ts`.
+- Exposed the read-only `supervisorRuns.detail` tRPC procedure with ownership
+  injection in `packages/runtime/src/transport/trpc/routers/supervisor-runs.ts`.
+- Added renderer display projections (`run-display.ts`, `timeline-model.ts`
+  with Kahn topological stations and dependency arcs), presentation
+  primitives (`status-presentation.tsx`, `workflow-timeline.tsx`,
+  `lifecycle-spine.tsx`), panels (`needs-attention-panel.tsx`,
+  `waiting-panel.tsx`), the `RunWorkspace` six-view shell
+  (`run-workspace.tsx`), and the grouped `RunCenter`
+  (`run-center.tsx`) under `apps/desktop/src/renderer/components/run-center/`.
+- Extended `use-supervisor-runs.ts` with `useSupervisorRunsCore`,
+  chat scoping, `useSupervisorRunDetail`, and
+  `isSupervisorRunDetailStale` (deep evidence never overwrites compact
+  status).
+- Upgraded the chat `Runs` surface (`supervisos-runs.tsx`): semantic badges,
+  authority chips ("Your approval" / "Machine" / "Worker chat"), inline draft
+  inputs for note-required actions (Electron renderers have no
+  `window.prompt`), waiting rows with retry/reset times, per-task worker
+  pills, and deep links to `/runs`.
+- Added the `/runs` route (`routes/runs.tsx`), a Run Center sidebar entry, and
+  Mission Control "Open" buttons; semantic status/interaction tokens
+  (`--status-*`, `--workflow-*`) live in `index.css`.
+- Added a fixture-only visual harness (`run-center-harness.html`,
+  `src/renderer/run-center-harness/`) and an owned capture path
+  (`scripts/capture-run-center-visuals.ts` +
+  `scripts/run-center-visuals.cjs`). 17 screenshots (light/dark, 780px
+  narrow, branched DAG with retries, quota waits, attention, evidence, logs)
+  are retained under `artifacts/supervisos-run-center/screens/`. All fixture
+  evidence: no ACP session, provider call, or plan approval was used.
+- Verification passed: 236 supervisor-orchestration runtime tests (with the
+  documented `ALLOWED_*` command policies), 101 run-center/chat/hooks/router
+  tests, the assignment regression suite (23), desktop + runtime +
+  api-contract typechecks, `build:renderer`, `check:ast`, `audit:blockers`,
+  desktop/runtime `test:blockers`, full `biome check --error-on-warnings`
+  over renderer/runtime/shared sources, and `git diff --check`.
+- Remaining known minor item: at ~520px the chat run card can scroll
+  horizontally instead of wrapping (content stays reachable); the main-area
+  workspace is clean at 780px. → FIXED in the "Run Center defect follow-up"
+  section below (same day).
+
+### 2026-09-22 Interactive app-route evidence (acceptance #6 follow-up)
+
+The 17 screenshots above prove rendering only (standalone presentational
+fixtures with no-op handlers). A second harness now proves the interactions in
+the **actual application renderer** — `index.html` → `main.tsx` → TanStack
+router — against an **isolated mocked transport** (a preload that injects
+`window.__ERAGEAR_DESKTOP_BOOTSTRAP__` plus a complete in-memory
+`window.eragearDesktop` bridge with fixture runs; no ACP session, provider
+call, plan approval, decision answer, or user Goal mutation). Distinguish:
+`run-center-visuals.cjs` = isolated component fixtures;
+`run-center-interactions.cjs` = real app + mocked transport; live durable data
+was never touched.
+
+- New: `apps/desktop/scripts/run-center-mock-bridge.cjs` (preload: bootstrap +
+  fixture bridge + recorded-operation mock control),
+  `apps/desktop/scripts/run-center-interactions.cjs` (16 asserted steps),
+  `apps/desktop/scripts/run-center-interactions.ts` (vite + electron runner).
+- Route/sidebar/Mission Control/chat entry integration: loads `/runs` through
+  the real router with the sidebar link present; clicking a `run-center-item`
+  opens the workspace with `data-run-id` and `?runId=` in the URL; all six tabs
+  render live content via real trusted mouse clicks; Radix arrow keys move
+  `Tasks → Changes → Tasks`; clicking a timeline station opens the inspector
+  with the task prompt and worker pill; attempt 2's "Open worker chat for
+  attempt 2" navigates to exactly `/?chatId=chat-worker-b2` and
+  `history.back()` restores the same run workspace; Mission Control "Open" and
+  the chat-rail Supervisos runs surface navigate into Run Center.
+- Mutation payloads asserted against the recorded bridge operations:
+  `approvePlan` sends exactly
+  `{runId, planVersion: 2, planHash: "feedface…", expectedRevision: 4}` plus a
+  success toast; `requestPlanChanges` carries the typed note verbatim;
+  decision accept records `criterionResolution: "accept"` with the explicit
+  default answer; waive is disabled until a note exists and then records the
+  note verbatim; machine gates render zero buttons ("Decided by the workflow
+  kernel"); a delayed `approveGate` disables every panel button mid-flight and
+  re-enables after; a rejected `rejectGate` surfaces its visible
+  "Reject gate failed: …" error.
+- Self-review defects found and fixed in this pass:
+  1. rejected authority actions were swallowed silently (auth-only root
+     `MutationCache` handler) — added `reportActionFailure` in
+     `use-supervisor-runs.ts`, which toasts `<Action> failed: <reason>` and
+     rethrows for every controller action;
+  2. the workspace attention panel allowed double-submits — added
+     `actionsDisabled` (wired to `actions.isPending`) through
+     `run-workspace.tsx` into `needs-attention-panel.tsx`;
+  3. `needs-attention-panel.tsx` treated an action's static `disabledReason`
+     as a permanent disable, making "Waive with note" unreachable even with a
+     note typed — `disabledReason` now only explains the missing-note state
+     (`draftMissing`), so a typed note enables the button;
+  4. `approvePlan` TS narrowing (`run.plan` in closure) fixed with a local
+     capture.
+- Exact commands and results:
+  - `bun run apps/desktop/scripts/run-center-interactions.ts` → PASS 16/16
+    steps, 0 renderer console errors, exit 0; evidence with every recorded
+    operation and console message retained at
+    `artifacts/supervisos-run-center/interaction-evidence.json`; 13 interaction
+    screenshots under `artifacts/supervisos-run-center/screens/interactions/`.
+  - `bun test apps/desktop/src/renderer/components/run-center
+    apps/desktop/src/renderer/hooks/use-supervisor-runs.test.ts` → 48 pass,
+    0 fail.
+  - `bun run --cwd apps/desktop check-types` → clean.
+  - `bunx biome check apps/desktop/src/renderer/components/run-center/needs-attention-panel.tsx
+    apps/desktop/scripts/run-center-interactions.cjs
+    apps/desktop/scripts/run-center-interactions.ts
+    apps/desktop/scripts/run-center-mock-bridge.cjs --error-on-warnings` →
+    clean.
+  - `git diff --check` → clean.
+- Known harness limitation (documented in evidence, not an app defect): the
+  keyboard step needs the frame OS-focused for Radix's automatic activation,
+  so the harness surfaces the window only for step A4 (steal-focus) and keeps
+  it visible afterwards; hiding an offscreen window breaks the capture
+  surface.
+
+### 2026-09-22 Run Center defect follow-up (narrow chat layout + verification honesty)
+
+Bounded follow-up fixing two confirmed chat-surface defects; no runtime,
+provider, or authority changes; all prior uncommitted work preserved.
+
+- Defect 1 — narrow layout: two nested auto-track grids sized themselves to
+  the min-content of nowrap `truncate` lines (a `min-w-0` on the item does not
+  stop the container's intrinsic sizing), pushing authority actions outside
+  the card. Fixed at both containing levels in `supervisos-runs.tsx` with
+  `grid-cols-[minmax(0,1fr)]` on the run list (`chat-run-list`) and the tasks
+  grid; vertical scrolling, semantic labels, order, and `title` full-text
+  preserved.
+- Defect 2 — unsupported verification-success claim: the completed card said
+  "Aggregate verification complete" unconditionally. New single evidence
+  classifier in `run-display.ts`
+  (`getRunVerificationSummary` + `describeRunVerificationSummary`): empty
+  evidence → "No aggregate verification recorded" (never a pass), null exits
+  → incomplete, failing exits → failed, all-zero exits → passed; answered
+  `goal_criteria_acceptance` decisions are reported separately as user
+  review ("N criterion/a accepted or waived by your review"), never as
+  machine evidence; run status/outcome facts untouched. The chat card
+  (`CompletedVerificationNote`, `data-verification-state`) and the completed
+  activity headline share the classifier; no new state machine, no runtime
+  change.
+- Fixture harness: added measurement mode (`RUN_CENTER_VISUALS_MEASURE=1`
+  emits per-scenario scrollWidth/clientWidth + min-content offender chains)
+  and scenarios `chat-narrow-360/520`, `chat-desktop-900`,
+  `chat-rail-288` (288px = the real `w-72` rail column) light/dark;
+  long task/model names and an answered acceptance decision added to
+  fixtures. Original pre-fix chat screenshots preserved as
+  `screens/chat-light-before-fix.png` / `chat-dark-before-fix.png`.
+- Actual-renderer harness extended 16 → 23 steps (Phase C): evidence-honest
+  completed-run assertion, rail layout measurements at 800/1100/1360
+  light/dark, typed-note accept with exact recorded payload at narrow width,
+  worker-pill navigation to exactly `/?chatId=chat-worker-b2`, pending
+  disable/re-enable of card buttons, visible `Answer decision failed: …`
+  rejection, and a C7 observation step (see limitation below). New
+  `completedRun` fixture (mixed verification: one exit 0 + one null + an
+  answered criterion decision) and a `git.summary` fixture payload in the
+  mock bridge.
+- Measured results (fixture, real Chromium): doc/list/card scrollWidth ==
+  clientWidth at 288 (`248/248`), 360 (`320/320`), 520 (`480/480`),
+  900 (`535/535`) light/dark, 0 offender chains. Actual renderer:
+  list `248/248`–`280/280`, section `287/287`–`319/319`, 3 cards each, 0
+  controls outside the rail column at 800/1100/1360 light/dark.
+- Exact commands and results:
+  - `RUN_CENTER_VISUALS_MEASURE=1 bun run apps/desktop/scripts/capture-run-center-visuals.ts`
+    → all scenarios captured, `doc sw==cw` everywhere, exit 0; measure JSONs
+    and post-fix screenshots (incl. `chat-light/dark.png`, `chat-rail-288-*`,
+    `chat-narrow-360/520-*`, `chat-desktop-900-*`) under
+    `artifacts/supervisos-run-center/screens/`.
+  - `bun run apps/desktop/scripts/run-center-interactions.ts` → PASS 23/23
+    steps, 0 renderer console errors, exit 0; evidence at
+    `artifacts/supervisos-run-center/interaction-evidence.json`; new
+    screenshots `14-chat-verification-honest`, `rail-*-light/dark`,
+    `15-narrow-accept-payload`, `16-narrow-worker-chat-route`,
+    `17-narrow-pending-settled`, `18-narrow-rejection-visible-error`.
+  - `bun test apps/desktop/src/renderer/components/chat-ui/supervisos-runs.test.tsx
+    apps/desktop/src/renderer/components/run-center/run-display.test.ts` →
+    27 pass, 0 fail (98 assertions; includes the evidence-honesty matrix:
+    empty evidence, null exit, failing verifier, all passing, user
+    acceptance/waiver, worker-vs-final verification).
+  - `bun run --cwd apps/desktop check-types` → clean; `build:renderer` →
+    built (pre-existing chunk-size warning only).
+  - `bunx biome check <10 changed files> --error-on-warnings` → clean;
+    `git diff --check <changed files>` → clean.
+- Known limitations / observations:
+  1. Pre-existing shell-level finding, out of scope, recorded by step C7 in
+     the interaction evidence: at ~800–960px the shell's chat column keeps a
+     ~513px min-content width, so the open Supervisos rail (fixed 288px)
+     lands partly or fully outside the viewport (e.g. rail at 802..1090 vs
+     viewport 802 at 800px) depending on docked-vs-overlay sidebar state.
+     The runs surface's own layout is clean inside its column at every
+     measured width; fixing the shell squeeze is a separate task.
+  2. The compact decision type cannot distinguish accept from waive, so the
+     user-review line says "accepted or waived by your review" — honest to
+     the data available client-side.
+  3. All verification above is fixture/mock-transport evidence (real
+     Chromium/Electron rendering and real clicks against synthetic runs); no
+     live run, ACP session, provider call, or durable Goal data was touched.

@@ -2,7 +2,6 @@ import type { SupervisorRunClientUpdate } from "@eragear-code-copilot/shared";
 import { useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
-  CheckCircle2,
   CirclePause,
   CirclePlay,
   ExternalLink,
@@ -12,33 +11,74 @@ import {
   Square,
 } from "lucide-react";
 import { useState } from "react";
+import {
+  describeRunVerificationSummary,
+  getRunAttentionItems,
+  getRunCurrentActivity,
+  getRunDisplayTitle,
+  getRunProgress,
+  getRunStatusPresentation,
+  getRunVerificationSummary,
+  getRunWaitingRows,
+  getTaskStatusPresentation,
+  isTerminalSupervisosRun,
+  type RunAttentionAction,
+  type RunAttentionItem,
+  selectRunsForGroup,
+} from "@/components/run-center/run-display";
+import {
+  AgentPill,
+  compactAttemptPresentation,
+  STATUS_TONE_TEXT,
+  StatusBadge,
+  StatusIcon,
+  supervisosActionVariant,
+  supervisosAuthorityChip,
+} from "@/components/run-center/status-presentation";
+import { RunWaitingList } from "@/components/run-center/waiting-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useSupervisorRuns } from "@/hooks/use-supervisor-runs";
+import { useSupervisorRunsCore } from "@/hooks/use-supervisor-runs";
 
-type RunsController = ReturnType<typeof useSupervisorRuns>;
+type RunsController = ReturnType<typeof useSupervisorRunsCore>;
 
 export function SupervisosRuns({ chatId }: { chatId: string }) {
-  const controller = useSupervisorRuns(chatId);
+  const controller = useSupervisorRunsCore();
   const navigate = useNavigate();
   return (
     <SupervisosRunsView
       {...controller}
+      chatId={chatId}
+      onOpenRunCenter={() => navigate({ to: "/runs", search: {} })}
       onOpenWorker={(workerChatId) =>
-        navigate({
-          to: "/",
-          search: { chatId: workerChatId },
-        })
+        navigate({ to: "/", search: { chatId: workerChatId } })
       }
+      onOpenWorkspace={(runId) => navigate({ to: "/runs", search: { runId } })}
     />
   );
 }
 
-export function SupervisosRunsView(
-  props: RunsController & { onOpenWorker: (chatId: string) => void }
-) {
+export interface SupervisosRunsViewProps
+  extends Omit<RunsController, "updateCachedRun"> {
+  chatId: string;
+  onOpenWorker: (chatId: string) => void;
+  onOpenWorkspace?: (runId: string) => void;
+  onOpenRunCenter?: () => void;
+}
+
+export function SupervisosRunsView(props: SupervisosRunsViewProps) {
   const [intent, setIntent] = useState("");
+  const [showAllRuns, setShowAllRuns] = useState(false);
+  const scopedRuns = props.runs.filter(
+    (run) => !run.originatingChatId || run.originatingChatId === props.chatId
+  );
+  const projectRuns = props.runs.filter(
+    (run) => run.originatingChatId && run.originatingChatId !== props.chatId
+  );
+  const visibleRuns = showAllRuns ? props.runs : scopedRuns;
+  const attentionRuns = selectRunsForGroup(visibleRuns, "attention");
+
   const submit = async () => {
     const value = intent.trim();
     if (!value) {
@@ -59,7 +99,7 @@ export function SupervisosRunsView(
             </p>
           </div>
         </div>
-        <Badge variant="outline">{props.runs.length}</Badge>
+        <Badge variant="outline">{visibleRuns.length}</Badge>
       </div>
 
       {props.error ? (
@@ -119,13 +159,79 @@ export function SupervisosRunsView(
           </p>
         </div>
       ) : null}
-      <div className="grid max-h-72 gap-2 overflow-y-auto">
-        {props.runs.slice(0, 3).map((run) => (
+
+      {attentionRuns.length > 0 ? (
+        <div
+          className="mb-2 rounded-md border border-status-attention/30 bg-status-attention/5 px-2.5 py-2"
+          data-testid="runs-attention-summary"
+        >
+          <p className="font-medium text-status-attention text-xs">
+            {attentionRuns.length === 1
+              ? "1 run needs your attention"
+              : `${attentionRuns.length} runs need your attention`}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {attentionRuns.slice(0, 3).map((run) => {
+              const first = getRunAttentionItems(run)[0];
+              return (
+                <li
+                  className="truncate text-[11px] text-muted-foreground"
+                  key={run.runId}
+                >
+                  {getRunDisplayTitle(run)} — {first?.title ?? run.status}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+
+      {/* minmax(0,1fr) keeps the auto column from sizing to the min-content
+          of nowrap `truncate` lines, which would push authority actions
+          outside narrow chat containers. */}
+      <div
+        className="grid max-h-72 grid-cols-[minmax(0,1fr)] gap-2 overflow-y-auto"
+        data-testid="chat-run-list"
+      >
+        {visibleRuns.slice(0, 3).map((run) => (
           <RunCard controller={props} key={run.runId} run={run} />
         ))}
       </div>
+
+      {projectRuns.length > 0 ? (
+        <button
+          className="mt-2 text-muted-foreground text-xs underline-offset-2 hover:underline"
+          data-testid="runs-toggle-all"
+          onClick={() => setShowAllRuns((current) => !current)}
+          type="button"
+        >
+          {showAllRuns
+            ? "Show this chat only"
+            : `Show all runs (${projectRuns.length} from other chats)`}
+        </button>
+      ) : null}
+      {props.onOpenRunCenter ? (
+        <button
+          className="mt-1 block text-muted-foreground text-xs underline-offset-2 hover:underline"
+          data-testid="runs-open-center"
+          onClick={props.onOpenRunCenter}
+          type="button"
+        >
+          Open Run Center
+        </button>
+      ) : null}
     </section>
   );
+}
+
+const TASK_STATUS_TEXT_CLASS: Record<string, string> = {
+  attention: "text-status-attention",
+  failed: "text-status-failed",
+  success: "text-status-success",
+};
+
+function taskStatusTextClass(tone: string): string {
+  return TASK_STATUS_TEXT_CLASS[tone] ?? "text-muted-foreground";
 }
 
 function RunCard({
@@ -133,235 +239,464 @@ function RunCard({
   controller,
 }: {
   run: SupervisorRunClientUpdate;
-  controller: RunsController & { onOpenWorker: (chatId: string) => void };
+  controller: SupervisosRunsViewProps;
 }) {
-  const tone = getRunStatusTone(run.status);
-  const terminal = ["completed", "failed", "cancelled"].includes(run.status);
+  const status = getRunStatusPresentation(run);
+  const progress = getRunProgress(run);
+  const activity = getRunCurrentActivity(run);
+  const attention = getRunAttentionItems(run);
+  const waiting = getRunWaitingRows(run, [run]);
+  const title = getRunDisplayTitle(run);
+
   return (
-    <article className="rounded-md bg-muted/50 px-2.5 py-2.5">
+    <article
+      className="rounded-md bg-muted/50 px-2.5 py-2.5"
+      data-testid="chat-run-card"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate font-medium text-xs" title={run.runId}>
-            {run.runId}
+            {title}
           </div>
           <div className="mt-0.5 text-muted-foreground text-xs">
-            {run.tasks.length} tasks · revision {run.revision}
+            {progress.completed}/{progress.total} tasks · revision{" "}
+            {run.revision}
           </div>
         </div>
-        <Badge variant={tone.variant}>{tone.label}</Badge>
+        <StatusBadge presentation={status} />
       </div>
 
-      <div className="mt-2 grid gap-1.5">
-        {run.tasks.map((task) => (
-          <div
-            className="rounded-sm bg-background/70 px-2 py-1.5"
-            key={task.taskId}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate font-medium text-xs">{task.title}</div>
-                <div className="mt-0.5 text-muted-foreground text-xs">
-                  {task.role} · {task.executionMode.replace("_", "-")}
-                  {task.dependencies.length > 0
-                    ? ` · waits for ${task.dependencies.length}`
-                    : ""}
-                  {task.preferredModelId ? ` · ${task.preferredModelId}` : ""}
-                </div>
-              </div>
-              <span className="shrink-0 text-muted-foreground text-xs">
-                {task.status}
-              </span>
-            </div>
-            {task.attempts.length > 0 ? (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {task.attempts.map((attempt) => (
-                  <Button
-                    aria-label={`Open worker ${attempt.chatId}`}
-                    className="h-6 gap-1 px-1.5 text-xs"
-                    key={attempt.attemptId}
-                    onClick={() => controller.onOpenWorker(attempt.chatId)}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <ExternalLink className="size-3 text-muted-foreground" />
-                    {attempt.agentId}
-                  </Button>
-                ))}
-              </div>
-            ) : null}
-            {(task.status === "failed" || task.status === "needs_user") &&
+      {activity ? (
+        <p
+          className="mt-1.5 truncate text-muted-foreground text-xs"
+          title={activity.headline}
+        >
+          {activity.headline}
+        </p>
+      ) : null}
+
+      {attention.length > 0 ? (
+        <ul className="mt-1.5 space-y-1.5" data-testid="chat-run-attention">
+          {attention.map((item) => (
+            <ChatAttentionLine
+              controller={controller}
+              item={item}
+              key={item.id}
+              run={run}
+            />
+          ))}
+        </ul>
+      ) : null}
+
+      {waiting.length > 0 ? (
+        <div className="mt-1.5">
+          <RunWaitingList rows={waiting.slice(0, 2)} />
+        </div>
+      ) : null}
+
+      <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-1.5">
+        {run.tasks.map((task) => {
+          const taskStatus = getTaskStatusPresentation(task);
+          const retryable =
+            (task.status === "failed" || task.status === "needs_user") &&
             (!run.limits ||
-              task.attempts.length < run.limits.maxAttemptsPerTask) ? (
-              <Button
-                className="mt-1.5 h-6 gap-1 px-1.5 text-xs"
-                disabled={controller.isPending}
-                onClick={() => {
-                  return controller
-                    .retryTask(run.runId, task.taskId)
-                    .catch(() => undefined);
-                }}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <RotateCcw className="size-3" /> Retry
-              </Button>
-            ) : null}
-            {(task.status === "failed" || task.status === "needs_user") &&
-            run.limits &&
-            task.attempts.length >= run.limits.maxAttemptsPerTask ? (
-              <div className="mt-1.5 text-muted-foreground text-xs">
-                Attempt budget exhausted · replan required
+              task.attempts.length < run.limits.maxAttemptsPerTask);
+          const budgetSpent =
+            (task.status === "failed" || task.status === "needs_user") &&
+            Boolean(
+              run.limits &&
+                task.attempts.length >= run.limits.maxAttemptsPerTask
+            );
+          return (
+            <div
+              className="rounded-sm bg-background/70 px-2 py-1.5"
+              data-testid="chat-run-task"
+              key={task.taskId}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-xs">
+                    {task.title}
+                  </div>
+                  <div className="mt-0.5 text-muted-foreground text-xs">
+                    {task.role} · {task.executionMode.replace("_", "-")}
+                    {task.dependencies.length > 0
+                      ? ` · waits for ${task.dependencies.length}`
+                      : ""}
+                    {task.preferredModelId ? ` · ${task.preferredModelId}` : ""}
+                  </div>
+                </div>
+                <span
+                  className={`shrink-0 text-xs ${taskStatusTextClass(taskStatus.tone)}`}
+                >
+                  {taskStatus.label}
+                </span>
               </div>
-            ) : null}
-          </div>
-        ))}
+              {task.attempts.length > 0 ? (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {task.attempts.map((attempt) => (
+                    <div className="w-36" key={attempt.attemptId}>
+                      <AgentPill
+                        chatId={attempt.chatId}
+                        identitySeed={attempt.agentId || attempt.attemptId}
+                        label={attempt.agentId}
+                        onOpen={
+                          attempt.chatId
+                            ? (chatId) => controller.onOpenWorker(chatId)
+                            : undefined
+                        }
+                        status={compactAttemptPresentation(attempt)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {retryable ? (
+                <Button
+                  className="mt-1.5 h-6 gap-1 px-1.5 text-xs"
+                  disabled={controller.isPending}
+                  onClick={() => {
+                    return controller
+                      .retryTask(run.runId, task.taskId)
+                      .catch(() => undefined);
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <RotateCcw className="size-3" /> Retry
+                </Button>
+              ) : null}
+              {budgetSpent ? (
+                <div className="mt-1.5 text-muted-foreground text-xs">
+                  Attempt budget exhausted · replan required
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
-
-      {run.gates
-        .filter((gate) => gate.status === "pending")
-        .map((gate) => (
-          <div
-            className="mt-2 rounded-sm bg-background/70 px-2 py-2"
-            key={gate.gateId}
-          >
-            <div className="text-xs">
-              Gate: {gate.kind.replaceAll("_", " ")}
-            </div>
-            <div className="mt-1.5 flex gap-1.5">
-              <Button
-                disabled={controller.isPending || !isApprovableGate(gate.kind)}
-                onClick={() => {
-                  return controller
-                    .approveGate(run.runId, gate.gateId)
-                    .catch(() => undefined);
-                }}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Approve
-              </Button>
-              <Button
-                disabled={controller.isPending}
-                onClick={() => {
-                  return controller
-                    .rejectGate(run.runId, gate.gateId)
-                    .catch(() => undefined);
-                }}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                Reject
-              </Button>
-            </div>
-          </div>
-        ))}
 
       {run.status === "completed" ? (
-        <div className="mt-2 flex items-center gap-1.5 text-muted-foreground text-xs">
-          <CheckCircle2 className="size-3.5" /> Aggregate verification complete
-        </div>
+        <CompletedVerificationNote run={run} />
       ) : null}
-      {run.status === "awaiting_approval" && run.plan ? (
-        <div className="mt-2 rounded-sm border bg-background/70 px-2 py-2">
-          <div className="text-xs">Plan v{run.plan.version}</div>
-          <div className="mt-0.5 truncate text-muted-foreground text-xs">
-            {run.plan.summary}
-          </div>
-          <Button
-            className="mt-2 h-7"
-            disabled={controller.isPending}
-            onClick={() => {
-              return controller.approvePlan(run).catch(() => undefined);
-            }}
-            size="sm"
-            type="button"
-          >
-            Approve exact plan
-          </Button>
-        </div>
-      ) : null}
-      {terminal ? null : (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {run.status === "paused" ? (
-            <ActionButton
-              icon={CirclePlay}
-              label="Resume"
-              onClick={() => controller.resume(run.runId)}
-            />
+
+      {isTerminalSupervisosRun(run) ? null : (
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          {runAuthorityActions(run, controller).map((action) => (
+            <Button
+              className="h-6 gap-1 px-1.5 text-xs"
+              disabled={controller.isPending}
+              key={action.label}
+              onClick={() => {
+                return action.onClick().catch(() => undefined);
+              }}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <action.icon className="size-3 text-muted-foreground" />{" "}
+              {action.label}
+            </Button>
+          ))}
+          {controller.onOpenWorkspace ? (
+            <Button
+              className="ml-auto h-6 gap-1 px-1.5 text-xs"
+              data-testid="chat-run-open-workspace"
+              onClick={() => controller.onOpenWorkspace?.(run.runId)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <ExternalLink className="size-3 text-muted-foreground" />{" "}
+              Workspace
+            </Button>
           ) : null}
-          {run.status === "running" || run.status === "queued" ? (
-            <ActionButton
-              icon={CirclePause}
-              label="Pause"
-              onClick={() => controller.pause(run.runId)}
-            />
-          ) : null}
-          {run.status === "needs_user" ? (
-            <ActionButton
-              icon={RotateCcw}
-              label="Replan"
-              onClick={() => controller.replan(run.runId)}
-            />
-          ) : null}
-          <ActionButton
-            icon={Square}
-            label="Cancel"
-            onClick={() => controller.cancel(run.runId)}
-          />
         </div>
       )}
     </article>
   );
 }
 
-function ActionButton({
-  icon: Icon,
-  label,
-  onClick,
+/**
+ * Honest completed-run verification note. Machine checks, user-accepted or
+ * waived criteria, and missing evidence stay distinct facts — an empty check
+ * list never claims a passing aggregate verification.
+ */
+function CompletedVerificationNote({
+  run,
 }: {
+  run: SupervisorRunClientUpdate;
+}) {
+  const summary = getRunVerificationSummary(run);
+  const described = describeRunVerificationSummary(summary);
+  return (
+    <div
+      className="mt-2 grid gap-0.5 text-xs"
+      data-testid="chat-run-verification"
+      data-verification-state={summary.state}
+    >
+      <div className="flex items-center gap-1.5">
+        <StatusIcon
+          className="size-3.5 shrink-0"
+          presentation={{
+            kind: "needs_user",
+            label: described.label,
+            tone: described.tone,
+          }}
+        />
+        <span className={STATUS_TONE_TEXT[described.tone]}>
+          {described.label}
+        </span>
+      </div>
+      {summary.userResolvedCriteria > 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          {summary.userResolvedCriteria} criterion
+          {summary.userResolvedCriteria === 1 ? "" : "a"} accepted or waived by
+          your review — user authority, not machine evidence
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function runAuthorityActions(
+  run: SupervisorRunClientUpdate,
+  controller: SupervisosRunsViewProps
+): Array<{
   icon: typeof CirclePause;
   label: string;
   onClick: () => Promise<unknown>;
+}> {
+  const actions: Array<{
+    icon: typeof CirclePause;
+    label: string;
+    onClick: () => Promise<unknown>;
+  }> = [];
+  if (run.status === "paused") {
+    actions.push({
+      icon: CirclePlay,
+      label: "Resume",
+      onClick: () => controller.resume(run.runId),
+    });
+  }
+  if (run.status === "running" || run.status === "queued") {
+    actions.push({
+      icon: CirclePause,
+      label: "Pause",
+      onClick: () => controller.pause(run.runId),
+    });
+  }
+  if (run.status === "needs_user") {
+    actions.push({
+      icon: RotateCcw,
+      label: "Replan",
+      onClick: () => controller.replan(run.runId),
+    });
+  }
+  if (!isTerminalSupervisosRun(run)) {
+    actions.push({
+      icon: Square,
+      label: "Cancel",
+      onClick: () => controller.cancel(run.runId),
+    });
+  }
+  return actions;
+}
+
+function draftPlaceholderOf(item: RunAttentionItem): string {
+  if (item.decisionKind === "goal_criteria_acceptance") {
+    return "Review note; required when waiving";
+  }
+  if (item.kind === "decision") {
+    return "Answer this question";
+  }
+  return "What should change in this plan?";
+}
+
+function draftInputLabelOf(item: RunAttentionItem): string {
+  return item.kind === "decision"
+    ? "Decision answer"
+    : "Requested plan changes";
+}
+
+function applyChatAttentionAction(
+  controller: SupervisosRunsViewProps,
+  run: SupervisorRunClientUpdate,
+  item: RunAttentionItem,
+  action: RunAttentionAction,
+  draft: string,
+  onConsumed: () => void
+) {
+  switch (action.id) {
+    case "approve":
+      controller.approvePlan(run).catch(() => undefined);
+      break;
+    case "request-changes":
+      if (draft) {
+        controller.requestPlanChanges(run, draft).catch(() => undefined);
+        onConsumed();
+      }
+      break;
+    case "approve-gate":
+      if (item.gateId) {
+        controller.approveGate(run.runId, item.gateId).catch(() => undefined);
+      }
+      break;
+    case "reject-gate":
+      if (item.gateId) {
+        controller.rejectGate(run.runId, item.gateId).catch(() => undefined);
+      }
+      break;
+    case "accept":
+      if (item.decisionId) {
+        controller
+          .answerDecision(
+            run.runId,
+            item.decisionId,
+            draft || "Accepted after explicit user review.",
+            run.revision,
+            "accept"
+          )
+          .catch(() => undefined);
+        onConsumed();
+      }
+      break;
+    case "waive":
+      if (item.decisionId && draft) {
+        controller
+          .answerDecision(
+            run.runId,
+            item.decisionId,
+            draft,
+            run.revision,
+            "waive"
+          )
+          .catch(() => undefined);
+        onConsumed();
+      }
+      break;
+    case "answer":
+      if (item.decisionId && draft) {
+        controller
+          .answerDecision(run.runId, item.decisionId, draft, run.revision)
+          .catch(() => undefined);
+        onConsumed();
+      }
+      break;
+    case "retry-cancel":
+      controller.cancel(run.runId).catch(() => undefined);
+      break;
+    case "replan":
+      controller.replan(run.runId).catch(() => undefined);
+      break;
+    case "open-chat":
+      if (item.chatId) {
+        controller.onOpenWorker(item.chatId);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+/**
+ * One attention line with its own local draft. Free-text authorities
+ * (request changes, decision answers) use an inline input — Electron
+ * renderers have no window.prompt, and the note is part of the authority
+ * action, not an afterthought.
+ */
+function ChatAttentionLine({
+  item,
+  run,
+  controller,
+}: {
+  item: RunAttentionItem;
+  run: SupervisorRunClientUpdate;
+  controller: SupervisosRunsViewProps;
 }) {
+  const [draft, setDraft] = useState("");
+  const trimmed = draft.trim();
+  const chip = supervisosAuthorityChip(item.authority);
+  const needsDraft =
+    item.kind === "decision" ||
+    (item.kind === "plan_approval" &&
+      item.actions.some((action) => action.id === "request-changes"));
+
+  const act = (action: RunAttentionAction) =>
+    applyChatAttentionAction(controller, run, item, action, trimmed, () =>
+      setDraft("")
+    );
+
+  const actionDisabled = (action: RunAttentionAction): boolean => {
+    if (controller.isPending) {
+      return true;
+    }
+    if (action.disabledReason) {
+      return true;
+    }
+    if (
+      needsDraft &&
+      ["request-changes", "waive", "answer"].includes(action.id)
+    ) {
+      return !trimmed;
+    }
+    return false;
+  };
+
   return (
-    <Button
-      className="h-6 gap-1 px-1.5 text-xs"
-      onClick={() => {
-        return onClick().catch(() => undefined);
-      }}
-      size="sm"
-      type="button"
-      variant="ghost"
+    <li
+      className="rounded-sm bg-background/70 px-2 py-1.5"
+      data-authority={item.authority}
+      data-kind={item.kind}
+      data-testid="chat-run-attention-item"
     >
-      <Icon className="size-3 text-muted-foreground" /> {label}
-    </Button>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span
+          className={`shrink-0 whitespace-nowrap rounded-full border px-1.5 py-px text-[10px] ${chip.className}`}
+        >
+          {chip.label}
+        </span>
+        <span
+          className="min-w-0 flex-1 truncate text-xs"
+          title={item.detail ?? item.title}
+        >
+          {item.title}
+        </span>
+      </div>
+      {needsDraft || item.actions.length > 0 ? (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {needsDraft ? (
+            <Input
+              aria-label={draftInputLabelOf(item)}
+              className="h-7 min-w-40 flex-1 text-xs"
+              disabled={controller.isPending}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={draftPlaceholderOf(item)}
+              value={draft}
+            />
+          ) : null}
+          {item.actions.map((action) => (
+            <Button
+              className="h-7 gap-1 px-2 text-xs"
+              disabled={actionDisabled(action)}
+              key={action.id}
+              onClick={() => act(action)}
+              size="sm"
+              title={action.disabledReason}
+              type="button"
+              variant={supervisosActionVariant(action.emphasis)}
+            >
+              {action.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+      {item.authority === "machine" ? (
+        <p className="mt-1 text-[11px] text-muted-foreground italic">
+          Decided by the workflow kernel — not by user approval.
+        </p>
+      ) : null}
+    </li>
   );
-}
-
-export function isApprovableGate(
-  kind: SupervisorRunClientUpdate["gates"][number]["kind"]
-): boolean {
-  return (
-    kind === "scope" || kind === "deletion" || kind === "destructive_action"
-  );
-}
-
-export function getRunStatusTone(status: SupervisorRunClientUpdate["status"]): {
-  label: string;
-  variant: "secondary" | "outline" | "destructive";
-} {
-  if (status === "failed" || status === "needs_user") {
-    return {
-      label: status === "needs_user" ? "Needs user" : "Failed",
-      variant: "destructive",
-    };
-  }
-  if (status === "completed") {
-    return { label: "Completed", variant: "secondary" };
-  }
-  return { label: status.replaceAll("_", " "), variant: "outline" };
 }
